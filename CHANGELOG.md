@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.10.11.8
+- **One voice list.** Your ElevenLabs voices now appear at the top of the main voice list in ⚙ → Voice, with this computer's voices below. Whatever you pick there is what Jarvis uses; no more separate ElevenLabs dropdown.
+- Pasting a new ElevenLabs key switches Jarvis to an ElevenLabs voice automatically.
+
 ## 2026.10.11.7
 - **ElevenLabs never fails silently.** If the ElevenLabs voice can't be used, Jarvis now says why on the main screen (not just in settings) and keeps talking with the built-in voice.
 - Explains the most common case: Voice Library voices need a paid ElevenLabs plan; standard voices (George, Daniel…) work on the free plan.

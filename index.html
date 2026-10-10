@@ -190,7 +190,7 @@ button.x{padding:2px 8px;font-family:var(--f-body);font-size:.8rem;letter-spacin
   <section>
     <h3>Voice</h3>
     <div class="row">
-      <select id="voiceSel" aria-label="Jarvis voice"></select>
+      <select id="voiceSel" aria-label="Jarvis voice: ElevenLabs voices first, then this computer's voices"></select>
       <button type="button" id="voiceBtn" class="on">Voice out: on</button>
     </div>
     <div id="elBox">
@@ -199,7 +199,6 @@ button.x{padding:2px 8px;font-family:var(--f-body);font-size:.8rem;letter-spacin
         <input type="text" id="elKey" placeholder="paste your ElevenLabs key" autocomplete="off" spellcheck="false" style="-webkit-text-security:disc">
         <button type="submit">Save</button>
       </form>
-      <select id="elVoice" aria-label="ElevenLabs voice" hidden></select>
       <p class="note" id="elStatus"></p>
     </div>
     <button type="button" id="testVoice">Test voice</button>
@@ -275,7 +274,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.7";
+const VERSION = "2026.10.11.8";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -761,18 +760,19 @@ setInterval(() => {
 /* ---------- speech out ---------- */
 const synth = window.speechSynthesis;
 let voices = [];
+// One voice list: ElevenLabs voices (if you added a key) on top, this computer's voices below.
+// Option values: "el:<voice id>" or "sys:<voice name>".
+let voiceListReady = false, elVoices = [];
+function browserVoice(){
+  const saved = store.get("jarvis.voice", null), en = voices.filter(v => /^en/i.test(v.lang));
+  return voices.find(v => v.name === saved) || voices.find(v => /en-GB/i.test(v.lang) && /male|daniel|arthur|george|ryan|oliver/i.test(v.name)) || voices.find(v => /en-GB/i.test(v.lang)) || en[0] || voices[0] || null;
+}
 function loadVoices(){
   if(!synth) return;
   voices = synth.getVoices();
-  const sel = $("voiceSel"); const saved = store.get("jarvis.voice", null);
-  sel.textContent = "";
-  const en = voices.filter(v => /^en/i.test(v.lang));
-  (en.length ? en : voices).forEach(v => { const o = document.createElement("option"); o.value = v.name; o.textContent = `${v.name} (${v.lang})`; sel.append(o); });
-  const pick = voices.find(v => v.name === saved) || voices.find(v => /en-GB/i.test(v.lang) && /male|daniel|arthur|george|ryan|oliver/i.test(v.name)) || voices.find(v => /en-GB/i.test(v.lang)) || en[0];
-  if(pick) sel.value = pick.name;
+  if(voiceListReady) renderVoiceList();
 }
-if(synth){ loadVoices(); synth.onvoiceschanged = loadVoices; } else { $("voiceSel").hidden = true; }
-$("voiceSel").onchange = e => store.set("jarvis.voice", e.target.value);
+if(synth){ loadVoices(); synth.onvoiceschanged = loadVoices; }
 // Chrome only lets a page speak after you've clicked it once (see the start screen),
 // cuts off long utterances, and sometimes drops one spoken right after cancel(),
 // so replies are spoken sentence by sentence with a watchdog.
@@ -918,7 +918,7 @@ function speakBrowser(text){
       const u = new SpeechSynthesisUtterance(chunks[i++]);
       const myOffset = offset; offset += u.text.length + 1;
       keepAlive.push(u); if(keepAlive.length > 20) keepAlive.shift();
-      const v = voices.find(v => v.name === $("voiceSel").value); if(v) u.voice = v;
+      const v = browserVoice(); if(v) u.voice = v;
       u.rate = 1.02; u.pitch = 0.9;
       u.onstart = () => {
         if(job !== speakJob) return;
@@ -947,34 +947,53 @@ $("voiceBtn").onclick = () => { voiceOn = !voiceOn; store.set("jarvis.voiceOn", 
 function stopTalking(){ ctl?.abort(); speakJob++; stopVoice(); stopBarge(); setMode("idle"); resumeWake(); }
 
 /* ElevenLabs settings */
+function renderVoiceList(){
+  const sel = $("voiceSel"); sel.textContent = "";
+  const group = (label, items) => { if(!items.length) return; const g = document.createElement("optgroup"); g.label = label; items.forEach(([value, text]) => { const o = document.createElement("option"); o.value = value; o.textContent = text; g.append(o); }); sel.append(g); };
+  if(elKey && !window.claude) group("ElevenLabs", elVoices.map(v => ["el:" + v.voice_id, [v.name, v.labels?.accent, v.labels?.gender].filter(Boolean).join(" · ")]));
+  const en = voices.filter(v => /^en/i.test(v.lang));
+  group("This computer", (en.length ? en : voices).map(v => ["sys:" + v.name, `${v.name} (${v.lang})`]));
+  const bv = browserVoice();
+  sel.value = elVoiceId && elVoices.some(v => v.voice_id === elVoiceId) ? "el:" + elVoiceId : bv ? "sys:" + bv.name : "";
+  sel.hidden = !sel.options.length;
+}
+$("voiceSel").onchange = e => {
+  const v = e.target.value;
+  if(v.startsWith("el:")){
+    elVoiceId = v.slice(3); store.set("jarvis.elVoice", elVoiceId); elOff = false;
+    $("elStatus").textContent = `Jarvis speaks with ElevenLabs: ${elVoices.find(x => x.voice_id === elVoiceId)?.name || "your voice"}. Press Test voice to hear it.`;
+  } else {
+    elVoiceId = ""; store.set("jarvis.elVoice", ""); store.set("jarvis.voice", v.slice(4));
+    if(elKey) $("elStatus").textContent = "Using this computer's voice. Pick an ElevenLabs voice in the list to switch back.";
+  }
+};
 async function loadElVoices(){
-  if(!elKey){ $("elVoice").hidden = true; return; }
+  if(!elKey){ elVoices = []; renderVoiceList(); return; }
   $("elStatus").textContent = "Loading your ElevenLabs voices…";
   try{
     let list;
     try{ ({ voices: list = [] } = await elFetch("/v1/voices")); }
     catch(e){ if(!/missing_permission/i.test((e.code || "") + (e.msg || ""))) throw e; list = EL_DEFAULT_VOICES; logDiag("voice", "key can't list voices: using ElevenLabs standard voices"); }
-    const sel = $("elVoice"); sel.textContent = "";
-    const none = document.createElement("option"); none.value = ""; none.textContent = "Built-in voice (no ElevenLabs)"; sel.append(none);
-    list.forEach(v => { const o = document.createElement("option"); o.value = v.voice_id; o.textContent = [v.name, v.labels?.accent, v.labels?.gender].filter(Boolean).join(" · "); sel.append(o); });
-    if(!elVoiceId || !list.some(v => v.voice_id === elVoiceId)){
+    elVoices = list;
+    // First time (or the saved voice is gone): pick a British male voice automatically
+    if(store.get("jarvis.elVoice", null) === null || (elVoiceId && !list.some(v => v.voice_id === elVoiceId))){
       const pick = list.find(v => /daniel|george/i.test(v.name)) || list.find(v => /british/i.test(v.labels?.accent || "") && /male/i.test(v.labels?.gender || "")) || list[0];
       elVoiceId = pick ? pick.voice_id : ""; store.set("jarvis.elVoice", elVoiceId);
     }
-    sel.value = elVoiceId; sel.hidden = false; elOff = false;
+    elOff = false; renderVoiceList();
     const name = list.find(v => v.voice_id === elVoiceId)?.name;
-    $("elStatus").textContent = name ? `Jarvis speaks with ElevenLabs: ${name}. Press Test voice to hear it.` : "Choose a voice.";
+    $("elStatus").textContent = name ? `Jarvis speaks with ElevenLabs: ${name}. Change it in the voice list above, then press Test voice.` : "Pick an ElevenLabs voice in the list above.";
     if(list === EL_DEFAULT_VOICES) $("elStatus").textContent += " (Your key can't list your own voices, so these are ElevenLabs' standard voices.)";
-  }catch(e){ elProblem(e); $("elVoice").hidden = true; }
+  }catch(e){ elProblem(e); elVoices = []; renderVoiceList(); }
 }
 $("elForm").onsubmit = e => {
   e.preventDefault();
   const k = $("elKey").value.trim(); if(!k) return;
   elKey = k; store.set("jarvis.elKey", k); $("elKey").value = ""; $("elKey").placeholder = "Key saved ✓ (paste a new one to replace)";
+  store.set("jarvis.elVoice", null); elVoiceId = "";   // new key: switch to an ElevenLabs voice automatically
   loadElVoices();
 };
-$("elVoice").onchange = e => { elVoiceId = e.target.value; store.set("jarvis.elVoice", elVoiceId); elOff = false;
-  $("elStatus").textContent = elVoiceId ? "Voice changed. Press Test voice to hear it." : "Using the built-in voice."; };
+voiceListReady = true; renderVoiceList();
 if(elKey){ $("elKey").placeholder = "Key saved ✓ (paste a new one to replace)"; loadElVoices(); }
 if(window.claude) $("elBox").hidden = true;   // the claude.ai version can't reach ElevenLabs
 
