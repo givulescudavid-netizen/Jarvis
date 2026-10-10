@@ -96,13 +96,16 @@ function toneWav(seconds){
   for(let i = 0; i < n; i++){ const env = 0.5 + 0.5 * Math.sin(i / rate * 2 * Math.PI * 4); buf.writeInt16LE(Math.round(Math.sin(i / rate * 2 * Math.PI * 220) * 12000 * env), 44 + i * 2); }
   return buf.toString("base64");
 }
-// Fake ElevenLabs. mode: "ok" or "badkey"
+// Fake ElevenLabs. mode: "ok", "badkey", "noVoicesPerm" (can speak, can't list voices), "noTtsPerm"
 async function fakeEleven(p, mode = "ok"){
   p.__el = [];
   await p.route(/api\.elevenlabs\.io/, route => {
     const req = route.request(), url = req.url(), cors = { "access-control-allow-origin":"*" };
     p.__el.push({ url, key: req.headers()["xi-api-key"], body: req.postData() });
-    if(mode === "badkey") return route.fulfill({ status:401, headers:cors, contentType:"application/json", body:'{"detail":{"status":"invalid_api_key"}}' });
+    if(mode === "badkey") return route.fulfill({ status:401, headers:cors, contentType:"application/json", body:'{"detail":{"status":"invalid_api_key","message":"Invalid API key"}}' });
+    const perm = what => route.fulfill({ status:401, headers:cors, contentType:"application/json", body: JSON.stringify({ detail:{ status:"missing_permissions", message:`The API key you used is missing the permission ${what} to execute this operation.` } }) });
+    if(mode === "noVoicesPerm" && url.endsWith("/v1/voices")) return perm("voices_read");
+    if(mode === "noTtsPerm" && url.includes("/text-to-speech/")) return perm("text_to_speech");
     if(url.endsWith("/v1/voices")) return route.fulfill({ headers:cors, contentType:"application/json", body: JSON.stringify({ voices:[
       { voice_id:"v-rachel", name:"Rachel", labels:{ accent:"american", gender:"female" } },
       { voice_id:"v-daniel", name:"Daniel", labels:{ accent:"british", gender:"male" } } ] }) });
@@ -283,8 +286,34 @@ console.log("ElevenLabs voice");
   await fakeEleven(p, "badkey");
   await p.addInitScript(...fakes({ eleven:true }));
   await p.goto(PAGE); await p.waitForTimeout(800);
-  check("bad ElevenLabs key: clear message", /rejected the key/.test(await p.locator("#elStatus").textContent()));
+  check("bad ElevenLabs key: clear message with ElevenLabs' own reason", /isn't valid/.test(await p.locator("#elStatus").textContent()) && /Invalid API key/.test(await p.locator("#elStatus").textContent()));
   await p.click("#bootBtn"); await p.waitForTimeout(600);
+  check("…and Jarvis still talks with the built-in voice", (await p.evaluate(() => window.__spoken.length)) === 1);
+  check("no page errors", errs.length === 0, errs.join(" | "));
+  await p.close();
+}
+
+{
+  const p = await browser.newPage(); const errs = [];
+  p.on("pageerror", e => errs.push(e.message));
+  await fakeEleven(p, "noVoicesPerm");
+  await p.addInitScript(...fakes({ eleven:true }));
+  await p.goto(PAGE); await p.waitForTimeout(800);
+  check("key that can't list voices: falls back to ElevenLabs' standard voices", (await p.locator("#elVoice").inputValue()) === "JBFqnCBsd6RMkjVDRZzb" && /standard voices/.test(await p.locator("#elStatus").textContent()));
+  await p.click("#bootBtn"); await p.waitForTimeout(600);
+  check("…and still speaks with ElevenLabs", p.__el.some(r => r.url.includes("/text-to-speech/JBFqnCBsd6RMkjVDRZzb/")) && (await p.evaluate(() => window.__spoken.length)) === 0);
+  check("no page errors", errs.length === 0, errs.join(" | "));
+  await p.close();
+}
+{
+  const p = await browser.newPage(); const errs = [];
+  p.on("pageerror", e => errs.push(e.message));
+  await fakeEleven(p, "noTtsPerm");
+  await p.addInitScript(...fakes({ eleven:true }));
+  await p.goto(PAGE); await p.waitForTimeout(800);
+  await p.click("#bootBtn"); await p.waitForTimeout(800);
+  const st = await p.locator("#elStatus").textContent();
+  check("key missing Text to Speech permission: says exactly that and how to fix it", /missing a permission/.test(st) && /text_to_speech/.test(st) && /Text to Speech/.test(st));
   check("…and Jarvis still talks with the built-in voice", (await p.evaluate(() => window.__spoken.length)) === 1);
   check("no page errors", errs.length === 0, errs.join(" | "));
   await p.close();

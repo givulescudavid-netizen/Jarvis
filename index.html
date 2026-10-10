@@ -275,7 +275,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.5";
+const VERSION = "2026.10.11.6";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -830,16 +830,36 @@ let elKey = store.get("jarvis.elKey", ""), elVoiceId = store.get("jarvis.elVoice
 let elSource = null, ttsAnalyser = null, ttsBuf = null;
 const elReady = () => !!(elKey && elVoiceId && !elOff && !window.claude);
 function b64ToBuf(b64){ const bin = atob(b64), u = new Uint8Array(bin.length); for(let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; }
+// ElevenLabs' standard voices: usable even when a key isn't allowed to list voices
+const EL_DEFAULT_VOICES = [
+  { voice_id:"JBFqnCBsd6RMkjVDRZzb", name:"George", labels:{ accent:"british", gender:"male" } },
+  { voice_id:"onwK4e9ZLuTAKqWW03F9", name:"Daniel", labels:{ accent:"british", gender:"male" } },
+  { voice_id:"pNInz6AFLz35sBq1bcpE", name:"Adam", labels:{ accent:"american", gender:"male" } },
+  { voice_id:"21m00Tcm4TlvDq8ikWAM", name:"Rachel", labels:{ accent:"american", gender:"female" } } ];
 async function elFetch(path, opts = {}){
-  const r = await fetch("https://api.elevenlabs.io" + path, { ...opts, headers:{ "xi-api-key":elKey, ...(opts.body ? { "content-type":"application/json" } : {}) } });
-  if(!r.ok){ const detail = await r.text().catch(() => ""); const e = new Error(`ElevenLabs ${r.status}`); e.status = r.status; e.detail = detail.slice(0, 200); throw e; }
+  let r;
+  try{ r = await fetch("https://api.elevenlabs.io" + path, { ...opts, headers:{ "xi-api-key":elKey, ...(opts.body ? { "content-type":"application/json" } : {}) } }); }
+  catch(err){ const e = new Error("network"); e.network = true; e.detail = String(err?.message || err); throw e; }
+  if(!r.ok){
+    const raw = await r.text().catch(() => ""); let d = {};
+    try{ d = JSON.parse(raw).detail || {}; }catch{}
+    const e = new Error(`ElevenLabs ${r.status}`); e.status = r.status;
+    e.code = typeof d === "object" ? d.status || d.code || "" : ""; e.msg = typeof d === "string" ? d : d.message || raw.slice(0, 200);
+    e.detail = `${e.code} ${e.msg}`.trim(); throw e;
+  }
   return r.json();
 }
+// Explain exactly what ElevenLabs said, and how to fix it
 function elProblem(e){
-  logDiag("voice", `${e.message} ${e.detail || ""}`);
-  if(e.status === 401){ elOff = true; $("elStatus").textContent = "ElevenLabs rejected the key. Paste a new one. Using the built-in voice for now."; }
-  else if(e.status === 429 || /quota|credits|limit/i.test(e.detail || "")){ elOff = true; $("elStatus").textContent = "ElevenLabs credits used up (or too many requests). Using the built-in voice until you reload."; }
-  else $("elStatus").textContent = "Couldn't reach ElevenLabs just now; used the built-in voice.";
+  logDiag("voice", `ElevenLabs ${e.status || "network"} ${e.detail || ""}`);
+  const why = e.msg ? ` (ElevenLabs says: "${String(e.msg).slice(0, 160)}")` : "";
+  let text;
+  if(e.network) text = "Couldn't connect to ElevenLabs: check your internet, or an ad/privacy blocker may be blocking api.elevenlabs.io. Using the built-in voice.";
+  else if(/missing_permission/i.test(e.code + e.msg)) text = "Your ElevenLabs key is missing a permission" + why + ". Fix: in ElevenLabs → API Keys, edit the key and give it access to Text to Speech and Voices (or switch off \"Restrict key\"), then paste it again.";
+  else if(e.status === 401 && /invalid|not found|unauthor/i.test(e.code + e.msg + " invalid")){ elOff = true; text = "ElevenLabs says this key isn't valid" + why + ". Copy it again from ElevenLabs → API Keys (the whole key, no spaces) and paste it."; }
+  else if(e.status === 429 || e.status === 402 || /quota|credit|limit|payment|paid|subscription|unusual/i.test(e.code + e.msg)){ text = "ElevenLabs refused" + why + ". Usually: credits used up, a voice that needs a paid plan (try George or Daniel), or free-plan limits."; if(/quota|credit/i.test(e.code + e.msg)) elOff = true; }
+  else text = `ElevenLabs error ${e.status}${why}.`;
+  $("elStatus").textContent = text + (elOff ? " Using the built-in voice for now." : "");
 }
 async function speakEleven(text, chunks, job){
   const ac = audioCtx(); await ac.resume?.();
@@ -928,7 +948,9 @@ async function loadElVoices(){
   if(!elKey){ $("elVoice").hidden = true; return; }
   $("elStatus").textContent = "Loading your ElevenLabs voices…";
   try{
-    const { voices: list = [] } = await elFetch("/v1/voices");
+    let list;
+    try{ ({ voices: list = [] } = await elFetch("/v1/voices")); }
+    catch(e){ if(!/missing_permission/i.test((e.code || "") + (e.msg || ""))) throw e; list = EL_DEFAULT_VOICES; logDiag("voice", "key can't list voices: using ElevenLabs standard voices"); }
     const sel = $("elVoice"); sel.textContent = "";
     const none = document.createElement("option"); none.value = ""; none.textContent = "Built-in voice (no ElevenLabs)"; sel.append(none);
     list.forEach(v => { const o = document.createElement("option"); o.value = v.voice_id; o.textContent = [v.name, v.labels?.accent, v.labels?.gender].filter(Boolean).join(" · "); sel.append(o); });
@@ -939,6 +961,7 @@ async function loadElVoices(){
     sel.value = elVoiceId; sel.hidden = false; elOff = false;
     const name = list.find(v => v.voice_id === elVoiceId)?.name;
     $("elStatus").textContent = name ? `Jarvis speaks with ElevenLabs: ${name}. Press Test voice to hear it.` : "Choose a voice.";
+    if(list === EL_DEFAULT_VOICES) $("elStatus").textContent += " (Your key can't list your own voices, so these are ElevenLabs' standard voices.)";
   }catch(e){ elProblem(e); $("elVoice").hidden = true; }
 }
 $("elForm").onsubmit = e => {
