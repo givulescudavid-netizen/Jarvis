@@ -98,6 +98,7 @@ ul.mem li{align-items:center;border-bottom:1px dashed var(--line);padding-bottom
 ul.mem li span:first-child{white-space:normal;font-size:.88rem}
 a.btn{font-family:var(--f-display);font-size:.64rem;letter-spacing:.2em;text-transform:uppercase;color:var(--void);background:var(--cyan);border:1px solid var(--cyan);padding:9px 13px;text-decoration:none}
 a.btn:hover{background:var(--ice)}
+.voice-err{margin:8px 0 0;max-width:min(760px,100%);color:var(--amber);font-family:var(--f-mono);font-size:.82rem;text-align:center;line-height:1.5}
 .openlink{margin-top:10px;max-width:min(760px,100%);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-sizing:border-box}
 a.btn:focus-visible{outline:2px solid var(--ice);outline-offset:2px}
 button.x{padding:2px 8px;font-family:var(--f-body);font-size:.8rem;letter-spacing:0;border-color:transparent;background:transparent;color:var(--dim)}
@@ -151,6 +152,7 @@ button.x{padding:2px 8px;font-family:var(--f-body);font-size:.8rem;letter-spacin
       <p class="cap-you" id="capYou"></p>
       <p class="cap-j" id="capJ"></p>
     </div>
+    <p class="voice-err" id="voiceErr" role="alert" hidden></p>
     <a class="btn openlink" id="openLink" href="#" target="_blank" rel="noopener" hidden></a>
   </main>
 
@@ -200,6 +202,7 @@ button.x{padding:2px 8px;font-family:var(--f-body);font-size:.8rem;letter-spacin
         <button type="submit">Save</button>
       </form>
       <p class="note" id="elStatus"></p>
+      <button type="button" id="elRemove" hidden>Remove ElevenLabs key (use computer voices)</button>
     </div>
     <button type="button" id="testVoice">Test voice</button>
     <p class="note">Say "Jarvis" once, then keep talking. Stay quiet for 10 seconds or say "that's all" to end. You can also tap the reactor to talk, or tap it while Jarvis speaks to stop it.</p>
@@ -274,7 +277,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.8";
+const VERSION = "2026.10.11.9";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -828,7 +831,11 @@ function stopVoice(){ synth?.cancel(); try{ elSource?.stop(); }catch{} elSource 
 const EL_MODEL = "eleven_flash_v2_5";   // fastest, good for conversation
 let elKey = store.get("jarvis.elKey", ""), elVoiceId = store.get("jarvis.elVoice", ""), elOff = false;
 let elSource = null, ttsAnalyser = null, ttsBuf = null;
-const elReady = () => !!(elKey && elVoiceId && !elOff && !window.claude);
+// Once an ElevenLabs key is saved, Jarvis speaks ONLY with ElevenLabs (never the computer voice).
+const elOnly = () => !!elKey && !window.claude;
+const elReady = () => elOnly() && !!elVoiceId;
+let elLoading = null;
+function voiceError(text){ const el = $("voiceErr"); el.textContent = text ? "🔇 ElevenLabs didn't speak: " + text : ""; el.hidden = !text; }
 function b64ToBuf(b64){ const bin = atob(b64), u = new Uint8Array(bin.length); for(let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; }
 // ElevenLabs' standard voices: usable even when a key isn't allowed to list voices
 const EL_DEFAULT_VOICES = [
@@ -860,9 +867,8 @@ function elProblem(e){
   else if(/library|paid_plan|payment|subscription/i.test(e.code + e.msg) || e.status === 402){ text = "This voice is from the ElevenLabs Voice Library, which needs a paid ElevenLabs plan to use in apps" + why + ". Pick a standard voice (George, Daniel, Adam…) in the list above, or upgrade your ElevenLabs plan."; }
   else if(e.status === 429 || /quota|credit|limit|unusual/i.test(e.code + e.msg)){ text = "ElevenLabs refused" + why + ". Usually: credits used up or free-plan limits."; if(/quota|credit/i.test(e.code + e.msg)) elOff = true; }
   else text = `ElevenLabs error ${e.status}${why}.`;
-  $("elStatus").textContent = text + (elOff ? " Using the built-in voice for now." : "");
-  // Say it on the main screen too (once per problem), so a silent fallback never goes unnoticed
-  if(elProblem.last !== text){ elProblem.last = text; addMsg("sys", "ElevenLabs voice didn't work, so I used the built-in voice. " + text); }
+  $("elStatus").textContent = text;
+  voiceError(text);   // shown under the reactor until ElevenLabs speaks successfully again
 }
 async function speakEleven(text, chunks, job){
   const ac = audioCtx(); await ac.resume?.();
@@ -880,7 +886,7 @@ async function speakEleven(text, chunks, job){
     const src = ac.createBufferSource(); src.buffer = clip.buf; src.connect(ttsAnalyser); elSource = src;
     Object.assign(voiceEnv, { text:chunks[i], offset, eleven:true, align:clip.align, alignStart:ac.currentTime, real:false, start:performance.now() });
     offset += chunks[i].length + 1;
-    setMode("speaking"); startBarge();   // keep listening so the user can interrupt
+    setMode("speaking"); startBarge(); voiceError("");   // it works: clear any old error
     await new Promise(r => { src.onended = r; src.start(); });
     if(elSource === src) elSource = null;
     if(job !== speakJob) return;
@@ -888,20 +894,19 @@ async function speakEleven(text, chunks, job){
   }
   return { failedAt:-1 };
 }
-function speak(text){
-  if(!voiceOn || !text) return Promise.resolve();
+async function speak(text){
+  if(!voiceOn || !text) return;
+  if(!elOnly()) return speakBrowser(text);
   const chunks = toChunks(text);
-  if(elReady()){
-    const job = ++speakJob;
-    stopVoice();
-    voiceEnv.full = chunks.join(" "); voiceEnv.offset = 0;
-    return speakEleven(text, chunks, job).then(r => {
-      if(job !== speakJob) return;                                   // interrupted or replaced
-      if(r && r.failedAt >= 0) return speakBrowser(chunks.slice(r.failedAt).join(" "));   // fall back for what's left
-      stopBarge(); if(mode === "speaking") setMode("idle"); resumeWake();
-    });
-  }
-  return speakBrowser(text);
+  const job = ++speakJob;
+  stopVoice();
+  voiceEnv.full = chunks.join(" "); voiceEnv.offset = 0;
+  if(!elVoiceId && elLoading) await Promise.race([elLoading, new Promise(r => setTimeout(r, 6000))]);   // voices still loading
+  if(job !== speakJob) return;
+  if(!elVoiceId){ voiceError($("elStatus").textContent || "no ElevenLabs voice is selected. Pick one in ⚙ → Voice."); resumeWake(); return; }
+  const r = await speakEleven(text, chunks, job);
+  if(job !== speakJob) return;                 // interrupted or replaced
+  stopBarge(); if(mode === "speaking") setMode("idle"); resumeWake();   // done (or failed: the reason is on screen)
 }
 function speakBrowser(text){
   if(!synth) return Promise.resolve();
@@ -950,11 +955,17 @@ function stopTalking(){ ctl?.abort(); speakJob++; stopVoice(); stopBarge(); setM
 function renderVoiceList(){
   const sel = $("voiceSel"); sel.textContent = "";
   const group = (label, items) => { if(!items.length) return; const g = document.createElement("optgroup"); g.label = label; items.forEach(([value, text]) => { const o = document.createElement("option"); o.value = value; o.textContent = text; g.append(o); }); sel.append(g); };
-  if(elKey && !window.claude) group("ElevenLabs", elVoices.map(v => ["el:" + v.voice_id, [v.name, v.labels?.accent, v.labels?.gender].filter(Boolean).join(" · ")]));
-  const en = voices.filter(v => /^en/i.test(v.lang));
-  group("This computer", (en.length ? en : voices).map(v => ["sys:" + v.name, `${v.name} (${v.lang})`]));
+  if(elOnly()){
+    group("ElevenLabs", elVoices.map(v => ["el:" + v.voice_id, [v.name, v.labels?.accent, v.labels?.gender].filter(Boolean).join(" · ")]));
+    if(!elVoices.length){ const o = document.createElement("option"); o.value = ""; o.textContent = elLoading ? "Loading ElevenLabs voices…" : "ElevenLabs voices didn't load (see below)"; sel.append(o); }
+    $("elRemove").hidden = false;
+  } else {
+    const en = voices.filter(v => /^en/i.test(v.lang));
+    group("This computer", (en.length ? en : voices).map(v => ["sys:" + v.name, `${v.name} (${v.lang})`]));
+    $("elRemove").hidden = true;
+  }
   const bv = browserVoice();
-  sel.value = elVoiceId && elVoices.some(v => v.voice_id === elVoiceId) ? "el:" + elVoiceId : bv ? "sys:" + bv.name : "";
+  sel.value = elOnly() ? (elVoiceId && elVoices.some(v => v.voice_id === elVoiceId) ? "el:" + elVoiceId : "") : bv ? "sys:" + bv.name : "";
   sel.hidden = !sel.options.length;
 }
 $("voiceSel").onchange = e => {
@@ -967,8 +978,10 @@ $("voiceSel").onchange = e => {
     if(elKey) $("elStatus").textContent = "Using this computer's voice. Pick an ElevenLabs voice in the list to switch back.";
   }
 };
-async function loadElVoices(){
+function loadElVoices(){ elLoading = loadElVoicesNow().finally(() => { elLoading = null; renderVoiceList(); }); return elLoading; }
+async function loadElVoicesNow(){
   if(!elKey){ elVoices = []; renderVoiceList(); return; }
+  renderVoiceList();
   $("elStatus").textContent = "Loading your ElevenLabs voices…";
   try{
     let list;
@@ -976,7 +989,7 @@ async function loadElVoices(){
     catch(e){ if(!/missing_permission/i.test((e.code || "") + (e.msg || ""))) throw e; list = EL_DEFAULT_VOICES; logDiag("voice", "key can't list voices: using ElevenLabs standard voices"); }
     elVoices = list;
     // First time (or the saved voice is gone): pick a British male voice automatically
-    if(store.get("jarvis.elVoice", null) === null || (elVoiceId && !list.some(v => v.voice_id === elVoiceId))){
+    if(!elVoiceId || !list.some(v => v.voice_id === elVoiceId)){
       const pick = list.find(v => /daniel|george/i.test(v.name)) || list.find(v => /british/i.test(v.labels?.accent || "") && /male/i.test(v.labels?.gender || "")) || list[0];
       elVoiceId = pick ? pick.voice_id : ""; store.set("jarvis.elVoice", elVoiceId);
     }
@@ -992,6 +1005,10 @@ $("elForm").onsubmit = e => {
   elKey = k; store.set("jarvis.elKey", k); $("elKey").value = ""; $("elKey").placeholder = "Key saved ✓ (paste a new one to replace)";
   store.set("jarvis.elVoice", null); elVoiceId = "";   // new key: switch to an ElevenLabs voice automatically
   loadElVoices();
+};
+$("elRemove").onclick = () => {
+  elKey = ""; elVoiceId = ""; elVoices = []; store.set("jarvis.elKey", ""); store.set("jarvis.elVoice", "");
+  $("elKey").placeholder = "paste your ElevenLabs key"; $("elStatus").textContent = "ElevenLabs removed. Jarvis uses this computer's voices."; voiceError(""); renderVoiceList();
 };
 voiceListReady = true; renderVoiceList();
 if(elKey){ $("elKey").placeholder = "Key saved ✓ (paste a new one to replace)"; loadElVoices(); }
@@ -1209,7 +1226,7 @@ function buildReport(){
     `- Opened from: ${location.protocol === "file:" ? "file (double-clicked)" : location.host}`,
     `- Browser: ${navigator.userAgent}`,
     `- Speech recognition: ${SR ? "yes" : "no"}, voices: ${voices.length}, voice out: ${voiceOn ? "on" : "off"}, wake word: ${wakeOn ? "on" : "off"}`,
-    `- ElevenLabs: ${elKey ? (elOff ? "key saved but switched off this session" : elVoiceId ? "on" : "key saved, no voice chosen") : "not set up"}`,
+    `- ElevenLabs: ${elKey ? (elVoiceId ? "on (ElevenLabs only)" : "key saved, no voice chosen") : "not set up"}; last voice error: ${$("voiceErr").textContent || "none"}`,
     `- Google: ${google.mode || "unavailable"}${google.connected ? ", connected" : ", not connected"}`,
     `- Memories: ${memories().length}, About you filled: ${store.get("jarvis.about","") ? "yes" : "no"}`,
     "", "### Recent log", diag.length ? diag.slice(-25).map(d => `- ${d.t.slice(5,19)} [${d.kind}] ${d.msg}`).join("\n") : "(empty)"

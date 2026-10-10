@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.11.9
+- **ElevenLabs only.** Once you've added an ElevenLabs key, Jarvis never uses the computer voice. The voice list shows only your ElevenLabs voices.
+- If ElevenLabs refuses to speak, the exact reason appears in amber under the reactor (and the reply still shows as subtitles) instead of Jarvis quietly switching to the computer voice.
+- "Remove ElevenLabs key" in ⚙ → Voice brings the computer voices back.
+
 ## 2026.10.11.8
 - **One voice list.** Your ElevenLabs voices now appear at the top of the main voice list in ⚙ → Voice, with this computer's voices below. Whatever you pick there is what Jarvis uses; no more separate ElevenLabs dropdown.
 - Pasting a new ElevenLabs key switches Jarvis to an ElevenLabs voice automatically.
