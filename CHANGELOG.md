@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.10.11.5
+- **ElevenLabs voices.** Paste your ElevenLabs key in ⚙ → Voice and pick a voice (a British male voice is chosen by default). The reactor now glows with the real sound of the voice, and interruptions know the exact word you cut in on. If ElevenLabs fails or runs out of credits, Jarvis switches to the built-in voice automatically and tells you why in settings.
+- The version number now shows at the top left of the screen.
+
 ## 2026.10.11.2
 - **Fixed: Jarvis said it couldn't open anything.** Its instructions still said "everything is read-only", which made it refuse. It now has a clear list of what it can do: open websites, play Apple Music, and use the web versions of apps it can't launch directly (Spotify, WhatsApp…).
 - **Auto-update:** Jarvis checks for a newer version when it opens and reloads itself, so you never get stuck on an old copy.

@@ -193,6 +193,15 @@ button.x{padding:2px 8px;font-family:var(--f-body);font-size:.8rem;letter-spacin
       <select id="voiceSel" aria-label="Jarvis voice"></select>
       <button type="button" id="voiceBtn" class="on">Voice out: on</button>
     </div>
+    <div id="elBox">
+      <label for="elKey" class="note">ElevenLabs API key (optional: a premium, more natural voice)</label>
+      <form id="elForm">
+        <input type="text" id="elKey" placeholder="paste your ElevenLabs key" autocomplete="off" spellcheck="false" style="-webkit-text-security:disc">
+        <button type="submit">Save</button>
+      </form>
+      <select id="elVoice" aria-label="ElevenLabs voice" hidden></select>
+      <p class="note" id="elStatus"></p>
+    </div>
     <button type="button" id="testVoice">Test voice</button>
     <p class="note">Say "Jarvis" once, then keep talking. Stay quiet for 10 seconds or say "that's all" to end. You can also tap the reactor to talk, or tap it while Jarvis speaks to stop it.</p>
   </section>
@@ -266,7 +275,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.4";
+const VERSION = "2026.10.11.5";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -773,12 +782,25 @@ $("voiceSel").onchange = e => store.set("jarvis.voice", e.target.value);
 const voiceEnv = { text:"", start:0, cps:14.5, lastWord:0, wordLen:4, real:false, full:"", offset:0, charIdx:0 };
 // The part of the current reply the user has actually heard (for interruptions)
 function spokenSoFar(){
+  if(voiceEnv.eleven && voiceEnv.align){   // exact: ElevenLabs tells us when each character is spoken
+    const t = audioCtx().currentTime - voiceEnv.alignStart;
+    const starts = voiceEnv.align.character_start_times_seconds || [];
+    let n = 0; while(n < starts.length && starts[n] <= t) n++;
+    const upTo = Math.min(voiceEnv.full.length, voiceEnv.offset + n);
+    const cut = voiceEnv.full.slice(0, upTo);
+    return (upTo < voiceEnv.full.length ? cut.replace(/\S*$/, "") : cut).trim();
+  }
   const inChunk = voiceEnv.real ? voiceEnv.charIdx + voiceEnv.wordLen : (performance.now() - voiceEnv.start) / 1000 * voiceEnv.cps;
   const upTo = Math.min(voiceEnv.full.length, voiceEnv.offset + Math.max(0, Math.round(inChunk)));
   const cut = voiceEnv.full.slice(0, upTo);
   return (upTo < voiceEnv.full.length ? cut.replace(/\S*$/, "") : cut).trim();
 }
 function voiceLevel(now){
+  if(voiceEnv.eleven && ttsAnalyser){   // real audio: measure how loud Jarvis actually is
+    ttsAnalyser.getByteTimeDomainData(ttsBuf);
+    let sum = 0; for(const v of ttsBuf){ const x = (v - 128) / 128; sum += x * x; }
+    return Math.min(1, Math.sqrt(sum / ttsBuf.length) * 4.5);
+  }
   if(voiceEnv.real && now - voiceEnv.lastWord < 700){
     const dt = now - voiceEnv.lastWord, dur = 90 + voiceEnv.wordLen * 55;
     return dt < dur ? 0.55 + 0.45 * Math.sin(Math.PI * dt / dur) * (0.75 + 0.25 * Math.sin(dt / 37)) : 0.12;
@@ -793,15 +815,78 @@ function voiceLevel(now){
 }
 let speakJob = 0;
 const keepAlive = [];
-function speak(text){
-  if(!voiceOn || !synth || !text) return Promise.resolve();
-  const job = ++speakJob;
+function toChunks(text){
   const parts = String(text).split(/(?<=[.!?]["')\]]?)\s+/).map(x => x.trim()).filter(Boolean);
   const chunks = [];
   for(const p of parts){ if(chunks.length && (chunks[chunks.length-1] + " " + p).length < 180) chunks[chunks.length-1] += " " + p; else chunks.push(p); }
+  return chunks;
+}
+// Stop whatever voice is playing right now (browser voice or ElevenLabs audio)
+function stopVoice(){ synth?.cancel(); try{ elSource?.stop(); }catch{} elSource = null; }
+
+/* ---------- ElevenLabs voice ---------- */
+const EL_MODEL = "eleven_flash_v2_5";   // fastest, good for conversation
+let elKey = store.get("jarvis.elKey", ""), elVoiceId = store.get("jarvis.elVoice", ""), elOff = false;
+let elSource = null, ttsAnalyser = null, ttsBuf = null;
+const elReady = () => !!(elKey && elVoiceId && !elOff && !window.claude);
+function b64ToBuf(b64){ const bin = atob(b64), u = new Uint8Array(bin.length); for(let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i); return u.buffer; }
+async function elFetch(path, opts = {}){
+  const r = await fetch("https://api.elevenlabs.io" + path, { ...opts, headers:{ "xi-api-key":elKey, ...(opts.body ? { "content-type":"application/json" } : {}) } });
+  if(!r.ok){ const detail = await r.text().catch(() => ""); const e = new Error(`ElevenLabs ${r.status}`); e.status = r.status; e.detail = detail.slice(0, 200); throw e; }
+  return r.json();
+}
+function elProblem(e){
+  logDiag("voice", `${e.message} ${e.detail || ""}`);
+  if(e.status === 401){ elOff = true; $("elStatus").textContent = "ElevenLabs rejected the key. Paste a new one. Using the built-in voice for now."; }
+  else if(e.status === 429 || /quota|credits|limit/i.test(e.detail || "")){ elOff = true; $("elStatus").textContent = "ElevenLabs credits used up (or too many requests). Using the built-in voice until you reload."; }
+  else $("elStatus").textContent = "Couldn't reach ElevenLabs just now; used the built-in voice.";
+}
+async function speakEleven(text, chunks, job){
+  const ac = audioCtx(); await ac.resume?.();
+  if(!ttsAnalyser){ ttsAnalyser = ac.createAnalyser(); ttsAnalyser.fftSize = 512; ttsBuf = new Uint8Array(ttsAnalyser.fftSize); ttsAnalyser.connect(ac.destination); }
+  const get = c => elFetch(`/v1/text-to-speech/${encodeURIComponent(elVoiceId)}/with-timestamps?output_format=mp3_44100_128`, {
+      method:"POST", body:JSON.stringify({ text:c, model_id:EL_MODEL, voice_settings:{ stability:0.45, similarity_boost:0.8, style:0.15 } }) })
+    .then(async j => ({ buf: await ac.decodeAudioData(b64ToBuf(j.audio_base64)), align: j.alignment || j.normalized_alignment || null }));
+  let next = get(chunks[0]), offset = 0, played = 0;
+  for(let i = 0; i < chunks.length; i++){
+    let clip;
+    try{ clip = await next; }
+    catch(e){ if(job !== speakJob) return; elProblem(e); return { failedAt:i }; }
+    if(job !== speakJob) return;
+    if(i + 1 < chunks.length){ next = get(chunks[i + 1]); next.catch(() => {}); }
+    const src = ac.createBufferSource(); src.buffer = clip.buf; src.connect(ttsAnalyser); elSource = src;
+    Object.assign(voiceEnv, { text:chunks[i], offset, eleven:true, align:clip.align, alignStart:ac.currentTime, real:false, start:performance.now() });
+    offset += chunks[i].length + 1;
+    setMode("speaking"); startBarge();   // keep listening so the user can interrupt
+    await new Promise(r => { src.onended = r; src.start(); });
+    if(elSource === src) elSource = null;
+    if(job !== speakJob) return;
+    played++;
+  }
+  return { failedAt:-1 };
+}
+function speak(text){
+  if(!voiceOn || !text) return Promise.resolve();
+  const chunks = toChunks(text);
+  if(elReady()){
+    const job = ++speakJob;
+    stopVoice();
+    voiceEnv.full = chunks.join(" "); voiceEnv.offset = 0;
+    return speakEleven(text, chunks, job).then(r => {
+      if(job !== speakJob) return;                                   // interrupted or replaced
+      if(r && r.failedAt >= 0) return speakBrowser(chunks.slice(r.failedAt).join(" "));   // fall back for what's left
+      stopBarge(); if(mode === "speaking") setMode("idle"); resumeWake();
+    });
+  }
+  return speakBrowser(text);
+}
+function speakBrowser(text){
+  if(!synth) return Promise.resolve();
+  const job = ++speakJob;
+  const chunks = toChunks(text);
   const wasBusy = synth.speaking || synth.pending;
-  synth.cancel();
-  voiceEnv.full = chunks.join(" "); voiceEnv.offset = 0;
+  stopVoice();
+  voiceEnv.full = chunks.join(" "); voiceEnv.offset = 0; voiceEnv.eleven = false;
   return new Promise(res => {
     let started = false, i = 0, offset = 0;
     const finish = () => { if(job !== speakJob) return res(); stopBarge(); if(mode === "speaking") setMode("idle"); resumeWake(); res(); };
@@ -815,7 +900,7 @@ function speak(text){
       u.onstart = () => {
         if(job !== speakJob) return;
         started = true; setMode("speaking");
-        Object.assign(voiceEnv, { text:u.text, start:performance.now(), cps:14.5 * (u.rate || 1), real:false, offset:myOffset, charIdx:0 });
+        Object.assign(voiceEnv, { text:u.text, start:performance.now(), cps:14.5 * (u.rate || 1), real:false, offset:myOffset, charIdx:0, eleven:false });
         startBarge();   // keep listening so the user can interrupt
       };
       u.onboundary = e => { if(e.name && e.name !== "word") return; voiceEnv.real = true; voiceEnv.lastWord = performance.now(); voiceEnv.wordLen = e.charLength || 4; voiceEnv.charIdx = e.charIndex || 0; };
@@ -835,8 +920,37 @@ function speak(text){
 }
 function paintVoiceBtn(){ $("voiceBtn").textContent = "Voice out: " + (voiceOn ? "on" : "off"); $("voiceBtn").classList.toggle("on", voiceOn); }
 paintVoiceBtn();
-$("voiceBtn").onclick = () => { voiceOn = !voiceOn; store.set("jarvis.voiceOn", voiceOn); if(!voiceOn && synth) synth.cancel(); paintVoiceBtn(); };
-function stopTalking(){ ctl?.abort(); synth?.cancel(); setMode("idle"); resumeWake(); }
+$("voiceBtn").onclick = () => { voiceOn = !voiceOn; store.set("jarvis.voiceOn", voiceOn); if(!voiceOn){ speakJob++; stopVoice(); } paintVoiceBtn(); };
+function stopTalking(){ ctl?.abort(); speakJob++; stopVoice(); stopBarge(); setMode("idle"); resumeWake(); }
+
+/* ElevenLabs settings */
+async function loadElVoices(){
+  if(!elKey){ $("elVoice").hidden = true; return; }
+  $("elStatus").textContent = "Loading your ElevenLabs voices…";
+  try{
+    const { voices: list = [] } = await elFetch("/v1/voices");
+    const sel = $("elVoice"); sel.textContent = "";
+    const none = document.createElement("option"); none.value = ""; none.textContent = "Built-in voice (no ElevenLabs)"; sel.append(none);
+    list.forEach(v => { const o = document.createElement("option"); o.value = v.voice_id; o.textContent = [v.name, v.labels?.accent, v.labels?.gender].filter(Boolean).join(" · "); sel.append(o); });
+    if(!elVoiceId || !list.some(v => v.voice_id === elVoiceId)){
+      const pick = list.find(v => /daniel|george/i.test(v.name)) || list.find(v => /british/i.test(v.labels?.accent || "") && /male/i.test(v.labels?.gender || "")) || list[0];
+      elVoiceId = pick ? pick.voice_id : ""; store.set("jarvis.elVoice", elVoiceId);
+    }
+    sel.value = elVoiceId; sel.hidden = false; elOff = false;
+    const name = list.find(v => v.voice_id === elVoiceId)?.name;
+    $("elStatus").textContent = name ? `Jarvis speaks with ElevenLabs: ${name}. Press Test voice to hear it.` : "Choose a voice.";
+  }catch(e){ elProblem(e); $("elVoice").hidden = true; }
+}
+$("elForm").onsubmit = e => {
+  e.preventDefault();
+  const k = $("elKey").value.trim(); if(!k) return;
+  elKey = k; store.set("jarvis.elKey", k); $("elKey").value = ""; $("elKey").placeholder = "Key saved ✓ (paste a new one to replace)";
+  loadElVoices();
+};
+$("elVoice").onchange = e => { elVoiceId = e.target.value; store.set("jarvis.elVoice", elVoiceId); elOff = false;
+  $("elStatus").textContent = elVoiceId ? "Voice changed. Press Test voice to hear it." : "Using the built-in voice."; };
+if(elKey){ $("elKey").placeholder = "Key saved ✓ (paste a new one to replace)"; loadElVoices(); }
+if(window.claude) $("elBox").hidden = true;   // the claude.ai version can't reach ElevenLabs
 
 /* ---------- speech in: push-to-talk + "Jarvis" wake word ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -864,7 +978,7 @@ function stopRec(){ recOn = false; try{ rec?.abort(); }catch{} rec = null; }
 function startListening(){
   if(!SR){ addMsg("sys","Voice input isn't supported in this browser. Use Chrome or Edge."); return; }
   if(mode === "thinking") return;
-  synth?.cancel(); stopRec();
+  speakJob++; stopVoice(); stopRec();
   rec = makeRec(false); recOn = true;
   let finalText = "";
   let live = "";
@@ -907,7 +1021,7 @@ function startBarge(){
       if(!barged){
         if(!final && said.split(/\s+/).length < 2 && !STOPWORD.test(said)) continue;   // wait for a little more
         barged = { heard: spokenSoFar(), text: said };
-        speakJob++; synth.cancel();             // stop talking right away
+        speakJob++; stopVoice();                // stop talking right away
         setMode("listening", "Go ahead, sir");
       }
       barged.text = said; setLive(said);
@@ -1050,6 +1164,7 @@ function buildReport(){
     `- Opened from: ${location.protocol === "file:" ? "file (double-clicked)" : location.host}`,
     `- Browser: ${navigator.userAgent}`,
     `- Speech recognition: ${SR ? "yes" : "no"}, voices: ${voices.length}, voice out: ${voiceOn ? "on" : "off"}, wake word: ${wakeOn ? "on" : "off"}`,
+    `- ElevenLabs: ${elKey ? (elOff ? "key saved but switched off this session" : elVoiceId ? "on" : "key saved, no voice chosen") : "not set up"}`,
     `- Google: ${google.mode || "unavailable"}${google.connected ? ", connected" : ", not connected"}`,
     `- Memories: ${memories().length}, About you filled: ${store.get("jarvis.about","") ? "yes" : "no"}`,
     "", "### Recent log", diag.length ? diag.slice(-25).map(d => `- ${d.t.slice(5,19)} [${d.kind}] ${d.msg}`).join("\n") : "(empty)"
@@ -1194,7 +1309,7 @@ async function ask(text, shown, interruptedHeard){
   }
   text = text.trim(); if(!text) return;
   if(!sample && !apiKey){ addMsg("you", text); addMsg("sys","Jarvis needs a brain first: add your Anthropic API key in settings ⚙."); openDrawer(true); $("apiKey").focus(); resumeWake(); return; }
-  ctl?.abort(); synth?.cancel(); stopRec();
+  ctl?.abort(); speakJob++; stopVoice(); stopRec();
   addMsg("you", shown || text);
   setMode("thinking");
   const out = addMsg("j","…");

@@ -16,9 +16,10 @@ let failed = 0, passed = 0;
 function check(name, ok, info = ""){ if(ok){ passed++; console.log("  ✓", name); } else { failed++; console.log("  ✗", name, info); } }
 
 // Fakes injected before the page loads. `script` is the list of replies the fake Claude gives, in order.
-function fakes({ mcp = false, script = [], slowVoice = false } = {}){
-  return [({ mcp, script, slowVoice }) => {
+function fakes({ mcp = false, script = [], slowVoice = false, eleven = false } = {}){
+  return [({ mcp, script, slowVoice, eleven }) => {
     localStorage.setItem("jarvis.key", '"sk-ant-test"'); localStorage.setItem("jarvis.gclient", '"x.apps.googleusercontent.com"');
+    if(eleven) localStorage.setItem("jarvis.elKey", '"el-test-key"');
     window.__spoken = []; window.__log = [];
     // Fake voice. slowVoice: speaks one word every 220 ms with word-timing events, and cancel() cuts it off like Chrome does.
     let current = null; window.__cancels = 0;
@@ -68,7 +69,7 @@ function fakes({ mcp = false, script = [], slowVoice = false } = {}){
     }
     window.__opened = [];
     window.open = url => { window.__opened.push(String(url)); return window.__blockPopups ? null : {}; };
-  }, { mcp, script, slowVoice }];
+  }, { mcp, script, slowVoice, eleven }];
 }
 async function open(opts, viewport = { width:1440, height:900 }){
   const p = await browser.newPage({ viewport }); const errs = [];
@@ -86,6 +87,32 @@ async function open(opts, viewport = { width:1440, height:900 }){
   await p.goto(PAGE); await p.waitForTimeout(600);
   p.errs = errs; return p;
 }
+// A real audio clip (a tone, 60 ms per character) so ElevenLabs playback, glow and timing can be tested.
+function toneWav(seconds){
+  const rate = 22050, n = Math.floor(rate * seconds), buf = Buffer.alloc(44 + n * 2);
+  buf.write("RIFF", 0); buf.writeUInt32LE(36 + n * 2, 4); buf.write("WAVEfmt ", 8); buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22); buf.writeUInt32LE(rate, 24); buf.writeUInt32LE(rate * 2, 28);
+  buf.writeUInt16LE(2, 32); buf.writeUInt16LE(16, 34); buf.write("data", 36); buf.writeUInt32LE(n * 2, 40);
+  for(let i = 0; i < n; i++){ const env = 0.5 + 0.5 * Math.sin(i / rate * 2 * Math.PI * 4); buf.writeInt16LE(Math.round(Math.sin(i / rate * 2 * Math.PI * 220) * 12000 * env), 44 + i * 2); }
+  return buf.toString("base64");
+}
+// Fake ElevenLabs. mode: "ok" or "badkey"
+async function fakeEleven(p, mode = "ok"){
+  p.__el = [];
+  await p.route(/api\.elevenlabs\.io/, route => {
+    const req = route.request(), url = req.url(), cors = { "access-control-allow-origin":"*" };
+    p.__el.push({ url, key: req.headers()["xi-api-key"], body: req.postData() });
+    if(mode === "badkey") return route.fulfill({ status:401, headers:cors, contentType:"application/json", body:'{"detail":{"status":"invalid_api_key"}}' });
+    if(url.endsWith("/v1/voices")) return route.fulfill({ headers:cors, contentType:"application/json", body: JSON.stringify({ voices:[
+      { voice_id:"v-rachel", name:"Rachel", labels:{ accent:"american", gender:"female" } },
+      { voice_id:"v-daniel", name:"Daniel", labels:{ accent:"british", gender:"male" } } ] }) });
+    const text = JSON.parse(req.postData()).text, chars = [...text];
+    return route.fulfill({ headers:cors, contentType:"application/json", body: JSON.stringify({
+      audio_base64: toneWav(Math.min(4, chars.length * 0.06)),
+      alignment:{ characters: chars, character_start_times_seconds: chars.map((_, i) => i * 0.06), character_end_times_seconds: chars.map((_, i) => (i + 1) * 0.06) } }) });
+  });
+}
+
 // Say something, then wait until Jarvis has finished (not thinking/speaking) and is listening again.
 const sayNow = (p, t) => p.evaluate(t => window.__say(t), t);
 async function settle(p, minWait = 300){
@@ -223,6 +250,43 @@ console.log("Interrupting Jarvis (barge-in)");
   check("'stop' just stops: no new reply", (await log(p)).length === n);
   check("…and the conversation stays open", /Go ahead|Yes, sir/.test(await p.locator("#mode").textContent()));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("ElevenLabs voice");
+{
+  const LONG = "Good evening, sir. Your board meeting with Pepper is at nine, lunch with Happy is at one, and the reactor review runs all afternoon.";
+  const p = await browser.newPage({ viewport:{ width:1440, height:900 } }); const errs = [];
+  p.on("pageerror", e => errs.push(e.message));
+  await fakeEleven(p, "ok");
+  await p.addInitScript(...fakes({ eleven:true, script:[ { text: LONG }, { text:"Tomorrow it is." } ] }));
+  await p.goto(PAGE); await p.waitForTimeout(800);
+  check("ElevenLabs voices load, British voice picked", (await p.locator("#elVoice").inputValue()) === "v-daniel" && /Daniel/.test(await p.locator("#elStatus").textContent()));
+  await p.click("#bootBtn"); await p.waitForTimeout(400);
+  const tts = () => p.__el.filter(r => r.url.includes("/text-to-speech/"));
+  check("speaks through ElevenLabs with your key and voice", tts().length > 0 && tts()[0].url.includes("/v-daniel/") && tts()[0].key === "el-test-key");
+  check("…not the built-in voice", (await p.evaluate(() => window.__spoken.length)) === 0);
+  await settle(p, 300);
+  await sayNow(p, "jarvis what's my day"); await p.waitForTimeout(1600);
+  const levels = [];
+  for(let k = 0; k < 10; k++){ await p.waitForTimeout(90); levels.push(await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--voice").trim())); }
+  check("glow follows the real ElevenLabs audio", new Set(levels.filter(v => v && v !== "0")).size >= 2, levels.join(","));
+  await sayNow(p, "wait make lunch tomorrow"); await p.waitForTimeout(1200);
+  const last = (await log(p)).at(-1).last.content;
+  check("interrupting ElevenLabs works and reports what you heard", typeof last === "string" && last.includes("[You were interrupted") && last.includes("Good evening") && !last.includes("reactor review"));
+  check("no page errors", errs.length === 0, errs.join(" | "));
+  await p.close();
+}
+{
+  const p = await browser.newPage(); const errs = [];
+  p.on("pageerror", e => errs.push(e.message));
+  await fakeEleven(p, "badkey");
+  await p.addInitScript(...fakes({ eleven:true }));
+  await p.goto(PAGE); await p.waitForTimeout(800);
+  check("bad ElevenLabs key: clear message", /rejected the key/.test(await p.locator("#elStatus").textContent()));
+  await p.click("#bootBtn"); await p.waitForTimeout(600);
+  check("…and Jarvis still talks with the built-in voice", (await p.evaluate(() => window.__spoken.length)) === 1);
+  check("no page errors", errs.length === 0, errs.join(" | "));
   await p.close();
 }
 
