@@ -26,6 +26,7 @@ body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:50;
 .wrap{position:relative;min-height:100vh;box-sizing:border-box;padding-inline:16px}
 header{position:absolute;top:12px;left:16px;right:16px;display:flex;justify-content:space-between;align-items:center;z-index:5}
 .status{display:flex;align-items:center;gap:8px;font-family:var(--f-mono);font-size:.72rem;letter-spacing:.16em;text-transform:uppercase;color:var(--dim)}
+.ver{margin-left:10px;padding-left:10px;border-left:1px solid var(--line);color:var(--dim);opacity:.8}
 .dot{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok)}
 .dot.warn{background:var(--amber);box-shadow:0 0 8px var(--amber)}
 .dot.bad{background:var(--red);box-shadow:0 0 8px var(--red)}
@@ -124,7 +125,7 @@ button.x{padding:2px 8px;font-family:var(--f-body);font-size:.8rem;letter-spacin
 
 <div class="wrap">
   <header>
-    <div class="status"><span class="dot warn" id="linkDot"></span><span id="linkTxt">Establishing uplink…</span></div>
+    <div class="status"><span class="dot warn" id="linkDot"></span><span id="linkTxt">Establishing uplink…</span><span class="ver" id="verBadge"></span></div>
     <button type="button" class="gear" id="gearBtn" aria-label="Settings" aria-expanded="false" aria-controls="drawer">⚙</button>
   </header>
 
@@ -265,7 +266,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.3";
+const VERSION = "2026.10.11.4";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -1072,6 +1073,7 @@ $("copyReport").onclick = async () => {
 };
 $("clearLog").onclick = () => { store.set("jarvis.diag", []); store.set("jarvis.bugs", []); renderReport(); };
 $("versionNote").textContent = `J.A.R.V.I.S. version ${VERSION}`;
+$("verBadge").textContent = "v" + VERSION;
 // Auto-update (website only): browsers can keep an old copy for a while after an update.
 async function checkForUpdate(onLoad){
   if(!/^https?:$/.test(location.protocol) || window.claude) return;
