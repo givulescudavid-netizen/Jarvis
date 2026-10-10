@@ -262,7 +262,7 @@ const store = {
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
 const VERSION = "2026.10.10";
-const REPO = "givulescudavid-netizen/jarvis";
+const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
 function logDiag(kind, msg){
@@ -597,7 +597,7 @@ async function connectGoogle(){
   $("gBtn").disabled = true; $("gStatus").textContent = "Connecting…";
   try{
     if(google.mode === "oauth"){
-      if(location.protocol === "file:") throw new Error("Google sign-in does not work when Jarvis is opened as a file. Open it from its web address instead: https://givulescudavid-netizen.github.io/jarvis/");
+      if(location.protocol === "file:") throw new Error("Google sign-in does not work when Jarvis is opened as a file. Open it from its web address instead: https://givulescudavid-netizen.github.io/Jarvis/");
       const id = $("gClient").value.trim() || google.clientId;
       if(!/\.apps\.googleusercontent\.com$/.test(id)) throw new Error("Paste your OAuth Client ID first. It ends in .apps.googleusercontent.com.");
       google.clientId = id; store.set("jarvis.gclient", id); $("gClient").value = ""; $("gClient").placeholder = "Client ID saved ✓";

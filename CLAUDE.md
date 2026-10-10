@@ -6,7 +6,7 @@ David is not a programmer. Explain changes in plain language, never assume he wi
 
 ## How it's built
 - **Everything is one file: `index.html`** (HTML + CSS + JS, no build step, no framework). Keep it that way.
-- Hosted on **GitHub Pages** from `main` → https://givulescudavid-netizen.github.io/jarvis/ . Merging to `main` ships it.
+- Hosted on **GitHub Pages** from `main` → https://givulescudavid-netizen.github.io/Jarvis/ . Merging to `main` ships it.
 - `local/` has launchers to run it on `http://localhost:8000` without internet hosting (fallback only).
 - A copy also runs inside claude.ai as an Artifact (https://claude.ai/artifact/KTkAk2biUQY2YqvXCoLUtr) where it uses
   claude.ai connectors (`claude.use("mcp")`) and `claude.use("sample")` instead of an API key. The code detects which mode it is in
@@ -33,14 +33,14 @@ Main parts of `index.html`, in order:
 
 ## How to work (weekly engineer session and any other session)
 1. Read open issues. **`gh issue list` / `gh pr list` (GraphQL) are blocked in Claude Code sessions — use the REST API:**
-   `gh api 'repos/givulescudavid-netizen/jarvis/issues?state=open&per_page=50'` (entries with a `pull_request` key are PRs)
-   and `gh api 'repos/givulescudavid-netizen/jarvis/pulls?state=open'`. Bug reports come from the in-app "Report a problem" button and include an error log.
+   `gh api 'repos/givulescudavid-netizen/Jarvis/issues?state=open&per_page=50'` (entries with a `pull_request` key are PRs)
+   and `gh api 'repos/givulescudavid-netizen/Jarvis/pulls?state=open'`. Bug reports come from the in-app "Report a problem" button and include an error log.
 2. Pick the most valuable fixes first (broken things > annoyances > new features). Keep each PR small and focused.
 3. Reproduce with the test harness when possible. **Add or update a check in `tests/run.mjs` for every fix.**
 4. Run `npm install && npx playwright install chromium && npm test` — all checks must pass.
    (In Claude Code cloud sessions Chromium is preinstalled at /opt/pw-browsers/chromium; the tests use it automatically.)
 5. Bump `VERSION` in `index.html` (format YYYY.MM.DD) and add a plain-language entry to `CHANGELOG.md`.
-6. Push the branch and open a PR via REST: `gh api repos/givulescudavid-netizen/jarvis/pulls -f title=... -f head=<branch> -f base=main -f body=...`.
+6. Push the branch and open a PR via REST: `gh api repos/givulescudavid-netizen/Jarvis/pulls -f title=... -f head=<branch> -f base=main -f body=...`.
    Plain-language description ("what you'll notice", "what to try for real"), link the issues (`Fixes #12`). **Never merge it yourself** — David approves.
 7. If nothing is worth changing, say so and open nothing. No churn, no cosmetic rewrites, no dependency additions.
 

@@ -2,7 +2,7 @@
 
 My personal Iron Man–style voice assistant.
 
-**Open it:** https://givulescudavid-netizen.github.io/jarvis/ (Chrome or Edge), click **Initialize**, then just say **"Jarvis"**.
+**Open it:** https://givulescudavid-netizen.github.io/Jarvis/ (Chrome or Edge), click **Initialize**, then just say **"Jarvis"**.
 
 - Talks back, keeps a conversation going until you say "that's all"
 - Reads Gmail, Google Calendar and Drive; drafts emails and books meetings **only after you say yes**

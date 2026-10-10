@@ -131,7 +131,7 @@ console.log("Memory, confirmations, drafts, events, web search fallback, diagnos
   check("bad key shows a clear message", /API key was rejected/.test(await p.locator("#capJ").textContent()));
   await p.click("#gearBtn"); await p.waitForTimeout(200);
   const href = await p.locator("#issueLink").getAttribute("href");
-  check("report link targets the repo's issues", href.startsWith("https://github.com/givulescudavid-netizen/jarvis/issues/new?"));
+  check("report link targets the repo's issues", href.startsWith("https://github.com/givulescudavid-netizen/Jarvis/issues/new?"));
   const report = decodeURIComponent(href);
   check("report includes the logged bug and the error log", report.includes("music") && report.includes("[api]"));
   check("report never contains keys", !/sk-ant-/.test(report));
