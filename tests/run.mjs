@@ -16,12 +16,23 @@ let failed = 0, passed = 0;
 function check(name, ok, info = ""){ if(ok){ passed++; console.log("  ✓", name); } else { failed++; console.log("  ✗", name, info); } }
 
 // Fakes injected before the page loads. `script` is the list of replies the fake Claude gives, in order.
-function fakes({ mcp = false, script = [] } = {}){
-  return [({ mcp, script }) => {
+function fakes({ mcp = false, script = [], slowVoice = false } = {}){
+  return [({ mcp, script, slowVoice }) => {
     localStorage.setItem("jarvis.key", '"sk-ant-test"'); localStorage.setItem("jarvis.gclient", '"x.apps.googleusercontent.com"');
     window.__spoken = []; window.__log = [];
-    const synth = { speaking:false, pending:false, cancel(){}, resume(){}, getVoices(){ return [{ name:"Daniel", lang:"en-GB" }]; },
-      speak(u){ window.__spoken.push(u.text); setTimeout(() => { u.onstart && u.onstart(); setTimeout(() => u.onend && u.onend(), 20); }, 5); } };
+    // Fake voice. slowVoice: speaks one word every 220 ms with word-timing events, and cancel() cuts it off like Chrome does.
+    let current = null; window.__cancels = 0;
+    const synth = { speaking:false, pending:false, resume(){}, getVoices(){ return [{ name:"Daniel", lang:"en-GB" }]; },
+      cancel(){ window.__cancels++; if(current){ clearInterval(current.tick); const u = current.u; current = null; u.onerror && u.onerror({ error:"interrupted" }); } },
+      speak(u){ window.__spoken.push(u.text);
+        if(!slowVoice){ setTimeout(() => { u.onstart && u.onstart(); setTimeout(() => u.onend && u.onend(), 20); }, 5); return; }
+        setTimeout(() => { u.onstart && u.onstart();
+          let i = 0, at = 0; const words = u.text.split(" ");
+          const c = { u };
+          c.tick = setInterval(() => { if(i >= words.length){ clearInterval(c.tick); current = null; u.onend && u.onend(); return; }
+            u.onboundary && u.onboundary({ name:"word", charIndex: at, charLength: words[i].length }); at += words[i].length + 1; i++; }, 220);
+          current = c;
+        }, 5); } };
     Object.defineProperty(window, "speechSynthesis", { value: synth });
     window.SpeechSynthesisUtterance = function(t){ this.text = t; };
     class FakeSR { constructor(){ window.__rec = this; } start(){ setTimeout(() => this.onstart && this.onstart(), 5); } stop(){ this.onend && this.onend(); } abort(){ this.onend && this.onend(); } }
@@ -55,23 +66,42 @@ function fakes({ mcp = false, script = [] } = {}){
       };
       window.claude = { use: async n => n === "sample" ? sample : n === "mcp" ? m : null };
     }
-  }, { mcp, script }];
+    window.__opened = [];
+    window.open = url => { window.__opened.push(String(url)); return window.__blockPopups ? null : {}; };
+  }, { mcp, script, slowVoice }];
 }
 async function open(opts, viewport = { width:1440, height:900 }){
   const p = await browser.newPage({ viewport }); const errs = [];
   p.on("pageerror", e => errs.push(e.message));
+  // Fake Apple Music search (the page loads it JSONP-style)
+  await p.route(/itunes\.apple\.com\/search/, route => {
+    const u = new URL(route.request().url()), cb = u.searchParams.get("callback");
+    const term = u.searchParams.get("term") || "";
+    const results = /nothingmatches/.test(term) ? [] : [
+      { wrapperType:"track", trackName:"Back In Black", artistName:"AC/DC", collectionName:"Back In Black", trackViewUrl:"https://music.apple.com/us/album/back-in-black/574050396?i=574050602" },
+      { wrapperType:"track", trackName:"Hells Bells", artistName:"AC/DC" } ];
+    route.fulfill({ contentType:"text/javascript", body:`${cb}(${JSON.stringify({ resultCount: results.length, results })});` });
+  });
   await p.addInitScript(...fakes(opts));
   await p.goto(PAGE); await p.waitForTimeout(600);
   p.errs = errs; return p;
 }
-const say = async (p, t, wait = 700) => { await p.evaluate(t => window.__say(t), t); await p.waitForTimeout(wait); };
+// Say something, then wait until Jarvis has finished (not thinking/speaking) and is listening again.
+const sayNow = (p, t) => p.evaluate(t => window.__say(t), t);
+async function settle(p, minWait = 300){
+  await p.waitForTimeout(minWait);
+  const busy = () => p.evaluate(() => { const m = document.getElementById("mode").textContent; return /Processing|Speaking/.test(m) || !document.getElementById("confirmBox").hidden && false; });
+  for(let i = 0; i < 60 && await busy(); i++) await p.waitForTimeout(100);
+  await p.waitForTimeout(500);   // listener restarts ~300 ms after Jarvis stops talking
+}
+const say = async (p, t, wait = 300) => { await sayNow(p, t); await settle(p, wait); };
 const log = p => p.evaluate(() => window.__log);
 
 console.log("Start screen, voice, wake word, conversation");
 {
   const p = await open({ script:[{ text:"It is noon. Anything else?" }, { text:"Tomorrow is clear." }, { text:"Fine, thank you." }] });
   check("start screen shows", await p.locator("#boot").isVisible());
-  await p.click("#bootBtn"); await p.waitForTimeout(300);
+  await p.click("#bootBtn"); await settle(p);
   check("greets out loud after Initialize", (await p.evaluate(() => window.__spoken)).length === 1);
   await say(p, "random chatter in the room", 300);
   check("ignores speech without its name", (await log(p)).length === 0);
@@ -105,7 +135,7 @@ console.log("Memory, confirmations, drafts, events, web search fallback, diagnos
     { tool:"log_bug", input:{ description:"Did not hear me with music on" } }, { text:"Logged." },
     { err:"invalid x-api-key", status:401 }
   ]});
-  await p.click("#bootBtn"); await p.waitForTimeout(200);
+  await p.click("#bootBtn"); await settle(p);
   await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(400); await p.click("#closeBtn");
   await say(p, "jarvis remember that acme is my biggest client", 900);
   let L = await log(p);
@@ -139,10 +169,65 @@ console.log("Memory, confirmations, drafts, events, web search fallback, diagnos
   await p.close();
 }
 
+console.log("Voice glow, Apple Music, websites");
+{
+  const p = await open({ slowVoice:true, script:[
+    { tool:"play_music", input:{ query:"back in black acdc", type:"song" } }, { text:"Playing Back in Black by AC DC on Apple Music, sir. Enjoy the noise." },
+    { tool:"open_website", input:{ url:"youtube.com", name:"YouTube" } }, { text:"YouTube is open." }
+  ]});
+  await p.click("#bootBtn");
+  const levels = [];
+  for(let k = 0; k < 12; k++){ await p.waitForTimeout(120); levels.push(await p.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue("--voice").trim())); }
+  const distinct = new Set(levels.filter(v => v !== "" && v !== "0")).size;
+  check("glow follows the voice while speaking (pulses, not constant)", distinct >= 3, levels.join(","));
+  await p.waitForTimeout(2500);
+  await say(p, "jarvis play back in black", 1500);
+  const opened = await p.evaluate(() => window.__opened);
+  check("music: opens the exact song on Apple Music", opened.some(u => u.includes("music.apple.com") && u.includes("?i=574050602")), opened.join(" "));
+  check("music: shows a Play button as backup", await p.locator("#openLink").isVisible() && /Back In Black/.test(await p.locator("#openLink").textContent()));
+  const L = await log(p);
+  const res = JSON.stringify(L.filter(x => x.last).map(x => x.last.content));
+  check("music: tells Claude what is playing", res.includes("Back In Black by AC/DC"));
+  await p.waitForTimeout(3500);
+  await p.evaluate(() => { window.__blockPopups = true; });
+  await say(p, "jarvis open youtube", 1500);
+  const op2 = await p.evaluate(() => window.__opened);
+  check("website: adds https:// and opens it", op2.includes("https://youtube.com"));
+  check("website: if Chrome blocks pop-ups, the Open button is there", (await p.locator("#openLink").getAttribute("href")) === "https://youtube.com" && await p.locator("#openLink").isVisible());
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Interrupting Jarvis (barge-in)");
+{
+  const LONG = "Your day looks busy, sir. At nine you have the board meeting with Pepper, then lunch with Happy at one, and in the afternoon three calls about the Stark Expo budget and the new reactor design.";
+  const p = await open({ slowVoice:true, script:[ { text: LONG }, { text:"Tomorrow, then. Moving on." }, { text: LONG } ] });
+  await p.click("#bootBtn"); await p.waitForTimeout(2500);
+  await sayNow(p, "jarvis what does my day look like"); await p.waitForTimeout(1300);
+  const before = (await log(p)).length;
+  await sayNow(p, "the board meeting with Pepper"); await p.waitForTimeout(700);   // Jarvis's own words picked up by the mic
+  check("ignores its own voice coming back through the speakers", (await log(p)).length === before && (await p.locator("#mode").textContent()) !== "Go ahead, sir");
+  await sayNow(p, "wait move the lunch to tomorrow"); await p.waitForTimeout(1200);
+  const L = await log(p);
+  const last = L.at(-1).last.content;
+  check("talking over it stops it immediately", (await p.evaluate(() => window.__cancels)) > 0);
+  check("tells Claude it was interrupted, with what you heard", typeof last === "string" && last.includes("[You were interrupted") && last.includes("Your day looks busy"));
+  check("only what you actually heard is reported, not the whole reply", !last.includes("new reactor design"));
+  check("your words reach Claude", last.endsWith("wait move the lunch to tomorrow"));
+  await p.waitForTimeout(1500);
+  await sayNow(p, "and tomorrow?"); await p.waitForTimeout(1300);
+  const n = (await log(p)).length;
+  await sayNow(p, "stop"); await p.waitForTimeout(900);
+  check("'stop' just stops: no new reply", (await log(p)).length === n);
+  check("…and the conversation stays open", /Go ahead|Yes, sir/.test(await p.locator("#mode").textContent()));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("Online version (claude.ai connectors)");
 {
   const p = await open({ mcp:true });
-  await p.click("#bootBtn"); await p.waitForTimeout(200);
+  await p.click("#bootBtn"); await settle(p);
   await say(p, "jarvis draft pepper a note", 500);
   check("confirmation card appears", await p.locator("#confirmBox").isVisible());
   await p.click("#confirmYes"); await p.waitForTimeout(500);
