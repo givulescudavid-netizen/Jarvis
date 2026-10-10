@@ -13,7 +13,7 @@ David is not a programmer. Explain changes in plain language, never assume he wi
   (`google.mode === "mcp"` vs `"oauth"`, `sample` vs `apiKey`). Keep both paths working.
 
 Main parts of `index.html`, in order:
-1. `sysPrompt()` / `RULES` — Jarvis's personality and instructions (plus "About you" and memories).
+1. `sysPrompt()` / `RULES` — Jarvis's personality and instructions (plus "About you" and memories). **Every new tool must also be listed in RULES' "What you CAN do"**, or Claude may refuse to use it.
 2. Memory (`jarvis.memory`), confirmations (`confirmAction`), tools list (`tools`, `googleTools`).
 3. Google layer: OAuth via Google Identity Services (local/Pages) or claude.ai connectors (online). Scopes in `GSCOPES`.
 4. Speech out (`speak`, chunked, needs one click first — the Initialize screen) and speech in
@@ -39,7 +39,7 @@ Main parts of `index.html`, in order:
 3. Reproduce with the test harness when possible. **Add or update a check in `tests/run.mjs` for every fix.**
 4. Run `npm install && npx playwright install chromium && npm test` — all checks must pass.
    (In Claude Code cloud sessions Chromium is preinstalled at /opt/pw-browsers/chromium; the tests use it automatically.)
-5. Bump `VERSION` in `index.html` (format YYYY.MM.DD) and add a plain-language entry to `CHANGELOG.md`.
+5. Bump `VERSION` in `index.html` (format YYYY.MM.DD, add .2, .3… for more releases the same day; the site auto-reloads when it changes) and add a plain-language entry to `CHANGELOG.md`.
 6. Push the branch and open a PR via REST: `gh api repos/givulescudavid-netizen/Jarvis/pulls -f title=... -f head=<branch> -f base=main -f body=...`.
    Plain-language description ("what you'll notice", "what to try for real"), link the issues (`Fixes #12`). **Never merge it yourself** — David approves.
 7. If nothing is worth changing, say so and open nothing. No churn, no cosmetic rewrites, no dependency additions.

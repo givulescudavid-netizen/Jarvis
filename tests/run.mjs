@@ -43,7 +43,7 @@ function fakes({ mcp = false, script = [], slowVoice = false } = {}){
     window.fetch = async (u, o) => {
       u = String(u); const J = (x, st = 200) => new Response(JSON.stringify(x), { status: st });
       if(u.includes("api.anthropic.com")){
-        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1) });
+        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1), system: body.system });
         const st = script[call++] || { text: "Done." };
         if(st.err) return J({ error:{ message: st.err } }, st.status || 400);
         if(st.tool) return J({ stop_reason:"tool_use", content:[{ type:"tool_use", id:"t" + call, name: st.tool, input: st.input }] });
@@ -142,6 +142,8 @@ console.log("Memory, confirmations, drafts, events, web search fallback, diagnos
   check("offers web search first", L[0].tools.includes("web_search"));
   check("retries without web search when it's disabled", !L[1].tools.includes("web_search"));
   check("local version doesn't offer brokerage tools", !L[0].tools.some(t => t.startsWith("portfolio_")));
+  check("Jarvis is told it CAN open websites and play music", /open_website/.test(L[0].system) && /play_music/.test(L[0].system) && L[0].tools.includes("open_website") && L[0].tools.includes("play_music"));
+  check("no blanket 'everything is read-only' rule that makes it refuse", !/Everything is read-only/i.test(L[0].system));
   check("memory saved", (await p.evaluate(() => localStorage.getItem("jarvis.memory"))).includes("Acme"));
   await say(p, "draft pepper an email");
   check("confirmation card appears", await p.locator("#confirmBox").isVisible());
