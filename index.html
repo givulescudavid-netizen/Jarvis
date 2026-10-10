@@ -275,7 +275,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.6";
+const VERSION = "2026.10.11.7";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -857,9 +857,12 @@ function elProblem(e){
   if(e.network) text = "Couldn't connect to ElevenLabs: check your internet, or an ad/privacy blocker may be blocking api.elevenlabs.io. Using the built-in voice.";
   else if(/missing_permission/i.test(e.code + e.msg)) text = "Your ElevenLabs key is missing a permission" + why + ". Fix: in ElevenLabs → API Keys, edit the key and give it access to Text to Speech and Voices (or switch off \"Restrict key\"), then paste it again.";
   else if(e.status === 401 && /invalid|not found|unauthor/i.test(e.code + e.msg + " invalid")){ elOff = true; text = "ElevenLabs says this key isn't valid" + why + ". Copy it again from ElevenLabs → API Keys (the whole key, no spaces) and paste it."; }
-  else if(e.status === 429 || e.status === 402 || /quota|credit|limit|payment|paid|subscription|unusual/i.test(e.code + e.msg)){ text = "ElevenLabs refused" + why + ". Usually: credits used up, a voice that needs a paid plan (try George or Daniel), or free-plan limits."; if(/quota|credit/i.test(e.code + e.msg)) elOff = true; }
+  else if(/library|paid_plan|payment|subscription/i.test(e.code + e.msg) || e.status === 402){ text = "This voice is from the ElevenLabs Voice Library, which needs a paid ElevenLabs plan to use in apps" + why + ". Pick a standard voice (George, Daniel, Adam…) in the list above, or upgrade your ElevenLabs plan."; }
+  else if(e.status === 429 || /quota|credit|limit|unusual/i.test(e.code + e.msg)){ text = "ElevenLabs refused" + why + ". Usually: credits used up or free-plan limits."; if(/quota|credit/i.test(e.code + e.msg)) elOff = true; }
   else text = `ElevenLabs error ${e.status}${why}.`;
   $("elStatus").textContent = text + (elOff ? " Using the built-in voice for now." : "");
+  // Say it on the main screen too (once per problem), so a silent fallback never goes unnoticed
+  if(elProblem.last !== text){ elProblem.last = text; addMsg("sys", "ElevenLabs voice didn't work, so I used the built-in voice. " + text); }
 }
 async function speakEleven(text, chunks, job){
   const ac = audioCtx(); await ac.resume?.();

@@ -315,6 +315,22 @@ console.log("ElevenLabs voice");
   const st = await p.locator("#elStatus").textContent();
   check("key missing Text to Speech permission: says exactly that and how to fix it", /missing a permission/.test(st) && /text_to_speech/.test(st) && /Text to Speech/.test(st));
   check("…and Jarvis still talks with the built-in voice", (await p.evaluate(() => window.__spoken.length)) === 1);
+  check("…and says why on the main screen, not just in settings", /ElevenLabs voice didn't work/.test(await p.locator("#capJ").textContent()));
+  check("no page errors", errs.length === 0, errs.join(" | "));
+  await p.close();
+}
+{
+  const p = await browser.newPage(); const errs = [];
+  p.on("pageerror", e => errs.push(e.message));
+  await p.route(/api\.elevenlabs\.io/, route => {
+    const cors = { "access-control-allow-origin":"*" };
+    if(route.request().url().endsWith("/v1/voices")) return route.fulfill({ headers:cors, contentType:"application/json", body:'{"voices":[{"voice_id":"lib1","name":"Movie Butler"}]}' });
+    return route.fulfill({ status:402, headers:cors, contentType:"application/json", body:'{"detail":{"status":"payment_required","message":"Free users cannot use library voices via the API. Please upgrade your subscription to use this voice."}}' });
+  });
+  await p.addInitScript(...fakes({ eleven:true }));
+  await p.goto(PAGE); await p.waitForTimeout(800);
+  await p.click("#bootBtn"); await p.waitForTimeout(800);
+  check("Voice Library voice on a free plan: explains it needs a paid plan and suggests standard voices", /Voice Library/.test(await p.locator("#elStatus").textContent()) && /George/.test(await p.locator("#capJ").textContent()));
   check("no page errors", errs.length === 0, errs.join(" | "));
   await p.close();
 }
