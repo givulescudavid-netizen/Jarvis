@@ -50,8 +50,8 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
     class FakeSR extends EventTarget {
       constructor(){ super(); window.__rec = this; }
       fire(type, props = {}){ const ev = Object.assign(new Event(type), props); this["on" + type] && this["on" + type](ev); this.dispatchEvent(ev); }
-      start(){ setTimeout(() => this.fire("start"), 5); }
-      stop(){ this.fire("end"); } abort(){ this.fire("end"); }
+      start(){ setTimeout(() => { this.live = true; this.fire("start"); }, 5); }
+      stop(){ this.live = false; this.fire("end"); } abort(){ this.live = false; this.fire("end"); }
     }
     window.SpeechRecognition = FakeSR; window.webkitSpeechRecognition = FakeSR;
     window.__say = txt => { const r = [{ transcript: txt }]; r.isFinal = true; window.__rec && window.__rec.fire("result", { resultIndex:0, results:[r] }); };
@@ -138,7 +138,9 @@ async function fakeEleven(p, mode = "ok"){
 }
 
 // Say something, then wait until Jarvis has finished (not thinking/speaking) and is listening again.
-const sayNow = (p, t) => p.evaluate(t => window.__say(t), t);
+// Like a real microphone, the fake one only hears while a listener is running. Jarvis restarts its listener a moment
+// after it stops talking, so wait (up to 3 s) for one to be live: on a slow machine a fixed pause wasn't enough and words got lost.
+const sayNow = async (p, t) => { await p.waitForFunction(() => window.__rec && window.__rec.live, null, { timeout:3000 }).catch(() => {}); await p.evaluate(t => window.__say(t), t); };
 async function settle(p, minWait = 300){
   await p.waitForTimeout(minWait);
   const busy = () => p.evaluate(() => { const m = document.getElementById("mode").textContent; return /Processing|Speaking/.test(m) || !document.getElementById("confirmBox").hidden && false; });
@@ -166,6 +168,7 @@ console.log("Start screen, voice, wake word, conversation");
   check("'that's all' ends the conversation", (await log(p)).length === 2);
   await say(p, "Jarvis, how are you", 900);
   check("name + question in one go", (await log(p)).length === 3);
+  check("microphone is listening again after it answers", await p.waitForFunction(() => window.__rec && window.__rec.live, null, { timeout:3000 }).then(() => true, () => false));
   const box = await p.locator("#reactor").boundingBox();
   check("reactor centred horizontally", Math.abs(box.x + box.width / 2 - 720) < 4, box.x + box.width / 2);
   await p.screenshot({ path: path.join(shots, "desktop.png") });
@@ -197,7 +200,8 @@ console.log("Acting like JARVIS: spoken acknowledgements, welcome status, meetin
   await sayNow(p, "any important email"); await p.waitForTimeout(4600);
   const mid = await spoken();
   check("says 'one moment' while it works on something slow", mid.slice(n1).some(t => ACK.test(t)), mid.slice(n1).join(" | "));
-  check("…and still shows it's working", /Processing/.test(await p.locator("#mode").textContent()));
+  // (the "one moment" itself shows "Speaking" for an instant, so allow a moment to get back to "Processing")
+  check("…and still shows it's working", await p.waitForFunction(() => /Processing/.test(document.getElementById("mode").textContent), null, { timeout:700 }).then(() => true, () => false), await p.locator("#mode").textContent());
   await settle(p, 1500);
   check("…then gives the answer", (await spoken()).at(-1) === "Two unread, sir. Nothing urgent.");
   const n2 = (await spoken()).length;

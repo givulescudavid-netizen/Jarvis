@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026.10.11.21 — Reliable automatic checks
+- Nothing changes in how Jarvis works. The automatic checks that run before every change were failing at random (between 1 and 14 failures out of ~130) on a busy computer: the pretend microphone sometimes "spoke" in the half second while Jarvis was restarting its listening, so a test sentence got lost. The checks now wait until Jarvis is actually listening, like a real person would.
+
 ## 2026.10.11.20 — Better problem reports
 - "Report a problem" now includes what you said to Jarvis and the exact error it showed, so problems can be reproduced and fixed. Email addresses, phone numbers and links are blanked out, because reports are public.
 - New reports are picked up automatically by a Claude bug-fixer, which proposes a fix for you to approve.
