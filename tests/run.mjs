@@ -389,6 +389,24 @@ console.log("Talking while the answer is still coming in (streaming)");
   await p.close();
 }
 
+{
+  // ElevenLabs fetches the next sentence early; if it isn't written yet, Jarvis must keep "speaking" (and listening for interruptions) until the current one ends
+  const p = await browser.newPage({ viewport:{ width:1440, height:900 } }); const errs = [];
+  p.on("pageerror", e => errs.push(e.message));
+  await fakeEleven(p, "ok");
+  await p.addInitScript(...fakes({ eleven:true, script:[ { sse:["Good evening, sir, your board meeting with Pepper is at nine. ", "And lunch is at one."], gap: 4000 } ] }));
+  await p.goto(PAGE); await p.waitForTimeout(800);
+  await p.click("#bootBtn"); await settle(p, 300);
+  await sayNow(p, "jarvis what's my day");
+  for(let i = 0; i < 40 && !/Speaking/.test(await p.locator("#mode").textContent()); i++) await p.waitForTimeout(100);
+  await p.waitForTimeout(600);
+  check("ElevenLabs + streaming: still 'speaking' while a sentence plays and the next one is being written", /Speaking/.test(await p.locator("#mode").textContent()), await p.locator("#mode").textContent());
+  await p.waitForTimeout(3000);
+  check("…then shows it's working while it waits for the next sentence", /Processing/.test(await p.locator("#mode").textContent()), await p.locator("#mode").textContent());
+  check("no page errors", errs.length === 0, errs.join(" | "));
+  await p.close();
+}
+
 console.log("ElevenLabs voice");
 {
   const LONG = "Good evening, sir. Your board meeting with Pepper is at nine, lunch with Happy is at one, and the reactor review runs all afternoon.";

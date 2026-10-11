@@ -1769,6 +1769,7 @@ async function speakEleven(src, job){
     await new Promise(r => { node.onended = r; node.start(); });
     if(elSource === node) elSource = null;
     if(job !== speakJob) return;
+    src.idle?.();
   }
   return { failedAt:-1 };
 }
@@ -1842,22 +1843,26 @@ function talker(){
   const t = { text:"", cut:0, chunks:[], started:-1, ended:false, hushed:false, cur:null, running:null, waiters:[] };
   let finish; t.finished = new Promise(r => finish = r);
   const wake = () => { const w = t.waiters; t.waiters = []; w.forEach(f => f()); };
+  // nothing playing and the next sentence isn't written yet: show "thinking" until it arrives
+  const quiet = () => { if(t.waiters.length && t.cur?.job === speakJob && mode === "speaking" && !elSource){ stopBarge(); setMode("thinking"); } };
   const source = from => ({
     from,
     get: async i => {
       while(i >= t.chunks.length && !t.ended && !t.hushed){
-        if(t.cur?.job === speakJob && mode === "speaking"){ stopBarge(); setMode("thinking"); }   // silent while the rest is written
-        await new Promise(r => t.waiters.push(r));
+        const w = new Promise(r => t.waiters.push(r));
+        quiet();   // (ElevenLabs asks for the next sentence early, while this one still plays: then quiet() waits for idle())
+        await w;
       }
       return t.hushed ? null : t.chunks[i] ?? null;
     },
     full: () => t.chunks.join(" "),
     offsetOf: k => k ? t.chunks.slice(0, k).join(" ").length + 1 : 0,
     started: i => { t.started = i; },
+    idle: quiet,
   });
   const start = () => {
     if(t.running || t.hushed || t.mute || !voiceOn || dormant || t.started + 1 >= t.chunks.length) return;
-    if(voiceEnv.ack && mode === "speaking"){ clearTimeout(t.later); t.later = setTimeout(start, 250); return; }   // let "One moment, sir" finish
+    if(mode === "speaking"){ clearTimeout(t.later); t.later = setTimeout(start, 250); return; }   // let whatever is being said ("One moment, sir", a reminder) finish first
     const src = t.cur = source(t.started + 1);
     t.running = speakFrom(src).then(() => {
       if(t.cur !== src) return;
