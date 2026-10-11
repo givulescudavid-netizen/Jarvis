@@ -2186,11 +2186,12 @@ $("screensBtn").onclick = async () => {
 };
 // Pinch-drag: while grabbed, the window follows the hand. The whole camera view stands for the whole row of screens.
 async function grabStart(hx, hy){
-  gest.grab = { pending:true };
+  const mine = gest.grab = { pending:true };
   const why = await cantMove();
-  if(!gest.grab) return;   // let go while we were checking
+  if(gest.grab !== mine) return;   // let go (or grabbed again) while we were checking
   if(why){ gest.grab = null; toast("🤏 CAN'T MOVE"); addMsg("sys", why); return; }
   const list = await screenList();
+  if(gest.grab !== mine) return;
   const box = list.reduce((b, s) => ({ l:Math.min(b.l, s.left), t:Math.min(b.t, s.top), r:Math.max(b.r, s.left + s.width), b:Math.max(b.b, s.top + s.height) }), { l:Infinity, t:Infinity, r:-Infinity, b:-Infinity });
   gest.grab = { list, box, hx, hy, x0:screenX, y0:screenY, x:screenX, y:screenY, at:0 };
   $("airCursor").classList.add("grab"); toast("🤏 GRABBED");
