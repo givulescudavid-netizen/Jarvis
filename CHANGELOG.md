@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026.10.11.19 — Fewer "one moment, sir"s
+- Jarvis now only says "one moment" when an answer takes longer than 4 seconds (it was 1.4), and at most once every 2 minutes.
+
 ## 2026.10.11.18 — Fix "Uplink error … without a corresponding code_execution_tool_result"
 - When a web search got cut off part-way, Jarvis saved the unfinished step and then every later question failed until you reloaded. It now keeps only the words of a cut-off reply.
 - If Claude ever rejects the conversation history again, Jarvis quietly starts a fresh conversation and answers instead of showing an error.

@@ -177,7 +177,7 @@ console.log("Start screen, voice, wake word, conversation");
 
 console.log("Acting like JARVIS: spoken acknowledgements, welcome status, meeting alerts");
 {
-  const p = await open({ googleBefore:true, script:[ { text:"Two unread, sir. Nothing urgent.", delay:2600 }, { text:"Done, sir." } ],
+  const p = await open({ googleBefore:true, script:[ { text:"It is noon, sir.", delay:2600 }, { text:"Two unread, sir. Nothing urgent.", delay:5500 }, { text:"Also clear, sir.", delay:5500 } ],
     events:[ { title:"Board meeting", location:"Conference room", inMin:10 }, { title:"Lunch with Happy", inMin:120 } ], unread:3 }, undefined, HTTP_PAGE);
   const spoken = () => p.evaluate(() => window.__spoken);
   await p.click("#bootBtn"); await settle(p, 1200);   // Google was connected before, so this click reconnects it
@@ -188,13 +188,20 @@ console.log("Acting like JARVIS: spoken acknowledgements, welcome status, meetin
   const n0 = (await spoken()).length;
   await say(p, "jarvis", 300);
   check("answers out loud when you say its name", /^(Yes, sir\?|At your service, sir\.|Sir\?|I'm here, sir\.|Go ahead, sir\.|Listening, sir\.)$/.test((await spoken())[n0] || ""), (await spoken()).slice(n0).join(" | "));
+  const ACK = /One moment|Right away|Working on it|On it|Just a moment|Checking now/;
+  const n0b = (await spoken()).length;
+  await sayNow(p, "what time is it"); await settle(p, 800);
+  check("no 'one moment' when the answer comes quickly", !(await spoken()).slice(n0b).some(t => ACK.test(t)) && (await spoken()).at(-1) === "It is noon, sir.", (await spoken()).slice(n0b).join(" | "));
   const n1 = (await spoken()).length;
-  await sayNow(p, "any important email"); await p.waitForTimeout(2000);
+  await sayNow(p, "any important email"); await p.waitForTimeout(4600);
   const mid = await spoken();
-  check("says 'one moment' while it works on something slow", mid.slice(n1).some(t => /One moment|Right away|Working on it|On it|Just a moment|Checking now/.test(t)), mid.slice(n1).join(" | "));
+  check("says 'one moment' while it works on something slow", mid.slice(n1).some(t => ACK.test(t)), mid.slice(n1).join(" | "));
   check("…and still shows it's working", /Processing/.test(await p.locator("#mode").textContent()));
   await settle(p, 1500);
   check("…then gives the answer", (await spoken()).at(-1) === "Two unread, sir. Nothing urgent.");
+  const n2 = (await spoken()).length;
+  await sayNow(p, "anything on the calendar"); await settle(p, 800);
+  check("…but doesn't say it again on the very next slow answer", !(await spoken()).slice(n2).some(t => ACK.test(t)) && (await spoken()).at(-1) === "Also clear, sir.", (await spoken()).slice(n2).join(" | "));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }

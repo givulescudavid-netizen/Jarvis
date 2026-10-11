@@ -359,7 +359,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.18";
+const VERSION = "2026.10.11.19";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -1523,6 +1523,7 @@ function startListening(){
 // Barge-in: while Jarvis talks, keep listening. If the user speaks over it (and it isn't
 // just Jarvis's own voice coming back through the speakers), stop talking and react.
 const WAKE_ACKS = ["Yes, sir?", "At your service, sir.", "Sir?", "I'm here, sir.", "Go ahead, sir.", "Listening, sir."];
+let lastThinkAck = 0;
 const THINK_ACKS = ["One moment, sir.", "Right away, sir.", "Working on it.", "On it, sir.", "Just a moment, sir.", "Checking now, sir."];
 const STOPWORD = /^(?:jarvis|stop|wait|hold on|hang on|pause|quiet|enough|shut up|no no|actually)\b/i;
 const JUST_STOP = /^(?:jarvis[\s,]*)?(?:stop|stop talking|quiet|be quiet|shut up|enough|that'?s enough|ok(?:ay)?|ok(?:ay)? thanks?|thanks?|thank you|never ?mind|got it|cool|perfect|pause)[\s.!]*$/i;
@@ -1938,7 +1939,11 @@ async function ask(text, shown, interruptedHeard){
   const out = addMsg("j","…");
   ctl = new AbortController();
   // Like JARVIS: if the answer takes more than a moment, acknowledge out loud while working
-  setTimeout(() => { if(busyAsk === myAsk && mode === "thinking" && !pendingConfirm) speak(pick(THINK_ACKS), { ack:true }); }, 1400);
+  // …but only for genuinely slow answers, and not every time (at most once every 2 minutes)
+  setTimeout(() => {
+    if(busyAsk !== myAsk || mode !== "thinking" || pendingConfirm || Date.now() - lastThinkAck < 120000) return;
+    lastThinkAck = Date.now(); speak(pick(THINK_ACKS), { ack:true });
+  }, 4000);
   try{
     let reply;
     if(sample){
