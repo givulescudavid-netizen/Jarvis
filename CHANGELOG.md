@@ -1,8 +1,13 @@
 # Changelog
 
-## 2026.10.11.25 — Excel DCF templates
+## 2026.10.11.26 — Excel DCF templates
 - Your DCF template can now be an Excel file. The first time, Jarvis asks "Make a Google Sheets copy so I can read it?" and, once you say yes, uses that copy as your template. Your Excel file is never changed.
 - Layout and formulas carry over. If any formula doesn't work in Google Sheets (a few Excel-only functions don't), Jarvis tells you which cells so you can fix them in the copy before trusting the numbers.
+
+## 2026.10.11.25 — Move Jarvis between screens
+- **Pinch-drag:** with hand gestures on, pinch your thumb and finger on an empty spot in Jarvis and hold for half a second. The cursor turns into a dashed "grabbed" circle. Move your hand left or right and the window follows across your monitors; open your fingers to drop it on that screen. A quick pinch on a button still clicks it.
+- **By voice:** "Jarvis, move to the other screen" (or "the left screen", "screen 2", "the main screen").
+- This only works when Jarvis is in its own window (tap ⧉ at the top right, or the installed app), in Chrome or Edge on a computer: Chrome never lets a page move a normal tab. The first time, click ⚙ → Hand gestures → "Allow moving between screens" and say yes to Chrome's question.
 
 ## 2026.10.11.24 — Reminders, weather, travel times, Uber and hotels
 - **Reminders:** "Jarvis, remind me at 4 to call the bank" or "remind me in 20 minutes to check the oven". Jarvis says it out loud when it's due. If Jarvis was closed at that moment, it tells you as soon as you open it again. Reminders show on the dashboard (under Timers & reminders) and survive a reload. "What reminders do I have?" and "cancel the bank reminder" work too.
