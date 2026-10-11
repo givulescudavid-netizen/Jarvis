@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.11.25 — Move Jarvis between screens
+- **Pinch-drag:** with hand gestures on, pinch your thumb and finger on an empty spot in Jarvis and hold for half a second. The cursor turns into a dashed "grabbed" circle. Move your hand left or right and the window follows across your monitors; open your fingers to drop it on that screen. A quick pinch on a button still clicks it.
+- **By voice:** "Jarvis, move to the other screen" (or "the left screen", "screen 2", "the main screen").
+- This only works when Jarvis is in its own window (tap ⧉ at the top right, or the installed app), in Chrome or Edge on a computer: Chrome never lets a page move a normal tab. The first time, click ⚙ → Hand gestures → "Allow moving between screens" and say yes to Chrome's question.
+
 ## 2026.10.11.24 — Reminders, weather, travel times, Uber and hotels
 - **Reminders:** "Jarvis, remind me at 4 to call the bank" or "remind me in 20 minutes to check the oven". Jarvis says it out loud when it's due. If Jarvis was closed at that moment, it tells you as soon as you open it again. Reminders show on the dashboard (under Timers & reminders) and survive a reload. "What reminders do I have?" and "cancel the bank reminder" work too.
 - **Weather:** "Do I need an umbrella?", "What's the weather in Lisbon this weekend?" Current conditions, the next 12 hours and up to 7 days. The morning briefing now includes the weather for your city (tell Jarvis your city once, or put it in "About you").

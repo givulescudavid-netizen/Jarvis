@@ -620,6 +620,71 @@ console.log("Hand gestures (pretend camera hand)");
   await p.close();
 }
 
+console.log("Moving Jarvis between screens (pinch-drag and voice)");
+{
+  // two pretend monitors side by side; moveTo records where the window went
+  const screensFake = allow => {
+    const A = { left:0, top:0, width:1920, height:1080, availLeft:0, availTop:0, availWidth:1920, availHeight:1040, isPrimary:true };
+    const B = { left:1920, top:0, width:1920, height:1080, availLeft:1920, availTop:0, availWidth:1920, availHeight:1040, isPrimary:false };
+    const d = { screens:[A, B], currentScreen:A };
+    window.__moves = [];
+    window.getScreenDetails = async () => { if(!allow) throw Object.assign(new Error("Permission denied."), { name:"NotAllowedError" }); return d; };
+    window.moveTo = (x, y) => { window.__moves.push([x, y]); d.currentScreen = x + 200 >= 1920 ? B : A; };
+  };
+  const lastResult = async p => JSON.stringify((await log(p)).filter(x => x.last).at(-1).last.content);
+  // in a normal tab: Jarvis explains it needs its own window
+  const t = await open({ script:[{ tool:"move_window", input:{ screen:"next" } }, { text:"I need my own window for that, sir." }] }, undefined, HTTP_PAGE);
+  await t.evaluate(screensFake, true);
+  await t.click("#bootBtn"); await settle(t);
+  await say(t, "jarvis move to the other screen", 1200);
+  check("in a normal tab, moving says to pop out with ⧉ first (Chrome can't move tabs)", /pop me out/.test(await lastResult(t)) && (await t.evaluate(() => window.__moves.length)) === 0, await lastResult(t));
+  check("Jarvis knows it can move its window", (await log(t))[0].tools.includes("move_window") && /move_window/.test((await log(t))[0].system));
+  await t.close();
+  // in the pop-out, without Chrome's OK yet
+  const n = await open({ script:[{ tool:"move_window", input:{} }, { text:"Chrome needs your OK, sir." }] }, { width:440, height:600 }, HTTP_PAGE + "?mini=1");
+  await n.evaluate(screensFake, false);
+  await n.click("#bootBtn"); await settle(n);
+  await say(n, "jarvis move to the other screen", 1200);
+  check("without Chrome's permission, Jarvis says where to allow it", /Allow moving between screens/.test(await lastResult(n)), await lastResult(n));
+  await n.close();
+  // in the pop-out, allowed: voice and pinch-drag
+  const p = await open({ ls:{ "jarvis.gestures": true }, script:[{ tool:"move_window", input:{ screen:"next" } }, { text:"Done, sir." }] }, { width:440, height:600 }, HTTP_PAGE + "?mini=1");
+  await p.evaluate(screensFake, true);
+  await p.evaluate(() => {
+    window.__gr = { gestures:[], landmarks:[] };
+    window.__fakeGR = { recognizeForVideo: () => window.__gr };
+    window.__hand = (sx, sy, pinch) => {
+      const x = 1 - sx / innerWidth, y = sy / innerHeight;
+      const lm = Array.from({ length:21 }, () => ({ x, y, z:0 }));
+      lm[0] = { x, y: Math.min(1, y + .2), z:0 };
+      lm[4] = pinch ? { x, y, z:0 } : { x: x + .15, y: y + .1, z:0 };
+      window.__gr = { landmarks:[lm], gestures:[[{ categoryName:"None", score:.9 }]] };
+    };
+  });
+  await p.click("#bootBtn"); await settle(p); await p.waitForTimeout(800);
+  check("(hand gestures are on in the pop-out)", await p.locator("#gestChip").isVisible());
+  await say(p, "jarvis move to the other screen", 1200);
+  check("🗣 'move to the other screen' moves the pop-out to screen 2", /Moved to screen 2 of 2/.test(await lastResult(p)) && (await p.evaluate(() => window.__moves.at(-1)?.[0])) >= 1920, await lastResult(p));
+  // put the window back on screen 1 for the drag
+  await p.evaluate(() => { window.moveTo(100, 100); window.__moves = []; });
+  const hand = async (sx, sy, pinch, ms) => { await p.evaluate(([a, b, c]) => window.__hand(a, b, c), [sx, sy, pinch]); await p.waitForTimeout(ms); };
+  const ex = 8, ey = 590;   // an empty spot (bottom left corner)
+  check("(that spot isn't a button)", !(await p.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest("button, a[href], [role=button], #reactor, label.check, summary"), [ex, ey])));
+  await hand(ex, ey, false, 400);
+  await hand(ex, ey, true, 900);
+  check("🤏 pinch and hold on an empty spot grabs the window", /GRABBED/.test(await p.locator("#gestToast").textContent()) && await p.evaluate(() => document.getElementById("airCursor").classList.contains("grab")), await p.locator("#gestToast").textContent());
+  for(const sx of [80, 160, 240, 320, 400]) await hand(sx, ey, true, 120);
+  check("…moving the hand drags the window across the screens", (await p.evaluate(() => Math.max(...window.__moves.map(m => m[0])))) > 1000, JSON.stringify(await p.evaluate(() => window.__moves.slice(-3))));
+  await hand(400, ey, false, 400);
+  const drop = await p.evaluate(() => window.__moves.at(-1));
+  check("…and letting go drops it fully on screen 2", drop[0] >= 1920 && /SCREEN 2/.test(await p.locator("#gestToast").textContent()) && !(await p.evaluate(() => document.getElementById("airCursor").classList.contains("grab"))), JSON.stringify(drop));
+  const before = await p.evaluate(() => window.__moves.length);
+  await hand(ex, ey, true, 200); await hand(ex, ey, false, 300);
+  check("a quick pinch (not held) doesn't grab or move anything", (await p.evaluate(() => window.__moves.length)) === before);
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("Prompt caching and the cost meter");
 {
   const p = await open({ script:[
