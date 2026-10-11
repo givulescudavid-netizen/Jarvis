@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.10.11.27 — Bigger / smaller with your hand, and no extra click after popping out
+- **Pop-out starts listening straight away.** After you tap ⧉, the new window starts on its own: no more "Initialize" click before you can talk. If Chrome still insists on one click before Jarvis can speak out loud, the click screen comes back, and a click anywhere on it is enough.
+- **Swipe up / down to resize** (hand gestures, in the pop-out or installed app): swipe up to make Jarvis bigger (from the small orb to the normal window, then full screen with the whole dashboard), swipe down to make it smaller (back to the normal window, then a small orb in the bottom right corner). Sideways swipes still close what's open.
+- **By voice:** "Jarvis, go full screen", "expand", "minimize", "shrink", "back to normal".
+- A web page can't truly minimize its own window to the taskbar, and Jarvis has to stay visible to hear you, so "minimize" shrinks it to a small orb instead.
+
 ## 2026.10.11.26 — Excel DCF templates
 - Your DCF template can now be an Excel file. The first time, Jarvis asks "Make a Google Sheets copy so I can read it?" and, once you say yes, uses that copy as your template. Your Excel file is never changed.
 - Layout and formulas carry over. If any formula doesn't work in Google Sheets (a few Excel-only functions don't), Jarvis tells you which cells so you can fix them in the copy before trusting the numbers.
