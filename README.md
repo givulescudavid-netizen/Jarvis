@@ -21,4 +21,8 @@ A Claude session reviews reports every week and proposes fixes as pull requests 
    `https://givulescudavid-netizen.github.io` (and `http://localhost:8000` if you use the local launcher).
    Then ⚙ → **Connect Google** and tick every box.
 
+## Finance setup (optional)
+- **DCFs:** put your DCF template in Google Sheets, enable the **Google Sheets API** in your Google Cloud project, then ⚙ → Connect Google again (tick every box). Say "Jarvis, let's do a DCF on Nvidia".
+- **Markets:** free key from finnhub.io → ⚙ → Markets. Then "Jarvis, watch Nvidia and tell me if it drops below 110".
+
 For developers / Claude sessions: see `CLAUDE.md`.

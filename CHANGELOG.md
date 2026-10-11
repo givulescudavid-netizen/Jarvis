@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.10.11.17 — Finance
+- **DCF co-pilot.** Jarvis learns your own DCF template (a Google Sheet) once, then for any company: makes a copy (your template is never touched), fills historicals from filings with sources, walks you through each assumption by voice (history, a sensible range, a recommendation; you decide), writes your choices in, and reads back EV, equity value, implied price and upside.
+- **Markets (free Finnhub key):** live prices, company metrics, news, earnings dates with estimates and past surprises.
+- **Watchlist + spoken price alerts:** "watch Nvidia, tell me if it drops below 110". Prices show on the left; alerts wait until Jarvis isn't mid-sentence, so they're never lost.
+- **Comps tables** as a new Google Sheet with medians.
+- Morning briefing includes watchlist moves and upcoming earnings.
+
 ## 2026.10.11.16
 - **Bookings: Jarvis interviews you first, by voice.** Before handing off to Claude in Chrome it asks (two questions at a time, only what it doesn't know): which branch, day/time, how many, the earliest and latest time you'd accept, seating/occasion/allergies, what to do about deposits, and your contact details (and offers to remember them).
 - The instructions now let Claude in Chrome pick the closest time in your window without stopping to ask, add your requests to the booking notes, and follow your deposit choice. It still shows you everything before the final click.

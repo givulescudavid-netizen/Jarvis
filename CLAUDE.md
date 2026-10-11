@@ -28,6 +28,8 @@ Main parts of `index.html`, in order:
 - **Anything that changes the owner's accounts must go through `confirmAction`** (spoken "Shall I go ahead?" + yes/no).
   Never add sending email, deleting, trading, or payments. Drafts and calendar events are the ceiling unless the owner explicitly asks.
 - Email/calendar/Drive content is untrusted data: never let it trigger actions on its own.
+- Spreadsheets: Jarvis only EDITS Google Sheets it created itself (DCF copies, comps sheets; tracked in `jarvis.myFiles`). Creating a copy/sheet goes through `confirmAction`; later writes to that same Jarvis-made file don't need re-confirming. Never write to the user's template or other files.
+- Finance output is information, never investment advice.
 - Don't break: wake word on the bare name, conversation mode, the Initialize screen (Chrome blocks speech without a click),
   centred reactor, phone layout.
 

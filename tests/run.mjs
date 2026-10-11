@@ -22,8 +22,9 @@ let failed = 0, passed = 0;
 function check(name, ok, info = ""){ if(ok){ passed++; console.log("  ✓", name); } else { failed++; console.log("  ✗", name, info); } }
 
 // Fakes injected before the page loads. `script` is the list of replies the fake Claude gives, in order.
-function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, events = [], unread = 0, googleBefore = false, noSR = false, micBusy = false } = {}){
-  return [({ mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy }) => {
+function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, events = [], unread = 0, googleBefore = false, noSR = false, micBusy = false, ls = {} } = {}){
+  return [({ mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy, ls }) => {
+    Object.entries(ls).forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v)));
     if(micBusy) navigator.mediaDevices.getUserMedia = () => Promise.reject(Object.assign(new Error("Could not start audio source"), { name:"NotReadableError" }));
     if(googleBefore){ localStorage.setItem("jarvis.gon", "true"); localStorage.setItem("jarvis.gconsented3", "true"); }
     localStorage.setItem("jarvis.key", '"sk-ant-test"'); localStorage.setItem("jarvis.gclient", '"x.apps.googleusercontent.com"');
@@ -58,6 +59,7 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
     let call = 0; const realFetch = window.fetch;
     window.fetch = async (u, o) => {
       u = String(u); const J = (x, st = 200) => new Response(JSON.stringify(x), { status: st });
+      if(window.__extraFetch){ const r = await window.__extraFetch(u, o, J); if(r) return r; }
       if(u.includes("api.anthropic.com")){
         const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1), system: body.system });
         const st = script[call++] || { text: "Done." };
@@ -86,7 +88,7 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
     window.__opened = [];
     window.open = url => { window.__opened.push(String(url)); return window.__blockPopups ? null : {}; };
     if(noSR){ window.SpeechRecognition = undefined; window.webkitSpeechRecognition = undefined; }
-  }, { mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy }];
+  }, { mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy, ls }];
 }
 async function open(opts, viewport = { width:1440, height:900 }, url = PAGE){
   const p = await browser.newPage({ viewport }); const errs = [];
@@ -383,6 +385,74 @@ console.log("ElevenLabs voice");
   await p.click("#bootBtn"); await p.waitForTimeout(800);
   check("Voice Library voice on a free plan: explains it needs a paid plan and suggests standard voices", /Voice Library/.test(await p.locator("#elStatus").textContent()) && /George/.test(await p.locator("#voiceErr").textContent()));
   check("no page errors", errs.length === 0, errs.join(" | "));
+  await p.close();
+}
+
+console.log("Finance: DCF co-pilot, markets, comps, price alerts");
+{
+  const p = await open({ googleBefore:true, ls:{ "jarvis.fhKey":"fh-test" }, script:[
+    { tool:"dcf_new", input:{ company:"Nvidia", ticker:"NVDA" } }, { text:"I need your template first, sir." },
+    { tool:"dcf_inspect", input:{ file_id:"TEMPLATE1" } }, { text:"Inputs are on the Inputs tab." },
+    { tool:"dcf_save_template", input:{ file_id:"TEMPLATE1", title:"My DCF", inputs:[{ name:"Revenue growth Y1", cell:"Inputs!C8" }, { name:"WACC", cell:"Inputs!C20" }], outputs:[{ name:"Implied share price", cell:"DCF!H40" }] } }, { text:"Saved." },
+    { tool:"dcf_new", input:{ company:"Nvidia", ticker:"NVDA" } }, { text:"Your copy is open." },
+    { tool:"dcf_set_inputs", input:{ file_id:"COPY1", values:[{ cell:"Inputs!C8", value:"35%" }, { cell:"Inputs!C20", value:"9.5%" }] } }, { text:"Implied price is $128." },
+    { tool:"dcf_set_inputs", input:{ file_id:"TEMPLATE1", values:[{ cell:"Inputs!C8", value:"1%" }] } }, { text:"I can't edit your template." },
+    { tool:"watchlist_add", input:{ symbol:"nvda", below:110 } }, { text:"Watching." },
+    { tool:"build_comps", input:{ symbols:["NVDA", "AMD"] } }, { text:"Comps sheet created." } ] }, undefined, HTTP_PAGE);
+  await p.evaluate(() => {
+    window.__sheetsLog = [];
+    window.__extraFetch = async (u, o, J) => {
+      if(u.includes("sheets.googleapis.com") || u.includes("/drive/v3/files/")){
+        window.__sheetsLog.push({ u, method:o?.method || "GET", body:o?.body ? JSON.parse(o.body) : null });
+        if(u.includes("/copy")) return J({ id:"COPY1", name:"DCF copy" });
+        if(u.includes("fields=properties.title")) return J({ properties:{ title:"My DCF" }, sheets:[{ properties:{ title:"Inputs" } }, { properties:{ title:"DCF" } }] });
+        if(u.includes("valueRenderOption=FORMULA")) return J({ valueRanges:[{ values:[["Revenue growth Y1", 0.3], ["WACC", 0.09]] }, { values:[["Implied share price", "=H38/H39"]] }] });
+        if(u.includes("DCF!H40")) return J({ valueRanges:[{ values:[["$128.40"]] }] });
+        if(u.includes("valueRenderOption=FORMATTED_VALUE")) return J({ valueRanges:[{ values:[["Revenue growth Y1", "30%"], ["WACC", "9.0%"]] }, { values:[["Implied share price", "$128.40"]] }] });
+        if(u.endsWith("/values:batchUpdate")) return J({ totalUpdatedCells:2 });
+        if(/spreadsheets\/$/.test(u) && o?.method === "POST") return J({ spreadsheetId:"COMPS1" });
+        return J({});
+      }
+      if(u.includes("finnhub.io")){
+        window.__fh = (window.__fh || 0) + 1;
+        if(u.includes("/quote")) return J({ c: u.includes("NVDA") ? 108.5 : 150, d:-2, dp:-1.8, pc:110.5, h:111, l:108 });
+        if(u.includes("/stock/metric")) return J({ metric:{ peTTM:55.2, evEbitdaTTM:40.1, grossMarginTTM:75, beta:1.7, junkField:1 } });
+        if(u.includes("/stock/profile2")) return J({ name:"NVIDIA Corp", shareOutstanding:24400, marketCapitalization:2650000 });
+        return J([]);
+      }
+      return null;
+    };
+  });
+  await p.click("#bootBtn"); await settle(p, 1000);
+  await say(p, "jarvis do a dcf on nvidia", 600);
+  check("DCF: without a template, Jarvis is told to ask for it first", /No DCF template saved yet/.test(JSON.stringify((await log(p)).at(-1).last.content)));
+  await say(p, "it's called My DCF", 900);
+  const insp = JSON.stringify((await log(p)).at(-1).last.content);
+  check("DCF: reads your template and marks formulas vs inputs", /B1=\$128\.40 \[=H38\/H39\]/.test(insp) && /B2=9\.0%/.test(insp), insp.slice(0, 300));
+  await say(p, "yes that's right, save it", 700);
+  check("DCF: template map saved", /My DCF/.test(await p.evaluate(() => localStorage.getItem("jarvis.dcfTemplate"))));
+  await say(p, "start the nvidia dcf", 700);
+  check("DCF: asks before making a copy", await p.locator("#confirmBox").isVisible() && /copy of your DCF template/.test(await p.locator("#confirmText").textContent()));
+  await say(p, "yes", 1200);
+  const sl = await p.evaluate(() => window.__sheetsLog);
+  check("DCF: copies your template (never edits it)", sl.some(x => /files\/TEMPLATE1\/copy/.test(x.u) && x.method === "POST") && (await p.evaluate(() => window.__opened)).some(u => /COPY1/.test(u)));
+  await say(p, "35 percent growth and 9.5 percent wacc", 1200);
+  const upd = (await p.evaluate(() => window.__sheetsLog)).find(x => /COPY1\/values:batchUpdate/.test(x.u));
+  check("DCF: writes your assumptions into the copy", upd && upd.body.data.length === 2 && upd.body.data[0].range === "Inputs!C8" && upd.body.data[0].values[0][0] === "35%");
+  check("DCF: reads back the implied share price", /Implied share price/.test(JSON.stringify((await log(p)).at(-1).last.content)) && /128\.40/.test(JSON.stringify((await log(p)).at(-1).last.content)));
+  await say(p, "now change the template", 900);
+  check("DCF: refuses to edit your original template", /only edits spreadsheets it created/.test(JSON.stringify((await log(p)).at(-1).last.content)) && !(await p.evaluate(() => window.__sheetsLog)).some(x => /TEMPLATE1\/values:batchUpdate/.test(x.u)));
+  await say(p, "watch nvidia and tell me if it drops below 110", 1500);
+  await p.waitForTimeout(800);
+  check("markets: watchlist shows on the dashboard with the price", await p.locator("#marketsBox").isVisible() && /NVDA/.test(await p.locator("#marketsList").textContent()) && /108\.50/.test(await p.locator("#marketsList").textContent()));
+  check("markets: speaks a price alert when it drops below your level", (await p.evaluate(() => window.__spoken)).some(t => /NVDA has dropped below 110: now 108\.50/.test(t)), (await p.evaluate(() => window.__spoken)).slice(-3).join(" | "));
+  await say(p, "build comps for nvidia and amd", 700);
+  check("comps: asks before creating a sheet", await p.locator("#confirmBox").isVisible());
+  await say(p, "yes", 1500);
+  const comps = (await p.evaluate(() => window.__sheetsLog)).find(x => /COMPS1\/values:batchUpdate/.test(x.u));
+  check("comps: new sheet with tickers, P/E, EV/EBITDA and medians", comps && JSON.stringify(comps.body).includes("NVIDIA Corp") && JSON.stringify(comps.body).includes("55.2") && JSON.stringify(comps.body).includes("=MEDIAN(E2:E3)"));
+  check("Jarvis is told it can do DCFs and markets, without investment advice", /DCF co-pilot/.test((await log(p))[0].system) && /Never present anything as investment advice/.test((await log(p))[0].system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
 

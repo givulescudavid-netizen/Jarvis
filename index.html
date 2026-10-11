@@ -168,6 +168,10 @@ html.mini #popBtn{display:none}
       <h2>Schedule</h2>
       <ul class="list" id="schedList"><li class="empty">Connect Google in settings ⚙</li></ul>
     </div>
+    <div class="block" id="marketsBox" hidden>
+      <h2>Markets</h2>
+      <ul class="list" id="marketsList"></ul>
+    </div>
     <div class="block">
       <h2>Inbox <span id="inboxCount" class="count"></span></h2>
       <ul class="list" id="inboxList"><li class="empty">Connect Google in settings ⚙</li></ul>
@@ -282,6 +286,16 @@ html.mini #popBtn{display:none}
     <p class="note" id="installNote"></p>
   </section>
 
+  <section id="fhBox">
+    <h3>Markets</h3>
+    <label for="fhKey" class="note">Finnhub key for live prices, earnings and company data (free at finnhub.io → Get free API key)</label>
+    <form id="fhForm">
+      <input type="text" id="fhKey" placeholder="paste your Finnhub key" autocomplete="off" spellcheck="false" style="-webkit-text-security:disc">
+      <button type="submit">Save</button>
+    </form>
+    <p class="note" id="fhStatus">Then say "Jarvis, add Nvidia to my watchlist and tell me if it drops below 110".</p>
+  </section>
+
   <section>
     <h3>Alerts</h3>
     <label class="check"><input type="checkbox" id="alertsOn"> Speak up before meetings (10 minutes before, and when they start)</label>
@@ -345,7 +359,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.16";
+const VERSION = "2026.10.11.17";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -371,10 +385,16 @@ function sysPrompt(){
   return RULES
     + (about ? `\n\nAbout the user, in their own words:\n${about}` : "")
     + (mem.length ? `\n\nThings the user asked you to remember:\n${mem.map(m => "- " + m.text).join("\n")}` : "")
-    + `\n\nWhen asked for a briefing ("brief me", "morning briefing", "what's my day"): check today's calendar, important unread email from the last day (query: in:inbox is:unread newer_than:1d -category:promotions -category:social -category:forums), open tasks and timers${sample ? ", and the portfolio summary" : webOn ? ", plus today's weather for the user's city if you know it (use web search)" : ""}, then speak a natural briefing under 120 words, most important first. Skip anything empty.`
+    + `\n\nWhen asked for a briefing ("brief me", "morning briefing", "what's my day"): check today's calendar, important unread email from the last day (query: in:inbox is:unread newer_than:1d -category:promotions -category:social -category:forums), open tasks and timers, the watchlist's moves and any earnings in the next week (if a market data key is set)${sample ? ", and the portfolio summary" : webOn ? ", plus today's weather for the user's city if you know it (use web search)" : ""}, then speak a natural briefing under 120 words, most important first. Skip anything empty.`
     + (!sample && webOn ? `\n\nYou can search the web for current information (news, prices, companies, people, facts). Use it whenever the answer may have changed recently, and say where it came from in a few words.` : "")
     + `\n\nMusic: play_music opens songs, albums or artists in Apple Music. Be honest that you can't pause or skip afterwards. If asked for a mood or genre rather than a song, pick a well-known fitting song or album yourself.`
     + `\n\nInterruptions: a message starting with [You were interrupted…] means the user talked over you. React like a person would: if they corrected you or added information, adjust; if they asked something new, answer that and drop the old point unless it still matters; if they said "go on" or "continue", pick up exactly where they stopped hearing you without repeating; never re-read what they already heard. Keep it short.`
+    + `\n\nDCF co-pilot (the user is building valuations with you, by voice):
+- First time: if no template is saved (dcf_new will say so), ask what their DCF Google Sheet is called, find it with search_drive (it must be a Google Sheet, not an Excel file: if it's Excel, ask them to open it in Google Sheets and use that copy), read it with dcf_inspect, and work out the input cells (assumptions and historicals) and output cells (EV, equity value, implied share price, upside, sensitivity). Summarise your understanding in a few spoken sentences ("Assumptions are on the Inputs tab: growth in C8 to G8, EBIT margin row 10…"), fix anything they correct, then dcf_save_template.
+- New DCF: dcf_new. Then get the historicals (last 3 to 5 years: revenue, EBIT or EBITDA, D&A, capex, change in working capital, tax rate, net debt, diluted shares) from the latest annual report or 10-K via web search and company_metrics, write them with dcf_set_inputs, and say the source and fiscal year. Ask the user to sanity-check the two or three numbers that matter most.
+- Then the assumptions, ONE AT A TIME, in the order their template uses (usually: revenue growth by year, margins, D&A and capex, working capital, tax rate, then WACC inputs (risk-free rate, beta, equity risk premium, cost of debt, capital weights), then terminal growth or exit multiple). For each: state the history or market figure, give a sensible range with one line of reasoning, recommend a number, and let the user decide. Write it in straight away and mention what it did to the implied price when that's interesting.
+- At the end: read the outputs and report enterprise value, equity value, implied share price against the current price (market_quotes) and the upside or downside, plus what the sensitivity range says. Offer scenarios ("bear case: growth 10% lower, margins flat").
+- Remember the user's standing preferences with remember (e.g. "always uses 5.5% equity risk premium", "prefers exit multiple over perpetuity growth").`
     + `\n\nActions: you can save Gmail drafts and create calendar events. These tools ask the user to confirm before anything happens; if they decline, accept it and move on. Never claim an email was sent: drafts wait in Gmail for the user to send.`
     + `\n\nMemory: when the user says "remember...", or tells you a lasting fact about their work, clients, people or preferences, save it with the remember tool. Use forget when asked.`;
 }
@@ -390,6 +410,7 @@ How you speak (this matters most):
 - If the user just chats ("Jarvis, you up?"), answer in character, briefly and warmly.
 
 What you CAN do, using your tools (use them; don't say you can't when a tool fits):
+- Finance: build DCFs with the user in their own Google Sheets template (dcf_*), live prices, company metrics, news and earnings (market_quotes, company_metrics, market_news, earnings_info; needs their Finnhub key), comps tables as a Google Sheet (build_comps), and a watchlist with spoken price alerts (watchlist_*). Web search for filings and analyst context. Never present anything as investment advice; give numbers and reasoning, and the user decides.
 - Restaurant bookings (book_restaurant): the user's Claude in Chrome extension does the actual booking; you can't see or talk to it, so your job is to gather EVERYTHING it will need first, by voice, so it never has to stop and ask. Run a short interview, asking at most two questions per turn and only what you don't already know (from the request, "About you" or memory):
   1) which restaurant and which city/branch if there could be more than one; 2) day and time (turn "Friday" into the real date); 3) number of people;
   4) flexibility: "If that time isn't free, what's the earliest and latest you'd accept?" (and whether another day is OK);
@@ -488,7 +509,7 @@ function renderTimers(){
 /* ---------- Google: Gmail + Calendar (read-only) ----------
    Two backends: inside claude.ai the page uses your Gmail / Google Calendar
    connectors; as a local file it signs in with Google directly (OAuth). */
-const GSCOPES = "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly";
+const GSCOPES = "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets";
 const google = { mode:null, mcp:null, clientId:store.get("jarvis.gclient",""), token:null, tokenExp:0, tokenClient:null, connected:false };
 const localISO = d => { const p = n => String(n).padStart(2,"0"); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; };
 const clip = (s, n) => { s = String(s || "").replace(/\s+/g," ").trim(); return s.length > n ? s.slice(0,n) + "…" : s; };
@@ -516,7 +537,7 @@ async function oauthToken(interactive){
       },
       error_callback: e => rej(new Error(e?.type === "popup_closed" ? "Google sign-in window was closed." : "Google sign-in needs a click. Ask the user to click Connect Google."))
     });
-    google.tokenClient.requestAccessToken({ prompt: interactive && !store.get("jarvis.gconsented3", false) ? "consent" : "" });
+    google.tokenClient.requestAccessToken({ prompt: interactive && !store.get("jarvis.gconsented4", false) ? "consent" : "" });
   });
 }
 async function gfetch(url){
@@ -739,7 +760,7 @@ async function connectGoogleNow(){
       const id = $("gClient").value.trim() || google.clientId;
       if(!/\.apps\.googleusercontent\.com$/.test(id)) throw new Error("Paste your OAuth Client ID first. It ends in .apps.googleusercontent.com.");
       google.clientId = id; store.set("jarvis.gclient", id); $("gClient").value = ""; $("gClient").placeholder = "Client ID saved ✓";
-      await oauthToken(true); store.set("jarvis.gconsented3", true);
+      await oauthToken(true); store.set("jarvis.gconsented4", true);
     }
     await refreshGooglePanels();
     google.connected = true; store.set("jarvis.gon", true);
@@ -783,6 +804,208 @@ const googleTools = [
       return { events: await listEvents(s, e, 25) };
     } },
 ];
+
+/* ---------- finance: DCF co-pilot (Google Sheets) and market data (Finnhub) ---------- */
+// Google Sheets/Drive writes. Jarvis only ever EDITS spreadsheets it created itself (DCF copies, comps sheets).
+async function gsend(url, method, body){
+  const tok = await oauthToken(false);
+  const r = await fetch(url, { method, headers:{ Authorization:"Bearer " + tok, "content-type":"application/json" }, body: body ? JSON.stringify(body) : undefined });
+  if(r.status === 401){ google.token = null; throw new Error("Google session expired. Ask the user to click Connect Google."); }
+  const j = await r.json().catch(() => ({}));
+  if(!r.ok){
+    const msg = j?.error?.message || ("Google error " + r.status);
+    if(r.status === 403 && /scope|insufficient|permission/i.test(msg)) throw new Error("Jarvis doesn't have Google Sheets permission yet. Ask the user to open settings, click Connect Google and tick every box (and make sure the Google Sheets API is enabled in their Google Cloud project).");
+    if(r.status === 403 && /not been used|disabled/i.test(msg)) throw new Error("The Google Sheets API is switched off in the user's Google Cloud project. Ask them to enable 'Google Sheets API' there.");
+    throw new Error(msg);
+  }
+  return j;
+}
+const SHEETS = "https://sheets.googleapis.com/v4/spreadsheets/";
+const needWebsite = () => { if(google.mode !== "oauth") throw new Error("DCF and spreadsheet tools work in the website version of Jarvis (in Chrome), not inside claude.ai."); };
+const myFiles = () => store.get("jarvis.myFiles", []);   // spreadsheets Jarvis created (the only ones it may edit)
+function rememberFile(f){ const all = myFiles().filter(x => x.id !== f.id); all.push(f); store.set("jarvis.myFiles", all.slice(-60)); }
+function assertMine(id){ if(!myFiles().some(f => f.id === id)) throw new Error("Refused: Jarvis only edits spreadsheets it created itself (copies). Make a copy first with dcf_new."); }
+const sheetUrl = id => `https://docs.google.com/spreadsheets/d/${id}/edit`;
+const a1 = r => encodeURIComponent(r);
+
+// Read a spreadsheet compactly: every non-empty cell with its value and (if any) formula, so Claude can tell inputs from outputs.
+async function dcfInspect({file_id}){
+  needWebsite();
+  const meta = await gfetch(`${SHEETS}${encodeURIComponent(file_id)}?fields=properties.title,sheets.properties(title,gridProperties)`);
+  const tabs = (meta.sheets || []).slice(0, 10).map(s => s.properties.title);
+  const ranges = tabs.map(t => `'${t.replace(/'/g, "''")}'!A1:T160`);
+  const q = rs => ranges.map(r => "ranges=" + a1(r)).join("&");
+  const [f, v] = await Promise.all([
+    gfetch(`${SHEETS}${encodeURIComponent(file_id)}/values:batchGet?${q()}&valueRenderOption=FORMULA`),
+    gfetch(`${SHEETS}${encodeURIComponent(file_id)}/values:batchGet?${q()}&valueRenderOption=FORMATTED_VALUE`) ]);
+  const col = i => { let s = ""; i++; while(i){ const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
+  let out = `Spreadsheet: ${meta.properties?.title}\n`, budget = 14000;
+  (f.valueRanges || []).forEach((fr, k) => {
+    const tab = tabs[k], vals = v.valueRanges?.[k]?.values || [];
+    out += `\n## Tab '${tab}'\n`;
+    (fr.values || []).forEach((row, r) => {
+      const cells = row.map((cell, c) => {
+        if(cell === "" || cell === null || cell === undefined) return null;
+        const shown = vals[r]?.[c] ?? "";
+        const isF = typeof cell === "string" && cell.startsWith("=");
+        return `${col(c)}${r + 1}=${isF ? `${shown} [${String(cell).slice(0, 60)}]` : String(shown).slice(0, 40)}`;
+      }).filter(Boolean);
+      if(cells.length && budget > 0){ const line = cells.join(" | ") + "\n"; out += line; budget -= line.length; }
+    });
+  });
+  if(budget <= 0) out += "\n(truncated: the sheet is large; inspect specific ranges with dcf_read if needed)";
+  return out + "\n\nIn the listing, [=...] marks a formula (an output or calculation). Plain numbers next to a label are usually inputs.";
+}
+function dcfSaveTemplate({file_id, title, inputs, outputs, notes}){
+  if(!file_id || !Array.isArray(inputs) || !inputs.length) throw new Error("Need file_id and a list of input cells.");
+  const t = { file_id:String(file_id), title:String(title || "DCF template"), inputs: inputs.slice(0, 120), outputs:(outputs || []).slice(0, 40), notes:String(notes || ""), saved:Date.now() };
+  store.set("jarvis.dcfTemplate", t);
+  return `Saved: ${t.inputs.length} inputs, ${t.outputs.length} outputs. From now on new DCFs start as copies of "${t.title}".`;
+}
+async function dcfNew({company, ticker}){
+  needWebsite();
+  const t = store.get("jarvis.dcfTemplate", null);
+  if(!t) throw new Error("No DCF template saved yet. Ask the user which Google Sheet is their DCF template, then inspect it and save it with dcf_save_template.");
+  const name = `DCF: ${company || ticker}${ticker && company ? ` (${ticker})` : ""}, ${new Date().toLocaleDateString([], { day:"numeric", month:"short", year:"numeric" })}`;
+  const ok = await confirmAction(`Make a copy of your DCF template called "${name}" in your Google Drive? I'll fill in that copy only; your template stays untouched.`);
+  if(!ok) return "The user declined. Nothing was created.";
+  const copy = await gsend(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(t.file_id)}/copy?fields=id,name`, "POST", { name });
+  rememberFile({ id:copy.id, name, kind:"dcf", company, ticker, created:Date.now() });
+  openExternal(sheetUrl(copy.id), "Open " + name);
+  return { file_id:copy.id, name, link:sheetUrl(copy.id), inputs:t.inputs, outputs:t.outputs, notes:t.notes, next:"Fill historicals (with sources), then go through assumptions one at a time. Writes to this copy don't need further confirmation." };
+}
+async function readCells(id, cells){
+  const rs = cells.slice(0, 120).map(c => "ranges=" + a1(c)).join("&");
+  const j = await gfetch(`${SHEETS}${encodeURIComponent(id)}/values:batchGet?${rs}&valueRenderOption=FORMATTED_VALUE`);
+  const out = {}; (j.valueRanges || []).forEach((vr, i) => { out[cells[i]] = vr.values?.[0]?.[0] ?? ""; }); return out;
+}
+async function dcfSetInputs({file_id, values}){
+  needWebsite(); assertMine(file_id);
+  if(!Array.isArray(values) || !values.length) throw new Error("No values to write.");
+  await gsend(`${SHEETS}${encodeURIComponent(file_id)}/values:batchUpdate`, "POST", { valueInputOption:"USER_ENTERED", data: values.slice(0, 120).map(x => ({ range:String(x.cell), values:[[x.value]] })) });
+  const t = store.get("jarvis.dcfTemplate", null), outs = (t?.outputs || []).map(o => o.cell);
+  const results = outs.length ? await readCells(file_id, outs) : {};
+  return { written: values.length, outputs: (t?.outputs || []).map(o => ({ name:o.name, cell:o.cell, value: results[o.cell] })) };
+}
+async function dcfRead({file_id, cells}){
+  needWebsite();
+  const t = store.get("jarvis.dcfTemplate", null);
+  const list = Array.isArray(cells) && cells.length ? cells : [...(t?.inputs || []), ...(t?.outputs || [])].map(x => x.cell);
+  if(!list.length) throw new Error("Say which cells to read (e.g. ['DCF!C12']).");
+  return readCells(file_id, list);
+}
+
+/* market data: Finnhub (free key at finnhub.io) */
+let fhKey = store.get("jarvis.fhKey", "");
+async function fh(path, params = {}){
+  if(!fhKey) throw new Error("No market data key yet. Ask the user to get a free key at finnhub.io and paste it in settings → Markets.");
+  let r;
+  try{ r = await fetch(`https://finnhub.io/api/v1/${path}?` + new URLSearchParams({ ...params, token:fhKey })); }
+  catch{ throw new Error("Couldn't reach the market data service (Finnhub). Check the internet connection."); }
+  if(r.status === 401 || r.status === 403) throw new Error("Finnhub rejected the key (or this data needs a paid Finnhub plan).");
+  if(r.status === 429) throw new Error("Too many market data requests this minute; try again shortly.");
+  if(!r.ok) throw new Error("Market data error " + r.status);
+  return r.json();
+}
+const ymd = d => d.toISOString().slice(0, 10);
+const SYM = s => String(s || "").trim().toUpperCase().replace(/[^A-Z0-9.:-]/g, "");
+async function quotes({symbols}){
+  const list = (Array.isArray(symbols) ? symbols : String(symbols || "").split(/[,\s]+/)).map(SYM).filter(Boolean).slice(0, 20);
+  const res = await Promise.all(list.map(async s => { try{ const q = await fh("quote", { symbol:s }); return { symbol:s, price:q.c, change:q.d, change_pct:q.dp, prev_close:q.pc, high:q.h, low:q.l }; }catch(e){ return { symbol:s, error:e.message }; } }));
+  return res;
+}
+async function marketNews({symbol, days}){
+  if(symbol){ const to = new Date(), from = new Date(Date.now() - (Number(days) || 3) * 864e5);
+    return (await fh("company-news", { symbol:SYM(symbol), from:ymd(from), to:ymd(to) })).slice(0, 8).map(n => ({ headline:n.headline, source:n.source, when:new Date(n.datetime * 1000).toISOString().slice(0, 16), summary:clip(n.summary, 200) })); }
+  return (await fh("news", { category:"general" })).slice(0, 8).map(n => ({ headline:n.headline, source:n.source, when:new Date(n.datetime * 1000).toISOString().slice(0, 16) }));
+}
+async function earnings({symbols, days}){
+  const list = (Array.isArray(symbols) && symbols.length ? symbols : watchlist().map(w => w.symbol)).map(SYM).filter(Boolean).slice(0, 15);
+  const from = new Date(), to = new Date(Date.now() + (Number(days) || 14) * 864e5);
+  const res = [];
+  for(const s of list){
+    try{
+      const cal = (await fh("calendar/earnings", { from:ymd(from), to:ymd(to), symbol:s })).earningsCalendar || [];
+      const past = (await fh("stock/earnings", { symbol:s, limit:4 })) || [];
+      res.push({ symbol:s, upcoming: cal.map(e => ({ date:e.date, when:e.hour === "bmo" ? "before open" : e.hour === "amc" ? "after close" : e.hour, eps_estimate:e.epsEstimate, revenue_estimate:e.revenueEstimate })), last_quarters: past.slice(0, 4).map(p => ({ period:p.period, eps_actual:p.actual, eps_estimate:p.estimate, surprise_pct:p.surprisePercent })) });
+    }catch(e){ res.push({ symbol:s, error:e.message }); }
+  }
+  return res;
+}
+const METRIC_KEYS = /^(marketCapitalization|peTTM|peExclExtraTTM|peBasicExclExtraTTM|pbAnnual|psTTM|evEbitdaTTM|enterpriseValue|currentEv\/freeCashFlowTTM|grossMarginTTM|operatingMarginTTM|netProfitMarginTTM|revenueGrowthTTMYoy|revenueGrowth5Y|epsGrowthTTMYoy|roeTTM|beta|dividendYieldIndicatedAnnual|52WeekHigh|52WeekLow|totalDebt\/totalEquityAnnual)$/;
+async function metrics({symbol}){
+  const s = SYM(symbol); const [m, p] = await Promise.all([fh("stock/metric", { symbol:s, metric:"all" }), fh("stock/profile2", { symbol:s }).catch(() => ({}))]);
+  const pick = {}; Object.entries(m.metric || {}).forEach(([k, v]) => { if(METRIC_KEYS.test(k) && v !== null) pick[k] = v; });
+  return { symbol:s, name:p.name, industry:p.finnhubIndustry, currency:p.currency, shares_outstanding_millions:p.shareOutstanding, market_cap_millions:p.marketCapitalization, metrics:pick };
+}
+async function buildComps({symbols, title}){
+  needWebsite();
+  const list = (Array.isArray(symbols) ? symbols : []).map(SYM).filter(Boolean).slice(0, 15);
+  if(list.length < 2) throw new Error("Give at least two tickers for a comps table.");
+  const rows = [];
+  for(const s of list){ try{ const [m, q] = await Promise.all([metrics({ symbol:s }), quotes({ symbols:[s] })]); rows.push({ s, m, q:q[0] }); }catch(e){ rows.push({ s, err:e.message }); } }
+  const head = ["Ticker", "Company", "Price", "Market cap ($m)", "P/E (TTM)", "EV/EBITDA (TTM)", "P/S (TTM)", "Gross margin %", "Operating margin %", "Revenue growth YoY %", "Beta"];
+  const num = v => (typeof v === "number" ? Math.round(v * 100) / 100 : v ?? "");
+  const body = rows.map(r => r.err ? [r.s, "error: " + r.err] : [r.s, r.m.name || "", num(r.q?.price), num(r.m.market_cap_millions), num(r.m.metrics.peTTM ?? r.m.metrics.peExclExtraTTM), num(r.m.metrics.evEbitdaTTM), num(r.m.metrics.psTTM), num(r.m.metrics.grossMarginTTM), num(r.m.metrics.operatingMarginTTM), num(r.m.metrics.revenueGrowthTTMYoy), num(r.m.metrics.beta)]);
+  const name = title || `Comps: ${list.join(", ")}, ${new Date().toLocaleDateString()}`;
+  const ok = await confirmAction(`Create a new Google Sheet "${name}" with this comps table?`);
+  if(!ok) return { created:false, table:[head, ...body] };
+  const sheet = await gsend(SHEETS, "POST", { properties:{ title:name } });
+  rememberFile({ id:sheet.spreadsheetId, name, kind:"comps", created:Date.now() });
+  const n = body.length + 1;
+  await gsend(`${SHEETS}${sheet.spreadsheetId}/values:batchUpdate`, "POST", { valueInputOption:"USER_ENTERED", data:[
+    { range:"A1", values:[head, ...body] },
+    { range:`A${n + 2}`, values:[["Median", "", "", `=MEDIAN(D2:D${n})`, `=MEDIAN(E2:E${n})`, `=MEDIAN(F2:F${n})`, `=MEDIAN(G2:G${n})`, `=MEDIAN(H2:H${n})`, `=MEDIAN(I2:I${n})`, `=MEDIAN(J2:J${n})`, `=MEDIAN(K2:K${n})`]] },
+    { range:`A${n + 4}`, values:[["Source: Finnhub, " + new Date().toISOString().slice(0, 10) + ". Check figures against filings before relying on them."]] } ] });
+  openExternal(sheetUrl(sheet.spreadsheetId), "Open " + name);
+  return { created:true, link:sheetUrl(sheet.spreadsheetId), table:[head, ...body] };
+}
+
+/* watchlist + spoken price alerts */
+const watchlist = () => store.get("jarvis.watch", []);
+function saveWatch(w){ store.set("jarvis.watch", w.slice(0, 30)); renderWatch(); }
+function watchAdd({symbol, above, below}){
+  const s = SYM(symbol); if(!s) throw new Error("Which ticker?");
+  const w = watchlist().filter(x => x.symbol !== s);
+  w.push({ symbol:s, above: above ? Number(above) : null, below: below ? Number(below) : null, fired:{} });
+  saveWatch(w); refreshMarkets();
+  return `Watching ${s}${above ? `, alert above ${above}` : ""}${below ? `, alert below ${below}` : ""}.`;
+}
+function watchRemove({symbol}){ const s = SYM(symbol); saveWatch(watchlist().filter(x => x.symbol !== s)); return `Removed ${s}.`; }
+let lastQuotes = {};
+function renderWatch(){
+  const box = $("marketsBox"); if(!box) return;
+  const w = watchlist(); box.hidden = !fhKey || !w.length;
+  fillList($("marketsList"), w.map(x => { const q = lastQuotes[x.symbol]; return [x.symbol + (x.above || x.below ? " 🔔" : ""), q && typeof q.price === "number" ? `${q.price.toFixed(2)} ${q.change_pct >= 0 ? "▲" : "▼"}${Math.abs(q.change_pct || 0).toFixed(1)}%` : "…"]; }), "");
+}
+async function refreshMarkets(){
+  const w = watchlist(); if(!fhKey || !w.length || dormantNow()) { renderWatch(); return; }
+  const qs = await quotes({ symbols:w.map(x => x.symbol) }).catch(() => []);
+  qs.forEach(q => { if(!q.error) lastQuotes[q.symbol] = q; });
+  renderWatch();
+  // price alerts: speak once per crossing
+  const changed = []; let saidOne = false;
+  for(const x of w){
+    const q = lastQuotes[x.symbol]; if(!q || typeof q.price !== "number") continue;
+    x.fired = x.fired || {};
+    if(x.above && q.price >= x.above && !x.fired.above){ x.fired.above = true; changed.push(`Sir, ${x.symbol} is above ${x.above}: now ${q.price.toFixed(2)}.`); }
+    if(x.above && q.price < x.above * 0.995) x.fired.above = false;
+    if(x.below && q.price <= x.below && !x.fired.below){ x.fired.below = true; changed.push(`Sir, ${x.symbol} has dropped below ${x.below}: now ${q.price.toFixed(2)}.`); }
+    if(x.below && q.price > x.below * 1.005) x.fired.below = false;
+  }
+  store.set("jarvis.watch", w);
+  pendingAlerts.push(...changed); flushAlerts();
+}
+// Alerts wait until Jarvis isn't busy talking or thinking, then get said (never dropped)
+const pendingAlerts = [];
+function flushAlerts(){
+  if(!pendingAlerts.length || !greeted || dormantNow() || mode !== "idle" || pendingConfirm) return;
+  const line = pendingAlerts.splice(0).join(" ");
+  addMsg("j", line); speak(line);
+}
+setInterval(flushAlerts, 2000);
+function dormantNow(){ try{ return dormant; }catch{ return false; } }
+setInterval(refreshMarkets, 60000);
 
 /* ---------- music (Apple Music) and websites ---------- */
 // Apple's public search (no account needed), loaded JSONP-style so it works from any page.
@@ -875,6 +1098,34 @@ const tools = [
   { name:"play_music", description:"Finds a song, album or artist on Apple Music and opens it there so it plays with the user's Apple Music subscription. Jarvis cannot pause, skip or change volume afterwards; the user does that in Apple Music.",
     inputSchema:{type:"object",properties:{query:{type:"string",description:"e.g. 'Back in Black AC/DC'"},type:{type:"string",enum:["song","album","artist"]}},required:["query"]},
     execute: input => playMusic(input) },
+  { name:"dcf_inspect", description:"Reads a Google Sheet (e.g. the user's DCF template) and lists every non-empty cell with its value, and formula if any, so you can work out which cells are inputs and which are outputs. Find the file id with search_drive first.",
+    inputSchema:{type:"object",properties:{file_id:{type:"string"}},required:["file_id"]}, execute: input => dcfInspect(input) },
+  { name:"dcf_save_template", description:"Saves which cells of the user's DCF template are inputs (with what each means) and outputs, after the user agrees with your understanding. Cells use A1 notation with the tab, e.g. 'DCF'!C8.",
+    inputSchema:{type:"object",properties:{file_id:{type:"string"},title:{type:"string"},inputs:{type:"array",items:{type:"object",properties:{name:{type:"string"},cell:{type:"string"},meaning:{type:"string"}},required:["name","cell"]}},outputs:{type:"array",items:{type:"object",properties:{name:{type:"string"},cell:{type:"string"}},required:["name","cell"]}},notes:{type:"string"}},required:["file_id","inputs","outputs"]},
+    execute: input => dcfSaveTemplate(input) },
+  { name:"dcf_new", description:"Starts a DCF for a company: makes a copy of the user's saved DCF template in their Google Drive (asks them to confirm) and opens it. Returns the new file id and the input/output cell map.",
+    inputSchema:{type:"object",properties:{company:{type:"string"},ticker:{type:"string"}},required:["company"]}, execute: input => dcfNew(input) },
+  { name:"dcf_set_inputs", description:"Writes values into a DCF copy Jarvis created (never the template), then returns the recalculated outputs. Use plain numbers or percentages like '12%'.",
+    inputSchema:{type:"object",properties:{file_id:{type:"string"},values:{type:"array",items:{type:"object",properties:{cell:{type:"string"},value:{type:["string","number"]},label:{type:"string"}},required:["cell","value"]}}},required:["file_id","values"]},
+    execute: input => dcfSetInputs(input) },
+  { name:"dcf_read", description:"Reads cells from a spreadsheet (default: the template's inputs and outputs).",
+    inputSchema:{type:"object",properties:{file_id:{type:"string"},cells:{type:"array",items:{type:"string"}}},required:["file_id"]}, execute: input => dcfRead(input) },
+  { name:"market_quotes", description:"Live stock prices: price, change, % change, previous close (Finnhub).",
+    inputSchema:{type:"object",properties:{symbols:{type:"array",items:{type:"string"}}},required:["symbols"]}, execute: input => quotes(input) },
+  { name:"company_metrics", description:"Company profile and key metrics: market cap, shares outstanding, P/E, EV/EBITDA, margins, growth, beta, 52-week range (Finnhub).",
+    inputSchema:{type:"object",properties:{symbol:{type:"string"}},required:["symbol"]}, execute: input => metrics(input) },
+  { name:"market_news", description:"Recent news for a ticker, or general market headlines if no ticker.",
+    inputSchema:{type:"object",properties:{symbol:{type:"string"},days:{type:"number"}}}, execute: input => marketNews(input) },
+  { name:"earnings_info", description:"Upcoming earnings dates with EPS/revenue estimates, and the last four quarters' EPS surprises. Defaults to the watchlist.",
+    inputSchema:{type:"object",properties:{symbols:{type:"array",items:{type:"string"}},days:{type:"number"}}}, execute: input => earnings(input) },
+  { name:"build_comps", description:"Builds a comparable-companies table (price, market cap, P/E, EV/EBITDA, P/S, margins, growth, beta, medians) as a new Google Sheet (asks to confirm).",
+    inputSchema:{type:"object",properties:{symbols:{type:"array",items:{type:"string"}},title:{type:"string"}},required:["symbols"]}, execute: input => buildComps(input) },
+  { name:"watchlist_add", description:"Adds a ticker to the watchlist on the dashboard, optionally with a spoken price alert above and/or below a price.",
+    inputSchema:{type:"object",properties:{symbol:{type:"string"},above:{type:"number"},below:{type:"number"}},required:["symbol"]}, execute: input => watchAdd(input) },
+  { name:"watchlist_remove", description:"Removes a ticker from the watchlist.",
+    inputSchema:{type:"object",properties:{symbol:{type:"string"}},required:["symbol"]}, execute: input => watchRemove(input) },
+  { name:"watchlist_show", description:"Shows the watchlist with latest prices and alert levels.",
+    execute: async () => { await refreshMarkets(); return watchlist().map(x => ({ ...x, quote:lastQuotes[x.symbol] || null })); } },
   { name:"book_restaurant", description:"Prepares a restaurant booking for the user to hand to Claude in Chrome (Anthropic's browser extension), which does the actual booking. Opens a search for the restaurant's booking page and shows ready-to-paste instructions. Use for ANY restaurant reservation request. Fill in the user's name/phone/email if known from 'About you' or memory.",
     inputSchema:{type:"object",properties:{restaurant:{type:"string"},city:{type:"string"},date:{type:"string",description:"e.g. 'Friday 17 October 2026'"},time:{type:"string",description:"e.g. '8:00 PM'"},party_size:{type:"number"},
       earliest_time:{type:"string",description:"earliest acceptable time if the preferred one is taken"},latest_time:{type:"string",description:"latest acceptable time"},other_days_ok:{type:"string",description:"e.g. 'Saturday also fine', empty if not"},
@@ -1444,6 +1695,13 @@ $("aboutMe").value = store.get("jarvis.about", "");
 $("aboutMe").addEventListener("input", () => store.set("jarvis.about", $("aboutMe").value));
 $("autoBrief").checked = store.get("jarvis.autoBrief", true);
 $("alertsOn").checked = store.get("jarvis.alerts", true);
+$("fhForm").onsubmit = async e => {
+  e.preventDefault(); const k = $("fhKey").value.trim(); if(!k) return;
+  fhKey = k; store.set("jarvis.fhKey", k); $("fhKey").value = ""; $("fhKey").placeholder = "Key saved ✓ (paste a new one to replace)";
+  try{ const q = await quotes({ symbols:["AAPL"] }); $("fhStatus").textContent = q[0]?.error ? q[0].error : `Working ✓ (Apple is at ${q[0].price}).`; }catch(err){ $("fhStatus").textContent = err.message; }
+  refreshMarkets();
+};
+if(fhKey) $("fhKey").placeholder = "Key saved ✓ (paste a new one to replace)";
 $("alertsOn").onchange = () => store.set("jarvis.alerts", $("alertsOn").checked);
 $("autoBrief").onchange = () => store.set("jarvis.autoBrief", $("autoBrief").checked);
 renderMemories();
@@ -1715,6 +1973,8 @@ addMsg("j","Good to see you, sir. Just say my name.");
     $("gStatus").textContent = "Click anywhere to reconnect Gmail and Calendar.";
     document.addEventListener("click", e => { if(!google.token && e.target.id !== "gBtn") connectGoogle(); }, { once:true });
   }
+  renderWatch(); refreshMarkets();
+  if(window.claude) $("fhBox").hidden = true;
   if(wakeOn){ startWake(); document.addEventListener("click", initMicMeter, { once:true }); }
   else if(!SR){ addMsg("sys", noVoiceMsg()); micState("error", noVoiceMsg()); }
   logDiag("start", `${whereAmI()}, listening ${SR ? "available" : "NOT available"}, ${location.host || "file"}`);
