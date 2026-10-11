@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.10.11.24 — Reminders, weather, travel times, Uber and hotels
+- **Reminders:** "Jarvis, remind me at 4 to call the bank" or "remind me in 20 minutes to check the oven". Jarvis says it out loud when it's due. If Jarvis was closed at that moment, it tells you as soon as you open it again. Reminders show on the dashboard (under Timers & reminders) and survive a reload. "What reminders do I have?" and "cancel the bank reminder" work too.
+- **Weather:** "Do I need an umbrella?", "What's the weather in Lisbon this weekend?" Current conditions, the next 12 hours and up to 7 days. The morning briefing now includes the weather for your city (tell Jarvis your city once, or put it in "About you").
+- **Travel times:** "How long to the airport from home?" Typical driving time (no live traffic), walking or cycling, with an offer to open Google Maps for live traffic. Tell Jarvis your home and office addresses once and it remembers them.
+- **Uber:** "How much is an Uber to the airport?" Price and pickup time for a ride right now. Jarvis never books: you book in the Uber app. Live prices work in the claude.ai version; on the website, Jarvis opens Uber with the trip filled in.
+- **Hotels:** "Find me a hotel in Lisbon next weekend under €200." Two or three good options with price per night, rating and area, from Tripadvisor (claude.ai version). On the website, Jarvis opens Tripadvisor for that city and suggests options from a web search.
+
 ## 2026.10.11.23 — Cheaper: prompt caching + cost meter
 - Jarvis now asks Claude to keep its instructions, tool list and the conversation so far ready between questions ("prompt caching"). Re-reading them costs about a twentieth of the normal price, so an active conversation should cost roughly half or less.
 - ⚙ → Brain shows what today and this month cost on your API key, and how much caching saved (an estimate; exact numbers at console.anthropic.com → Usage).

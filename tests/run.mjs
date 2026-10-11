@@ -84,11 +84,17 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
     if(mcp){
       window.__calls = [];
       const m = { callTool: async (srv, tool, input) => { window.__calls.push([srv, tool, input]); return { payload:{ viewUrl:"https://mail.google.com/x", threads:[], events:[] } }; } };
+      // The fake online brain calls the tools in window.__sampleTools (default: one draft email), in order.
       const sample = async (input, opts) => {
-        const t = opts.tools.find(t => t.name === "draft_email");
-        const r = await t.execute({ to:["pepper@example.com"], subject:"Board", body:"See you at 9." });
-        window.__log.push({ sampleToolResult: r }); opts.onText && opts.onText({ text:"Draft saved, sir." });
-        return { text:"Draft saved, sir." };
+        const plan = window.__sampleTools || [{ name:"draft_email", input:{ to:["pepper@example.com"], subject:"Board", body:"See you at 9." } }];
+        for(const step of plan){
+          const t = opts.tools.find(t => t.name === step.name);
+          try{ window.__log.push({ sampleTool: step.name, sampleToolResult: await t.execute(step.input) }); }
+          catch(e){ window.__log.push({ sampleTool: step.name, sampleToolError: e.message }); }
+        }
+        const text = window.__sampleTools ? "Done, sir." : "Draft saved, sir.";
+        opts.onText && opts.onText({ text });
+        return { text };
       };
       window.claude = { use: async n => n === "sample" ? sample : n === "mcp" ? m : null };
     }
@@ -755,6 +761,55 @@ console.log("Only one Jarvis at a time");
   await ctx.close();
 }
 
+console.log("Reminders, weather, travel times, Uber and hotels (website version)");
+{
+  const p = await open({ ls:{ "jarvis.reminders":[{ id:"old", text:"water the plants", at: Date.now() - 2 * 3600e3 }] }, script:[
+    { tool:"set_reminder", input:{ text:"call the bank", in_minutes:5 } }, { text:"Done, sir." },
+    { tool:"get_weather", input:{ place:"Madrid, Spain" } }, { text:"Clear skies, sir." },
+    { tool:"travel_time", input:{ from:"Calle Mayor 1, Madrid", to:"Madrid Barajas Airport" } }, { text:"Usually about 23 minutes, sir." },
+    { tool:"uber_estimate", input:{ from:"Puerta del Sol", to:"Madrid Barajas Airport", city:"Madrid", country_code:"ES" } }, { text:"Uber is open, sir." },
+    { tool:"find_hotels", input:{ location:"Lisbon, Portugal", max_price:200 } }, { text:"Tripadvisor is open, sir." } ]});
+  // Fake weather, map and route services
+  await p.evaluate(() => { window.__extraFetch = async (u, o, J) => {
+    if(u.includes("geocoding-api.open-meteo.com")) return J({ results:[ { name:"Madrid", admin1:"Texas", country:"United States", country_code:"US", latitude:34.9, longitude:-103.4 },
+      { name:"Madrid", admin1:"Madrid", country:"Spain", country_code:"ES", latitude:40.42, longitude:-3.7 } ] });
+    if(u.includes("api.open-meteo.com")){ window.__wx = u; const h = Array.from({ length:24 }, (_, i) => `2026-10-12T${String(i).padStart(2, "0")}:00`);
+      return J({ current:{ time:"2026-10-12T09:00", temperature_2m:18.4, apparent_temperature:17.6, weather_code:0, wind_speed_10m:9, precipitation:0 },
+        hourly:{ time:h, temperature_2m:h.map(() => 20), precipitation_probability:h.map(() => 10), weather_code:h.map(() => 0) },
+        daily:{ time:["2026-10-12"], weather_code:[1], temperature_2m_max:[24], temperature_2m_min:[12], precipitation_probability_max:[10], sunrise:["2026-10-12T08:20"], sunset:["2026-10-12T19:40"] } }); }
+    if(u.includes("nominatim.openstreetmap.org")) return J([{ lat:"40.41", lon:"-3.70", display_name:decodeURIComponent(u.split("q=")[1].split("&")[0].replace(/\+/g, " ")) }]);
+    if(u.includes("router.project-osrm.org")) return J({ routes:[{ distance:17200, duration:1380 }] });
+  }; });
+  await p.click("#bootBtn");
+  await p.waitForFunction(() => window.__spoken.some(t => /while you were away/.test(t)), null, { timeout:9000 }).catch(() => {});
+  check("a reminder missed while Jarvis was closed is mentioned when it opens", (await p.evaluate(() => window.__spoken)).some(t => /while you were away you had a reminder for .*: water the plants\./.test(t)), (await p.evaluate(() => window.__spoken)).join(" | "));
+  await settle(p);
+  await say(p, "jarvis remind me in five minutes to call the bank", 900);
+  const L0 = (await log(p))[0];
+  check("the new tools are offered to Claude", ["set_reminder", "get_weather", "travel_time", "uber_estimate", "find_hotels"].every(n => L0.tools.includes(n)), L0.tools.join(","));
+  check("…and Claude is told it CAN use them", ["set_reminder", "get_weather", "travel_time", "uber_estimate", "find_hotels"].every(n => L0.system.includes(n)));
+  check("hotel details (online only) aren't offered on the website version", !L0.tools.includes("hotel_info"));
+  check("reminder saved and shown on the dashboard", /call the bank/.test(await p.evaluate(() => localStorage.getItem("jarvis.reminders"))) && /call the bank/.test(await p.locator("#timers").textContent()) && await p.locator("#timersBox").isVisible());
+  await p.evaluate(() => { const r = JSON.parse(localStorage.getItem("jarvis.reminders")); r.forEach(x => x.at = Date.now() - 1000); localStorage.setItem("jarvis.reminders", JSON.stringify(r)); });
+  await p.waitForFunction(() => window.__spoken.some(t => t === "Sir, a reminder: call the bank."), null, { timeout:9000 }).catch(() => {});
+  check("…and said out loud when it's due", (await p.evaluate(() => window.__spoken)).includes("Sir, a reminder: call the bank."), (await p.evaluate(() => window.__spoken)).slice(-3).join(" | "));
+  check("…then removed", (await p.evaluate(() => localStorage.getItem("jarvis.reminders"))) === "[]");
+  await settle(p);
+  await say(p, "jarvis what's the weather in madrid", 900);
+  const wx = JSON.stringify((await log(p)).filter(x => x.last).map(x => x.last));
+  check("weather: picks the right Madrid and reports the conditions", /latitude=40\.42/.test(await p.evaluate(() => window.__wx)) && /clear sky/.test(wx) && /Madrid, Madrid, Spain/.test(wx) && /\\"temp\\":18/.test(wx), wx.slice(-400));
+  await say(p, "jarvis how long to the airport from calle mayor 1", 900);
+  const tt = JSON.stringify((await log(p)).filter(x => x.last).map(x => x.last));
+  check("travel time: minutes, distance and a Google Maps link", /\\"minutes\\":23/.test(tt) && /\\"distance_km\\":17\.2/.test(tt) && /google\.com\/maps\/dir/.test(tt), tt.slice(-400));
+  await say(p, "jarvis how much is an uber from puerta del sol to the airport", 900);
+  const opened = await p.evaluate(() => window.__opened);
+  check("Uber (website version): opens Uber with the trip filled in", opened.some(u => u.startsWith("https://m.uber.com/ul/?") && /Puerta\+del\+Sol|Puerta%20del%20Sol/.test(u) && /Barajas/.test(u)), opened.join(" | "));
+  await say(p, "jarvis find me a hotel in lisbon under 200", 900);
+  check("hotels (website version): opens Tripadvisor for the city", (await p.evaluate(() => window.__opened)).some(u => /tripadvisor\.com\/Search\?q=hotels\+Lisbon/.test(u)));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("Online version (claude.ai connectors)");
 {
   const p = await open({ mcp:true });
@@ -764,6 +819,20 @@ console.log("Online version (claude.ai connectors)");
   await p.click("#confirmYes"); await p.waitForTimeout(500);
   const c = (await p.evaluate(() => window.__calls)).find(c => c[1] === "create_draft");
   check("draft goes through the Gmail connector", c && c[0] === "Gmail" && c[2].to[0] === "pepper@example.com");
+  await settle(p);
+  await p.evaluate(() => { window.__sampleTools = [
+    { name:"uber_estimate", input:{ from:"Puerta del Sol", to:"Madrid Barajas Airport", city:"Madrid", country_code:"es" } },
+    { name:"find_hotels", input:{ location:"Lisbon, Portugal", check_in:"2026-10-17", check_out:"2026-10-19", max_price:200, sort:"cheapest" } },
+    { name:"hotel_info", input:{ hotel:"Hotel Avenida Palace, Lisbon" } } ]; });
+  await say(p, "jarvis uber to the airport, then hotels in lisbon", 900);
+  const calls = await p.evaluate(() => window.__calls), by = t => calls.find(c => c[1] === t);
+  const u = by("get_estimates_between_two_locations_claude");
+  check("Uber estimates go through the Uber connector", u && u[0] === "Uber" && /Puerta del Sol/.test(u[2].origin.text_query) && u[2].origin.formatted_address.country_code === "ES" && /Barajas/.test(u[2].destination.text_query), JSON.stringify(u));
+  const h = by("search_hotels");
+  check("hotel search goes through the Tripadvisor connector", h && h[0] === "Tripadvisor" && h[2].location === "Lisbon, Portugal" && h[2].checkIn === "2026-10-17" && h[2].sortBy === "PRICE_LOW_TO_HIGH" && h[2].filters.maxPrice === 200 && h[2].mcpServerVersion.version && h[2].requestContext.clientType, JSON.stringify(h));
+  const d = by("hotel_details");
+  check("hotel details go through the Tripadvisor connector", d && d[0] === "Tripadvisor" && /Avenida Palace/.test(d[2].hotelName) && d[2].includeReviews && d[2].includePricing);
+  check("…and nothing failed", !(await log(p)).some(x => x.sampleToolError), JSON.stringify((await log(p)).filter(x => x.sampleToolError)));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
