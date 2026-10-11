@@ -199,7 +199,7 @@ html.mini #popBtn{display:none}
 
   <aside class="side right">
     <div class="block" id="timersBox" hidden>
-      <h2>Timers</h2>
+      <h2>Timers &amp; reminders</h2>
       <ul class="list" id="timers"></ul>
     </div>
     <div class="block" id="tasksBox" hidden>
@@ -385,7 +385,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.23";
+const VERSION = "2026.10.11.24";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -413,7 +413,7 @@ function sysPrompt(){
   return RULES
     + (about ? `\n\nAbout the user, in their own words:\n${about}` : "")
     + (mem.length ? `\n\nThings the user asked you to remember:\n${mem.map(m => "- " + m.text).join("\n")}` : "")
-    + `\n\nWhen asked for a briefing ("brief me", "morning briefing", "what's my day"): check today's calendar, important unread email from the last day (query: in:inbox is:unread newer_than:1d -category:promotions -category:social -category:forums), open tasks and timers, the watchlist's moves and any earnings in the next week (if a market data key is set)${sample ? ", and the portfolio summary" : webOn ? ", plus today's weather for the user's city if you know it (use web search)" : ""}, then speak a natural briefing under 120 words, most important first. Skip anything empty.`
+    + `\n\nWhen asked for a briefing ("brief me", "morning briefing", "what's my day"): check today's calendar, important unread email from the last day (query: in:inbox is:unread newer_than:1d -category:promotions -category:social -category:forums), open tasks and timers, the watchlist's moves and any earnings in the next week (if a market data key is set)${sample ? ", and the portfolio summary" : ""}, reminders due today, plus today's weather for the user's city if you know it (get_weather), then speak a natural briefing under 120 words, most important first. Skip anything empty.`
     + (!sample && webOn ? `\n\nYou can search the web for current information (news, prices, companies, people, facts). Use it whenever the answer may have changed recently, and say where it came from in a few words.` : "")
     + `\n\nMusic: play_music opens songs, albums or artists in Apple Music. Be honest that you can't pause or skip afterwards. If asked for a mood or genre rather than a song, pick a well-known fitting song or album yourself.`
     + `\n\nInterruptions: a message starting with [You were interrupted…] means the user talked over you. React like a person would: if they corrected you or added information, adjust; if they asked something new, answer that and drop the old point unless it still matters; if they said "go on" or "continue", pick up exactly where they stopped hearing you without repeating; never re-read what they already heard. Keep it short.`
@@ -452,7 +452,10 @@ What you CAN do, using your tools (use them; don't say you can't when a tool fit
 - Gmail: read and search email, save draft replies (never send). Google Calendar: read, and create events with invites. Google Drive: search and read files.
 - Interactive Brokers (online version only): read the account summary and positions.
 - The Brain: a linked memory of people, companies, projects and topics (remember with things and links, recall, forget), kept in a "Jarvis Brain" Google Sheet once set up (brain_setup), plus the user's "Jarvis Library" Drive folder of documents you read and index (library_scan, library_index).
-- Timers, a task list, web search (when available), the time.
+- Reminders at a time or after a delay (set_reminder, list_reminders, cancel_reminder): you say them out loud when due, and if Jarvis was closed then, as soon as it's open again. Timers, a task list, web search (when available), the time.
+- Weather anywhere, now and for the next days (get_weather), and travel times between places by car, on foot or by bike (travel_time). Driving times don't include live traffic: say "usually about 25 minutes" and offer to open Google Maps for live traffic. If the user says "home", "the office" or a person's place and you don't know the address, ask once, then remember it.
+- Uber price and pickup estimates for a ride right now (uber_estimate). You can't book: the user books in the Uber app. On the website version it opens Uber with the trip filled in.
+- Hotels from Tripadvisor (find_hotels, and hotel_info for one hotel): give two or three good options with price per night, rating and area, not the whole list. You can't book; offer to open the hotel's page. On the website version, find_hotels opens Tripadvisor and you suggest options from web search.
 - Hand gestures (if the user switched them on in settings, website in Chrome): open palm wakes you, fist stops you talking, thumbs up/down answer "Shall I go ahead?", peace sign toggles focus mode, "rock on" (🤟) asks you for music they like, pointing moves an on-screen cursor and a pinch clicks. If they ask how gestures work, explain briefly.
 Anything that changes the user's accounts (drafts, events) asks them to confirm first. You cannot send email, delete anything, edit files, or trade; if asked, say so briefly and offer the closest thing you can do (e.g. a draft).
 
@@ -736,7 +739,14 @@ function renderTasks(){
 }
 function renderTimers(){
   const ul = $("timers"); ul.textContent = "";
-  $("timersBox").hidden = !timers.length;
+  const rem = reminders();
+  $("timersBox").hidden = !timers.length && !rem.length;
+  rem.forEach(r => {
+    const li = document.createElement("li");
+    const a = document.createElement("span"); a.textContent = "⏰ " + r.text;
+    const b = document.createElement("span"); b.textContent = remWhen(r.at);
+    li.append(a,b); ul.append(li);
+  });
   if(!timers.length) return;
   const now = Date.now();
   timers.forEach(t => {
@@ -940,6 +950,149 @@ async function createEvent({title, start, end, location, description, attendees,
 async function ibkr(tool){
   if(google.mode !== "mcp") throw new Error("Interactive Brokers is only available in the online version on claude.ai.");
   return asData(await mcpCall("Interactive Brokers IBKR", tool, {}), 6000);
+}
+
+/* ---------- reminders: "remind me at 4 to call the bank" ----------
+   Kept in this browser (localStorage) so they survive a reload. Said out loud when due;
+   if Jarvis was closed at that moment, it mentions them as soon as it's open again. */
+function reminders(){ return store.get("jarvis.reminders", []); }
+function saveReminders(r){ store.set("jarvis.reminders", r.slice(-50)); renderTimers(); }
+function remWhen(at){
+  const d = new Date(at), today = new Date().toDateString() === d.toDateString();
+  const t = d.toLocaleTimeString([], { hour:"numeric", minute:"2-digit" });
+  return today ? t : d.toLocaleDateString([], { weekday:"short", day:"numeric", month:"short" }) + " " + t;
+}
+function setReminder({text, at, in_minutes}){
+  text = String(text || "").trim().slice(0, 160);
+  if(!text) throw new Error("What should the reminder say?");
+  let when = NaN;
+  if(in_minutes != null && in_minutes !== "") when = Date.now() + Math.max(0.1, Number(in_minutes)) * 60000;
+  else if(at) when = new Date(String(at)).getTime();   // "YYYY-MM-DDTHH:MM" = the user's local time
+  if(!isFinite(when)) throw new Error("Give either 'at' (YYYY-MM-DDTHH:MM, local time) or 'in_minutes'.");
+  if(when < Date.now() - 60000) throw new Error("That time has already passed. Ask the user which day they meant.");
+  const r = reminders(); r.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), text, at: when });
+  r.sort((a, b) => a.at - b.at); saveReminders(r);
+  return { set:true, text, when: new Date(when).toString(), note:"Jarvis says it out loud at that time if this page is open; otherwise as soon as it's opened again." };
+}
+function listReminders(){
+  const r = reminders();
+  return r.length ? r.map(x => ({ text:x.text, when:new Date(x.at).toString() })) : "No reminders set.";
+}
+function cancelReminder({text}){
+  const r = reminders(), w = String(text || "").toLowerCase().trim();
+  const keep = w ? r.filter(x => !x.text.toLowerCase().includes(w)) : [];
+  saveReminders(keep);
+  return { removed: r.length - keep.length, left: keep.length };
+}
+function tickReminders(){
+  if(dormantNow()) return;   // only the active Jarvis tab announces (and removes) reminders
+  const r = reminders(), now = Date.now(), due = r.filter(x => x.at <= now);
+  if(!due.length) return;
+  saveReminders(r.filter(x => x.at > now));
+  due.forEach(x => pendingAlerts.push(now - x.at > 10 * 60000
+    ? `Sir, while you were away you had a reminder for ${remWhen(x.at)}: ${x.text}.`
+    : `Sir, a reminder: ${x.text}.`));
+  flushAlerts();   // said as soon as Jarvis isn't busy (and has said hello)
+}
+setInterval(tickReminders, 5000);
+
+/* ---------- weather and travel times (free services, no key needed) ---------- */
+const WMO = { 0:"clear sky", 1:"mainly clear", 2:"partly cloudy", 3:"overcast", 45:"fog", 48:"freezing fog", 51:"light drizzle", 53:"drizzle", 55:"heavy drizzle",
+  56:"freezing drizzle", 57:"freezing drizzle", 61:"light rain", 63:"rain", 65:"heavy rain", 66:"freezing rain", 67:"freezing rain", 71:"light snow", 73:"snow", 75:"heavy snow",
+  77:"snow grains", 80:"light showers", 81:"showers", 82:"violent showers", 85:"snow showers", 86:"heavy snow showers", 95:"thunderstorm", 96:"thunderstorm with hail", 99:"thunderstorm with hail" };
+async function getJson(url, what){
+  let r;
+  try{ r = await fetch(url); }catch{ throw new Error(`Couldn't reach the ${what} service from here. Use web search instead if available.`); }
+  if(!r.ok) throw new Error(`The ${what} service answered ${r.status}. Use web search instead if available.`);
+  return r.json();
+}
+async function geocodePlace(place){
+  const [name, ...rest] = String(place || "").split(",").map(x => x.trim()).filter(Boolean);
+  if(!name) throw new Error("Which city or place?");
+  const j = await getJson("https://geocoding-api.open-meteo.com/v1/search?" + new URLSearchParams({ name, count:"5", language:"en", format:"json" }), "weather");
+  const hint = rest.join(" ").toLowerCase();
+  const hits = j.results || [];
+  const g = hits.find(h => hint && [h.country, h.admin1, h.country_code].some(v => v && hint.includes(String(v).toLowerCase()))) || hits[0];
+  if(!g) throw new Error(`Couldn't find a place called "${place}".`);
+  return { lat:g.latitude, lon:g.longitude, label:[g.name, g.admin1, g.country].filter(Boolean).join(", ") };
+}
+async function getWeather({place, days}){
+  const g = await geocodePlace(place), n = Math.max(1, Math.min(7, Number(days) || 1));
+  const w = await getJson("https://api.open-meteo.com/v1/forecast?" + new URLSearchParams({ latitude:g.lat, longitude:g.lon, timezone:"auto", forecast_days:String(n),
+    current:"temperature_2m,apparent_temperature,weather_code,wind_speed_10m,precipitation",
+    hourly:"temperature_2m,precipitation_probability,weather_code",
+    daily:"weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset" }), "weather");
+  const c = w.current || {}, h = w.hourly || {}, d = w.daily || {};
+  const start = Math.max(0, (h.time || []).findIndex(t => t >= (c.time || "")));
+  const next = (h.time || []).slice(start, start + 12).map((t, i) => `${t.slice(11, 16)} ${Math.round(h.temperature_2m[start + i])}° ${h.precipitation_probability?.[start + i] ?? "?"}% rain`);
+  return { place:g.label, units:"°C, km/h",
+    now: c.time ? { temp:Math.round(c.temperature_2m), feels_like:Math.round(c.apparent_temperature), conditions:WMO[c.weather_code] || "unknown", wind:Math.round(c.wind_speed_10m), precipitation_mm:c.precipitation } : null,
+    next_12_hours: next,
+    days: (d.time || []).map((t, i) => ({ date:t, conditions:WMO[d.weather_code[i]] || "unknown", high:Math.round(d.temperature_2m_max[i]), low:Math.round(d.temperature_2m_min[i]),
+      rain_chance:d.precipitation_probability_max?.[i], sunrise:d.sunrise?.[i]?.slice(11), sunset:d.sunset?.[i]?.slice(11) })) };
+}
+async function findAddress(q){
+  const j = await getJson("https://nominatim.openstreetmap.org/search?" + new URLSearchParams({ q:String(q), format:"json", limit:"1" }), "maps");
+  if(!j[0]) throw new Error(`Couldn't find "${q}" on the map. Ask the user for a fuller address (street and city).`);
+  return { lat:Number(j[0].lat), lon:Number(j[0].lon), label:clip(j[0].display_name, 80) };
+}
+async function travelTime({from, to, mode}){
+  mode = ["walking", "cycling"].includes(mode) ? mode : "driving";
+  if(!from || !to) throw new Error("Need both a starting point and a destination.");
+  const maps = "https://www.google.com/maps/dir/?" + new URLSearchParams({ api:"1", origin:String(from), destination:String(to), travelmode: mode === "cycling" ? "bicycling" : mode });
+  const [a, b] = await Promise.all([findAddress(from), findAddress(to)]);
+  const j = await getJson(`https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=false`, "route");
+  const rt = j.routes?.[0];
+  if(!rt) throw new Error("No route found between those places.");
+  const km = rt.distance / 1000;
+  const mins = mode === "driving" ? rt.duration / 60 : km / (mode === "walking" ? 4.8 : 15) * 60;   // walking/cycling: estimated from the distance
+  return { from:a.label, to:b.label, mode, distance_km:Math.round(km * 10) / 10, minutes:Math.round(mins),
+    note: mode === "driving" ? "Typical driving time WITHOUT live traffic; at rush hour it can be much longer. Offer to open Google Maps (open_website with maps_url) for live traffic." : "Estimated from the distance. Google Maps (maps_url) has the exact route.",
+    maps_url: maps };
+}
+
+/* ---------- Uber estimates and Tripadvisor hotels ----------
+   Online (claude.ai) these use your Uber and Tripadvisor connectors. On the website,
+   Jarvis opens Uber / Tripadvisor with the trip or city filled in instead. Never books anything. */
+async function uberEstimate({from, to, city, country_code, product}){
+  if(!from || !to) throw new Error("Need both the pickup and the drop-off. Ask the user; never guess.");
+  const link = "https://m.uber.com/ul/?" + new URLSearchParams({ action:"setPickup", "pickup[formatted_address]":String(from), "dropoff[formatted_address]":String(to) });
+  if(google.mode !== "mcp"){
+    const opened = openExternal(link, "See Uber prices for this trip");
+    return { opened, note:"Live Uber prices are only available in the online version of Jarvis. Uber was opened with this trip filled in: prices and pickup times show there, and the user books it themselves." };
+  }
+  const place = q => ({ text_query:[q, city].filter(Boolean).join(", "), formatted_address:{ address_line_1:String(q), ...(city ? { city:String(city) } : {}), country_code:String(country_code || "US").toUpperCase().slice(0, 2) } });
+  const input = { origin:place(from), destination:place(to), trigger_intent:"get_estimates", timezone:Intl.DateTimeFormat().resolvedOptions().timeZone };
+  if(product) input.product_type = String(product);
+  const res = await mcpCall("Uber", "get_estimates_between_two_locations_claude", input);
+  return { estimates:asData(res, 5000), uber_link:link, note:"Estimates only. The user books in the Uber app; offer to open uber_link." };
+}
+const TRIPADVISOR = { mcpServerVersion:{ version:"V2026_0327" }, requestContext:{ clientType:"DESKTOP", userAgent:"jarvis-hud/1.0" } };
+async function findHotels({location, check_in, check_out, guests, rooms, max_price, min_rating, sort}){
+  if(!location) throw new Error("Which city or area?");
+  if(google.mode !== "mcp"){
+    const opened = openExternal("https://www.tripadvisor.com/Search?" + new URLSearchParams({ q:`hotels ${location}` }), `Hotels in ${location} on Tripadvisor`);
+    return { opened, note:"Live Tripadvisor hotel search is only available in the online version of Jarvis. Tripadvisor was opened for this city; use web search (if available) to suggest two or three well-reviewed options." };
+  }
+  const input = { ...TRIPADVISOR, location:String(location), limit:8, pricingMode:"QUICK",
+    sortBy:{ cheapest:"PRICE_LOW_TO_HIGH", popular:"POPULARITY", nearest:"DISTANCE" }[sort] || "BEST_VALUE" };
+  if(check_in) input.checkIn = String(check_in);
+  if(check_out) input.checkOut = String(check_out);
+  if(guests) input.guests = Math.max(1, Math.round(Number(guests)));
+  if(rooms) input.rooms = Math.max(1, Math.round(Number(rooms)));
+  const filters = {};
+  if(max_price) filters.maxPrice = Number(max_price);
+  if(min_rating) filters.minReviewScore = Number(min_rating);
+  if(Object.keys(filters).length) input.filters = filters;
+  return asData(await mcpCall("Tripadvisor", "search_hotels", input), 7000);
+}
+async function hotelInfo({hotel, check_in, check_out, guests}){
+  if(google.mode !== "mcp") throw new Error("Hotel details from Tripadvisor are only available in the online version. Use web search instead.");
+  const input = { ...TRIPADVISOR, hotelName:String(hotel || ""), includePricing:true, includeReviews:true, includeAmenities:true, pricingMode:"QUICK" };
+  if(check_in) input.checkIn = String(check_in);
+  if(check_out) input.checkOut = String(check_out);
+  if(guests) input.guests = Math.max(1, Math.round(Number(guests)));
+  return asData(await mcpCall("Tripadvisor", "hotel_details", input), 7000);
 }
 
 /* proactive alerts: "Sir, your meeting starts in 10 minutes" */
@@ -1402,6 +1555,30 @@ const tools = [
   { name:"library_index", description:"Saves a one-sentence summary of a Library document and the people, companies and topics it's about, linking them in the Brain.",
     inputSchema:{type:"object",properties:{file_id:{type:"string"},name:{type:"string"},summary:{type:"string"},things:{type:"array",items:{type:"string"}},modified:{type:"string",description:"the modified value from library_scan"}},required:["file_id","name","summary"]},
     execute: input => libraryIndex(input) },
+  { name:"set_reminder", description:"Sets a reminder that Jarvis says out loud at a given time (e.g. 'remind me at 4 to call the bank', 'remind me in 20 minutes to check the oven', 'remind me tomorrow at 9 about the invoice'). Use 'at' for a clock time (the user's local time, YYYY-MM-DDTHH:MM; turn 'tomorrow', 'Friday' into the real date) or 'in_minutes' for a delay.",
+    inputSchema:{type:"object",properties:{text:{type:"string",description:"What to remind the user about, short, e.g. 'call the bank'"},at:{type:"string",description:"Local time YYYY-MM-DDTHH:MM"},in_minutes:{type:"number"}},required:["text"]},
+    execute: input => setReminder(input) },
+  { name:"list_reminders", description:"Lists the reminders that are set, with their times.",
+    execute: () => listReminders() },
+  { name:"cancel_reminder", description:"Cancels reminders whose text contains the given words, or all reminders if no words are given.",
+    inputSchema:{type:"object",properties:{text:{type:"string",description:"Words from the reminder; omit to cancel all"}}},
+    execute: input => cancelReminder(input) },
+  { name:"get_weather", description:"Current weather, the next 12 hours (temperature, chance of rain) and a daily forecast for up to 7 days, for any city or place. Use the user's city from 'About you' or memory if they don't name one.",
+    inputSchema:{type:"object",properties:{place:{type:"string",description:"City or place, e.g. 'Madrid, Spain'"},days:{type:"number",description:"1-7, default 1"}},required:["place"]},
+    execute: input => getWeather(input) },
+  { name:"travel_time", description:"How long it takes to get from one place to another (driving by default; walking or cycling too), with the distance and a Google Maps link. Driving times are typical times WITHOUT live traffic.",
+    inputSchema:{type:"object",properties:{from:{type:"string",description:"Street address or place with city"},to:{type:"string",description:"Street address or place with city"},mode:{type:"string",enum:["driving","walking","cycling"]}},required:["from","to"]},
+    execute: input => travelTime(input) },
+  { name:"uber_estimate", description:"Uber price and pickup-time estimates for a ride RIGHT NOW between two places (estimates only; the user books in the Uber app). Both places must come from the user, never guessed; if a place isn't a famous landmark or airport and the city isn't clear, ask which city. Not for future or scheduled rides: say those are booked in the Uber app.",
+    inputSchema:{type:"object",properties:{from:{type:"string",description:"Pickup: address, business or landmark"},to:{type:"string",description:"Drop-off: address, business or landmark"},city:{type:"string"},country_code:{type:"string",description:"Two letters, e.g. ES, US, CA"},product:{type:"string",description:"UberX, UberXL, Comfort, Black, Electric or UberX Priority, only if the user asked"}},required:["from","to","country_code"]},
+    execute: input => uberEstimate(input) },
+  { name:"find_hotels", description:"Searches Tripadvisor for hotels in a city or near a place, with prices for the dates, bubble rating (Tripadvisor's review score, out of 5) and location. Turn 'next weekend' into real dates.",
+    inputSchema:{type:"object",properties:{location:{type:"string",description:"e.g. 'Lisbon, Portugal' or 'Louvre Museum, Paris'"},check_in:{type:"string",description:"YYYY-MM-DD"},check_out:{type:"string",description:"YYYY-MM-DD"},guests:{type:"number",description:"adults, default 2"},rooms:{type:"number"},
+      max_price:{type:"number",description:"per night"},min_rating:{type:"number",description:"minimum bubble rating 0-5"},sort:{type:"string",enum:["best_value","cheapest","popular","nearest"]}},required:["location"]},
+    execute: input => findHotels(input) },
+  { name:"hotel_info", onlineOnly:true, description:"Details for one hotel from Tripadvisor: price for the dates, rating, what guests say, amenities. Use when the user asks about a specific hotel.",
+    inputSchema:{type:"object",properties:{hotel:{type:"string",description:"Hotel name with city, e.g. 'Hotel Avenida Palace, Lisbon'"},check_in:{type:"string"},check_out:{type:"string"},guests:{type:"number"}},required:["hotel"]},
+    execute: input => hotelInfo(input) },
   { name:"get_time", description:"Returns the user's current local date and time.",
     execute: () => new Date().toString() },
   { name:"set_timer", description:"Starts a countdown timer on the dashboard. Returns confirmation.",
@@ -2238,7 +2415,7 @@ tools.push({ name:"log_bug", description:"Records a problem or improvement idea 
   inputSchema:{type:"object",properties:{description:{type:"string"}},required:["description"]},
   execute: ({description}) => { const b = store.get("jarvis.bugs", []); b.push({ t:new Date().toISOString(), text:String(description).slice(0, 500) }); store.set("jarvis.bugs", b.slice(-20)); renderReport(); return "Logged. Tell the user they can send it from settings → Report a problem."; } });
 tools.forEach(t => { const run = t.execute; t.execute = async (...a) => { try{ return await run(...a); }catch(e){ logDiag("tool", `${t.name}: ${e?.message || e}`); throw e; } }; });
-const apiTools = tools.filter(t => !t.name.startsWith("portfolio_")).map(t => ({ name:t.name, description:t.description, input_schema:t.inputSchema || {type:"object",properties:{}} }));
+const apiTools = tools.filter(t => !t.name.startsWith("portfolio_") && !t.onlineOnly).map(t => ({ name:t.name, description:t.description, input_schema:t.inputSchema || {type:"object",properties:{}} }));
 apiTools[apiTools.length - 1].cache_control = { type:"ephemeral" };   // the tool list is identical every time: cache it
 
 /* cost meter: what the API key has spent, estimated from the usage Claude reports with every answer */
