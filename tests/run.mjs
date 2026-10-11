@@ -446,7 +446,7 @@ console.log("Learning from corrections");
   await say(p, "jarvis how much was the hotel", 600);
   await say(p, "no, I meant in euros not dollars", 900);
   const L = await log(p), corr = L.find(x => typeof x.last?.content === "string" && /in euros/.test(x.last.content));
-  check("Claude is told how to learn from corrections", /Learning from corrections/.test(L[0].system));
+  check("Claude is told how to learn from corrections", /Learning from corrections/.test(JSON.stringify(L[0].system)));
   check("a correction carries a reminder to save what it reveals", corr && /sounds like a correction/.test(corr.last.content), corr?.last?.content);
   check("…and the lasting fact is saved to memory", (await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.memory") || "[]"))).some(m => /euros/.test(m.text)));
   await say(p, "what time is it", 600);
