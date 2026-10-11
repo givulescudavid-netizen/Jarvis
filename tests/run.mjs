@@ -439,6 +439,25 @@ console.log("Smart speed: Haiku for quick questions, more thinking for analysis"
   await p.close();
 }
 
+console.log("Learning from corrections");
+{
+  const p = await open({ script:[ { text:"That's 1,200 dollars, sir." }, { tool:"remember", input:{ fact:"Prefers amounts in euros, not dollars" } }, { text:"Euros it is, sir. I'll remember that." }, { text:"Noon, sir." } ] });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis how much was the hotel", 600);
+  await say(p, "no, I meant in euros not dollars", 900);
+  const L = await log(p), corr = L.find(x => typeof x.last?.content === "string" && /in euros/.test(x.last.content));
+  check("Claude is told how to learn from corrections", /Learning from corrections/.test(JSON.stringify(L[0].system)));
+  check("a correction carries a reminder to save what it reveals", corr && /sounds like a correction/.test(corr.last.content), corr?.last?.content);
+  check("…and the lasting fact is saved to memory", (await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.memory") || "[]"))).some(m => /euros/.test(m.text)));
+  await say(p, "what time is it", 600);
+  const CORRECTION = eval(fs.readFileSync(path.join(root, "index.html"), "utf8").match(/const CORRECTION = (\/.*\/i);/)[1]);   // the page's own pattern
+  const det = ["no thanks", "no problem", "no worries, sir", "not dollars, euros", "not Mark, Marc with a c", "no, I meant Friday", "I told you I use 5.5%"].map(t => CORRECTION.test(t));
+  check("spots corrections ('not dollars, euros') but not 'no thanks' or 'no problem'", det.join() === "false,false,false,true,true,true,true", det.join());
+  check("normal questions don't get the reminder", !/sounds like a correction/.test((await log(p)).at(-1).last.content));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("ElevenLabs voice");
 {
   const LONG = "Good evening, sir. Your board meeting with Pepper is at nine, lunch with Happy is at one, and the reactor review runs all afternoon.";

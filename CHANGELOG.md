@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.10.11.29 — Jarvis learns from your corrections
+- When you correct Jarvis ("no, I meant Pepper Potts", "not dollars, euros", "I told you, I use 5.5%"), it fixes the answer and, if the correction is something lasting, saves it to memory so it doesn't make the same mistake again. It says briefly that it'll remember.
+- One-off slips aren't saved. You can see and delete what it remembers in ⚙ → memory, or say "forget that".
+
 ## 2026.10.11.28 — Smart speed: quicker small talk, deeper analysis
 - Quick questions like the time, the weather, a timer, "thanks" or "how are you" now go to Claude Haiku, which answers faster and costs a small fraction of what Opus does.
 - Analysis questions (DCFs, valuations, comparisons, "why…", "should I…", plans, summaries) get more thinking from Opus, so the answers go deeper. Say "think hard about…" for the most thorough answer.

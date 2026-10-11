@@ -389,7 +389,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.28";
+const VERSION = "2026.10.11.29";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -429,6 +429,7 @@ function sysPrompt(){
 - Remember the user's standing preferences with remember (e.g. "always uses 5.5% equity risk premium", "prefers exit multiple over perpetuity growth").`
     + `\n\nActions: you can save Gmail drafts and create calendar events. These tools ask the user to confirm before anything happens; if they decline, accept it and move on. Never claim an email was sent: drafts wait in Gmail for the user to send.`
     + `\n\nMemory: when the user says "remember...", or tells you a lasting fact about their work, clients, people or preferences, save it with the remember tool. Use forget when asked.`
+    + `\n\nLearning from corrections: when the user corrects you ("no, I meant…", "that's wrong", "not X, Y", "I told you…"), fix your answer, and if the correction shows something lasting (who someone is, a unit or currency, how they like things done, a word you keep mishearing), save it with remember in the same turn and say in a few words that you'll remember. Don't save one-off slips. If a saved memory turns out to be wrong, forget it and remember the right one.`
     + brainPrompt();
 }
 const RULES = `You are J.A.R.V.I.S., the user's personal AI, in the spirit of Tony Stark's assistant in the Iron Man films, running on a HUD dashboard. Everything you say is spoken aloud. Plain text only, no markdown, no emoji, no lists read out as bullet points.
@@ -2692,6 +2693,9 @@ function route(text){
   if(DEEP_Q.test(t)) return { model, effort: /think (?:hard|carefully|it through)|in depth|deep dive/i.test(t) ? "high" : "medium", lane:"deep" };
   return { model, effort:"low", lane:"normal" };
 }
+// A correction ("no, I meant…") gets a short reminder to Claude to save anything lasting it reveals
+const CORRECTION = /^(?:jarvis[\s,]*)?(?:no[,.!]?\s+(?!(?:thanks?|thank you|problem|worries|rush|need|way|idea|doubt|wonder)\b)\S|nope\b|not (?:that|quite|what i)|not [\w'-]+(?: [\w'-]+)?[,;] |that'?s (?:wrong|not (?:right|it|what))|wrong\b|actually[, ]|i (?:said|meant|told you|asked)\b|you (?:got (?:it|that) wrong|misheard|misunderstood)|i didn'?t (?:say|mean|ask))/i;
+function withCorrectionHint(text){ return CORRECTION.test(text.trim()) ? text + "\n[This sounds like a correction. Fix it, and if it shows a lasting preference or fact, save it with remember.]" : text; }
 let apiSystem = null, webOn = true, apiEffort = "low", effortTurns = true;
 async function askApi(text, signal, onText){
   if(apiMsgs.length > 120) apiMsgs = [];
@@ -2700,7 +2704,7 @@ async function askApi(text, signal, onText){
   const r = route(text); let m = r.model;
   // Thinking effort changes per question with an effort-only system message, so the cached conversation stays valid
   if(effortTurns && r.effort !== apiEffort){ apiMsgs.push({ role:"system", content:[], output_config:{ effort:r.effort } }); apiEffort = r.effort; }
-  const userMsg = {role:"user", content:`[${new Date().toLocaleString()}] ${text}`};
+  const userMsg = {role:"user", content:`[${new Date().toLocaleString()}] ${withCorrectionHint(text)}`};
   apiMsgs.push(userMsg);
   // streamed words go to onText as they arrive, with a space between separate blocks of text
   let said = "", block = null;
@@ -2816,7 +2820,7 @@ async function ask(text, shown, interruptedHeard){
   try{
     let reply;
     if(sample){
-      turns.push({role:"user",content:text});
+      turns.push({role:"user",content:withCorrectionHint(text)});
       if(turns.length > 20) turns = turns.slice(-20);
       if(turns[0].role !== "user") turns.shift();
       try{
