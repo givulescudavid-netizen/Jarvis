@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.10.11.28 — Smart speed: quicker small talk, deeper analysis
+- Quick questions like the time, the weather, a timer, "thanks" or "how are you" now go to Claude Haiku, which answers faster and costs a small fraction of what Opus does.
+- Analysis questions (DCFs, valuations, comparisons, "why…", "should I…", plans, summaries) get more thinking from Opus, so the answers go deeper. Say "think hard about…" for the most thorough answer.
+- Anything involving your email, calendar, files or spreadsheets always stays on Opus.
+- You can switch it off in ⚙ → "Smart speed".
+
 ## 2026.10.11.27 — Jarvis starts talking sooner
 - Jarvis used to wait until Claude had written the whole answer before saying a word. Now it starts speaking the first sentence as soon as it's written, while the rest is still coming in. Longer answers should feel a few seconds quicker.
 - Saying "stop" while it's talking still works, and the rest of that answer isn't spoken (it still appears on screen).

@@ -66,7 +66,7 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
       u = String(u); const J = (x, st = 200) => new Response(JSON.stringify(x), { status: st });
       if(window.__extraFetch){ const r = await window.__extraFetch(u, o, J); if(r) return r; }
       if(u.includes("api.anthropic.com")){
-        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1), msgs: body.messages, system: body.system, cache: body.cache_control, toolCache: body.tools.filter(t => t.cache_control).map(t => t.name), stream: body.stream });
+        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1), msgs: body.messages, system: body.system, cache: body.cache_control, toolCache: body.tools.filter(t => t.cache_control).map(t => t.name), stream: body.stream, model: body.model, beta: o.headers["anthropic-beta"] || "" });
         const st = script[call++] || { text: "Done." };
         if(st.delay) await new Promise(r => setTimeout(r, st.delay));
         if(st.err) return J({ error:{ message: st.err } }, st.status || 400);
@@ -404,6 +404,38 @@ console.log("Talking while the answer is still coming in (streaming)");
   await p.waitForTimeout(3000);
   check("…then shows it's working while it waits for the next sentence", /Processing/.test(await p.locator("#mode").textContent()), await p.locator("#mode").textContent());
   check("no page errors", errs.length === 0, errs.join(" | "));
+  await p.close();
+}
+
+console.log("Smart speed: Haiku for quick questions, more thinking for analysis");
+{
+  const p = await open({ script:[
+    { text:"It's ten past ten, sir." }, { text:"Apple looks pricier, sir." },
+    { err:"output_config.effort requires a model that supports per-turn effort; this model does not" }, { text:"Here's the comparison, sir." },
+    { text:"Your inbox is quiet, sir." }, { err:"messages.3.content.1: unknown content block type" }, { text:"Hello again, sir." }, { text:"Noon, sir." } ] });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis what time is it", 600);
+  let L = await log(p);
+  check("a quick question goes to fast Haiku", L.at(-1).model === "claude-haiku-5-5", L.at(-1).model);
+  await say(p, "compare apple and microsoft valuations", 600);
+  L = await log(p);
+  const deep = L.at(-1), sys = deep.msgs.at(-2);
+  check("an analysis question stays on Opus", deep.model === "claude-opus-5-5", deep.model);
+  check("…with more thinking, without breaking the cached conversation", sys.role === "system" && sys.output_config?.effort === "medium" && /mid-conversation-output-config/.test(deep.beta) && deep.msgs.length > 2, JSON.stringify(sys) + " " + deep.beta);
+  await say(p, "why did apple's margins shrink", 800);
+  L = await log(p);
+  check("if the account can't change thinking per question, it retries without it and still answers", !L.at(-1).msgs.some(x => x.output_config) && /Here's the comparison/.test(await p.locator("#capJ").textContent()), JSON.stringify(L.at(-1).msgs.map(x => x.role)));
+  await say(p, "any new email", 600);
+  L = await log(p);
+  check("anything touching email stays on Opus", L.at(-1).model === "claude-opus-5-5");
+  await say(p, "thanks", 600);
+  L = await log(p);
+  check("if Haiku can't read the conversation, the same question goes to Opus instead", L.at(-2).model === "claude-haiku-5-5" && L.at(-1).model === "claude-opus-5-5" && /Hello again/.test(await p.locator("#capJ").textContent()), L.slice(-2).map(x => x.model).join(" "));
+  await p.click("#gearBtn"); await p.uncheck("#smartOn"); await p.click("#closeBtn");
+  await say(p, "what time is it", 600);
+  L = await log(p);
+  check("with smart speed off, everything uses the chosen model", L.at(-1).model === "claude-opus-5-5");
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
 

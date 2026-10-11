@@ -342,6 +342,7 @@ html.mini #popBtn{display:none}
       <option value="claude-opus-5-5">Claude Opus 5.5 (smartest)</option>
       <option value="claude-haiku-5-5">Claude Haiku 5.5 (fastest, cheapest)</option>
     </select>
+    <label class="check"><input type="checkbox" id="smartOn"> Smart speed: quick questions (time, weather, timers, small talk) use fast Haiku; analysis gets extra thinking</label>
     <p class="note" id="costNote">Cost: nothing yet today.</p>
   </section>
 
@@ -388,7 +389,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.27";
+const VERSION = "2026.10.11.28";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -2589,6 +2590,9 @@ let apiKey = store.get("jarvis.key", "");
 let model = store.get("jarvis.model", "claude-opus-5-5");
 let apiMsgs = [];   // full API history, appended only (keeps thinking blocks valid)
 $("modelSel").value = model;
+let smartOn = store.get("jarvis.smart", true);
+$("smartOn").checked = smartOn;
+$("smartOn").onchange = e => { smartOn = e.target.checked; store.set("jarvis.smart", smartOn); };
 $("modelSel").onchange = e => { model = e.target.value; store.set("jarvis.model", model); apiMsgs = []; addMsg("sys","Brain switched. Starting a fresh conversation."); };
 $("keyForm").onsubmit = e => {
   e.preventDefault();
@@ -2675,11 +2679,27 @@ async function readStream(res, onText){
   msg.content = msg.content.filter(Boolean);
   return msg;
 }
-let apiSystem = null, webOn = true;
+// Smart speed: pick how hard Claude thinks, and which model answers, from what was asked.
+// quick: small talk, the time, weather, a timer → fast, cheap Haiku. deep: analysis, comparisons, plans → more thinking.
+// Anything that touches email, calendar, files or sheets always stays on the main model.
+const QUICK_Q = /^(?:(?:hi|hello|hey|yo|good (?:morning|afternoon|evening|night)|thanks?|thank you|cheers|how are you|how'?s it going|what'?s up)\b|what(?:'s| is) the (?:time|date|day)\b|what time is it|what day is it|what'?s today'?s date|(?:set|start) an? .{0,25}timer|tell me a joke|(?:what'?s|how'?s|what is) the weather|(?:will|is) it (?:going to )?(?:rain|snow|be (?:sunny|cold|hot|warm))|do i need an? (?:umbrella|jacket|coat))/i;
+const NOT_QUICK = /mail|calendar|meeting|schedule|draft|drive|sheet|dcf|comps|remind|book|file|doc|portfolio|stock|and then|after that|also\b/i;
+const DEEP_Q = /\b(?:dcf|valuation|valu(?:e|ing) |comps\b|compar|analy[sz]|assess|evaluat|pros and cons|trade-?offs?|strateg|forecast|projection|explain why|why (?:is|are|did|does|do|would|should|has|have)\b|should i\b|break (?:it |this )?down|in depth|deep dive|think (?:hard|carefully|it through)|research|summari[sz]e|review|plan (?:for|out|my (?:week|month|trip))|what would happen|how (?:does|do) .{0,30} work)/i;
+function route(text){
+  const t = text.trim().replace(/^jarvis[\s,]*/i, "");
+  if(!smartOn) return { model, effort:"low", lane:"normal" };
+  if(model !== "claude-haiku-5-5" && t.split(/\s+/).length <= 12 && QUICK_Q.test(t) && !NOT_QUICK.test(t)) return { model:"claude-haiku-5-5", effort:"low", lane:"quick" };
+  if(DEEP_Q.test(t)) return { model, effort: /think (?:hard|carefully|it through)|in depth|deep dive/i.test(t) ? "high" : "medium", lane:"deep" };
+  return { model, effort:"low", lane:"normal" };
+}
+let apiSystem = null, webOn = true, apiEffort = "low", effortTurns = true;
 async function askApi(text, signal, onText){
   if(apiMsgs.length > 120) apiMsgs = [];
-  if(!apiMsgs.length) apiSystem = sysPrompt();   // fixed for the whole conversation
+  if(!apiMsgs.length){ apiSystem = sysPrompt(); apiEffort = "low"; }   // fixed for the whole conversation
   let start = apiMsgs.length, recovered = false;
+  const r = route(text); let m = r.model;
+  // Thinking effort changes per question with an effort-only system message, so the cached conversation stays valid
+  if(effortTurns && r.effort !== apiEffort){ apiMsgs.push({ role:"system", content:[], output_config:{ effort:r.effort } }); apiEffort = r.effort; }
   const userMsg = {role:"user", content:`[${new Date().toLocaleString()}] ${text}`};
   apiMsgs.push(userMsg);
   // streamed words go to onText as they arrive, with a space between separate blocks of text
@@ -2687,19 +2707,30 @@ async function askApi(text, signal, onText){
   try{
     for(let round = 0; round < 10; round++){
       const feed = (w, i) => { if(block !== round + ":" + i){ block = round + ":" + i; if(said && !/\s$/.test(said) && /^[\w"'(]/.test(w)) w = " " + w; } said += w; onText?.(w); };
-      const web = model === "claude-haiku-5-5" ? { type:"web_search_20250305", name:"web_search", max_uses:3 } : { type:"web_search_20260209", name:"web_search", max_uses:3 };
-      const body = { model, max_tokens:8000, system:apiSystem, messages:apiMsgs, tools: webOn ? [...apiTools, web] : apiTools, output_config:{effort:"low"}, cache_control:{ type:"ephemeral" }, stream:true };   // also cache the conversation so far; stream so Jarvis can start talking early
+      const web = m === "claude-haiku-5-5" ? { type:"web_search_20250305", name:"web_search", max_uses:3 } : { type:"web_search_20260209", name:"web_search", max_uses:3 };
+      const body = { model:m, max_tokens:8000, system:apiSystem, messages:apiMsgs, tools: webOn ? [...apiTools, web] : apiTools, output_config:{effort:"low"}, cache_control:{ type:"ephemeral" }, stream:true };   // also cache the conversation so far; stream so Jarvis can start talking early
       const headers = { "content-type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" };
-      if(model !== "claude-haiku-5-5"){ body.fallbacks = "default"; headers["anthropic-beta"] = "server-side-fallback-2026-07-01"; }
-      if(round === 0) logDiag("ask", `api ${model}, ${body.tools.length} tools offered (${body.tools.map(t => t.name).filter(n => /open_website|play_music|web_search/.test(n)).join(", ") || "no open/music tools!"})`);
+      const betas = [];
+      if(m !== "claude-haiku-5-5"){ body.fallbacks = "default"; betas.push("server-side-fallback-2026-07-01"); }
+      if(apiMsgs.some(x => x.output_config)) betas.push("mid-conversation-output-config-2026-07-01");
+      if(betas.length) headers["anthropic-beta"] = betas.join(",");
+      if(round === 0) logDiag("ask", `api ${m} (${r.lane}, effort ${apiEffort}), ${body.tools.length} tools offered (${body.tools.map(t => t.name).filter(n => /open_website|play_music|web_search/.test(n)).join(", ") || "no open/music tools!"})`);
       const res = await fetch("https://api.anthropic.com/v1/messages", { method:"POST", headers, body:JSON.stringify(body), signal });
       const data = res.ok && /event-stream/.test(res.headers.get("content-type") || "") ? await readStream(res, feed) : await res.json().catch(() => ({}));
       if(!res.ok){
         const msg = data?.error?.message || ("HTTP " + res.status);
+        if(m !== model && [400, 404].includes(res.status)){   // the fast model couldn't take this conversation (e.g. a web search step only Opus understands): ask the main model instead
+          logDiag("api", `${m} declined (${res.status}), using ${model}: ` + msg.slice(0, 120));
+          m = model; round--; continue;
+        }
         if(res.status === 400 && webOn && /web.?search/i.test(msg)){ webOn = false; round--; continue; }   // web search not enabled on this account
+        if(res.status === 400 && effortTurns && /output_config|per-turn effort|effort|role.{0,20}system/i.test(msg)){   // per-question thinking effort not available: carry on without it
+          logDiag("api", "per-question effort rejected, turning it off: " + msg.slice(0, 160));
+          effortTurns = false; apiEffort = "low"; apiMsgs = apiMsgs.filter(x => !x.output_config); start = apiMsgs.indexOf(userMsg); round--; continue;
+        }
         if(res.status === 400 && !recovered && /without a corresponding|tool_use_id|tool_result/i.test(msg)){   // a broken turn in the history: start the conversation afresh instead of failing forever
           logDiag("api", "conversation history rejected, starting fresh: " + msg.slice(0, 160));
-          recovered = true; apiMsgs = [userMsg]; apiSystem = sysPrompt(); start = 0; round--; continue;
+          recovered = true; apiMsgs = [userMsg]; apiSystem = sysPrompt(); apiEffort = "low"; start = 0; round--; continue;
         }
         const err = new Error(msg); err.status = res.status; throw err;
       }
@@ -2723,7 +2754,7 @@ async function askApi(text, signal, onText){
       apiMsgs.push({role:"user", content:results});
     }
     return "That took more steps than I'd like, sir. Could you rephrase?";
-  }catch(e){ apiMsgs.length = start; throw e; }
+  }catch(e){ apiMsgs.length = start; apiEffort = apiMsgs.findLast(x => x.output_config)?.output_config.effort || "low"; throw e; }
 }
 
 // A reply can stop part-way through a server-side step (web search runs code behind the scenes), e.g. when it runs
