@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.10.11.20 — Better problem reports
+- "Report a problem" now includes what you said to Jarvis and the exact error it showed, so problems can be reproduced and fixed. Email addresses, phone numbers and links are blanked out, because reports are public.
+- New reports are picked up automatically by a Claude bug-fixer, which proposes a fix for you to approve.
+
 ## 2026.10.11.19 — Fewer "one moment, sir"s
 - Jarvis now only says "one moment" when an answer takes longer than 4 seconds (it was 1.4), and at most once every 2 minutes.
 

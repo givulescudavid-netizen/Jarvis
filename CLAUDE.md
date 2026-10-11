@@ -42,6 +42,8 @@ Never put a personal email address in commits, code or docs.
 1. Read open issues. **`gh issue list` / `gh pr list` (GraphQL) are blocked in Claude Code sessions — use the REST API:**
    `gh api 'repos/givulescudavid-netizen/Jarvis/issues?state=open&per_page=50'` (entries with a `pull_request` key are PRs)
    and `gh api 'repos/givulescudavid-netizen/Jarvis/pulls?state=open'`. Bug reports come from the in-app "Report a problem" button and include an error log.
+   Reports include a "Recent log" with `[you said]` (what the owner said, personal details blanked) and `[error shown]` lines: use them to reproduce the problem in the test harness.
+   An hourly "Jarvis bug fixer" routine handles new `bug` issues: it comments on the issue with the PR link (that comment is how it knows an issue is already handled).
 2. Pick the most valuable fixes first (broken things > annoyances > new features). Keep each PR small and focused.
 3. Reproduce with the test harness when possible. **Add or update a check in `tests/run.mjs` for every fix.**
 4. Run `npm install && npx playwright install chromium && npm test` — all checks must pass.

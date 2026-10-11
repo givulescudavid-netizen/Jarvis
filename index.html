@@ -359,7 +359,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.19";
+const VERSION = "2026.10.11.20";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -367,6 +367,8 @@ function logDiag(kind, msg){
   const scrub = String(msg ?? "").replace(/sk-ant-[\w-]+/g, "[key]").replace(/ya29\.[\w.-]+/g, "[token]").slice(0, 300);
   const d = store.get("jarvis.diag", []); d.push({ t:new Date().toISOString(), kind, msg:scrub }); store.set("jarvis.diag", d.slice(-60));
 }
+// What you said goes into problem reports so they can be reproduced; reports are public, so blank out personal details.
+const redact = t => String(t ?? "").replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, "[email]").replace(/https?:\/\/\S+/g, "[link]").replace(/\+?\d[\d\s().-]{6,}\d/g, "[number]");
 addEventListener("error", e => logDiag("page", `${e.message} @${String(e.filename || "").split("/").pop()}:${e.lineno}`));
 addEventListener("unhandledrejection", e => logDiag("promise", e.reason?.message || e.reason?.code || e.reason));
 
@@ -1726,7 +1728,7 @@ function buildReport(){
     `- ElevenLabs: ${elKey ? (elVoiceId ? "on (ElevenLabs only)" : "key saved, no voice chosen") : "not set up"}; last voice error: ${$("voiceErr").textContent || "none"}`,
     `- Google: ${google.mode || "unavailable"}${google.connected ? ", connected" : ", not connected"}`,
     `- Memories: ${memories().length}, About you filled: ${store.get("jarvis.about","") ? "yes" : "no"}`,
-    "", "### Recent log", diag.length ? diag.slice(-25).map(d => `- ${d.t.slice(5,19)} [${d.kind}] ${d.msg}`).join("\n") : "(empty)"
+    "", "### Recent log", diag.length ? diag.slice(-30).map(d => `- ${d.t.slice(5,19)} [${d.kind}] ${d.msg}`).join("\n") : "(empty)"
   ].join("\n");
 }
 function renderReport(){
@@ -1735,7 +1737,7 @@ function renderReport(){
   const title = "Jarvis: " + ($("bugText").value.trim() || store.get("jarvis.bugs", []).slice(-1)[0]?.text || "problem report").slice(0, 70);
   $("issueLink").href = `https://github.com/${REPO}/issues/new?` + new URLSearchParams({ title, body: body.slice(0, 6000), labels:"bug" });
   const n = store.get("jarvis.diag", []).length, b = store.get("jarvis.bugs", []).length;
-  $("reportNote").textContent = `${b} logged bug${b === 1 ? "" : "s"}, ${n} log entr${n === 1 ? "y" : "ies"}. "Send to GitHub" opens a pre-filled report for you to submit.`;
+  $("reportNote").textContent = `${b} logged bug${b === 1 ? "" : "s"}, ${n} log entr${n === 1 ? "y" : "ies"}. "Send to GitHub" opens a pre-filled report: check it, then press Submit. Reports are public (emails, numbers and links are blanked out) and get picked up and fixed automatically.`;
 }
 $("bugText").addEventListener("input", renderReport);
 $("gearBtn").addEventListener("click", renderReport);
@@ -1934,6 +1936,7 @@ async function ask(text, shown, interruptedHeard){
   if(!sample && !apiKey){ addMsg("you", text); addMsg("sys","Jarvis needs a brain first: add your Anthropic API key in settings ⚙."); openDrawer(true); $("apiKey").focus(); resumeWake(); return; }
   ctl?.abort(); speakJob++; stopVoice(); stopRec();
   addMsg("you", shown || text);
+  logDiag("you said", redact(shown || text.replace(/^\[You were interrupted[^\]]*\]\s*/, "")).slice(0, 200));
   setMode("thinking");
   const myAsk = busyAsk = ++askSeq;
   const out = addMsg("j","…");
@@ -1970,7 +1973,8 @@ async function ask(text, shown, interruptedHeard){
   }catch(e){
     if(e?.code === "cancelled" || e?.name === "AbortError"){ out.textContent = e.text || "(stopped)"; }
     else {
-            addMsg("sys", e?.code ? (errCopy[e.code] || "Uplink interrupted. Try again.") : apiErr(e));
+      const shownErr = e?.code ? (errCopy[e.code] || "Uplink interrupted. Try again.") : apiErr(e);
+      addMsg("sys", shownErr); logDiag("error shown", shownErr);
       if(e?.code === "not_granted" || e?.code === "sampling_disabled") linkState("bad","Uplink offline");
     }
     if(busyAsk === myAsk) busyAsk = 0;

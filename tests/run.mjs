@@ -24,7 +24,8 @@ function check(name, ok, info = ""){ if(ok){ passed++; console.log("  ✓", name
 // Fakes injected before the page loads. `script` is the list of replies the fake Claude gives, in order.
 function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, events = [], unread = 0, googleBefore = false, noSR = false, micBusy = false, ls = {} } = {}){
   return [({ mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy, ls }) => {
-    Object.entries(ls).forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v)));
+    // the automatic morning briefing would otherwise make the results depend on the time of day
+    Object.entries({ "jarvis.autoBrief": false, ...ls }).forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v)));
     if(micBusy) navigator.mediaDevices.getUserMedia = () => Promise.reject(Object.assign(new Error("Could not start audio source"), { name:"NotReadableError" }));
     if(googleBefore){ localStorage.setItem("jarvis.gon", "true"); localStorage.setItem("jarvis.gconsented3", "true"); }
     localStorage.setItem("jarvis.key", '"sk-ant-test"'); localStorage.setItem("jarvis.gclient", '"x.apps.googleusercontent.com"');
@@ -245,9 +246,15 @@ console.log("Memory, confirmations, drafts, events, web search fallback, diagnos
   await p.click("#gearBtn"); await p.waitForTimeout(200);
   const href = await p.locator("#issueLink").getAttribute("href");
   check("report link targets the repo's issues", href.startsWith("https://github.com/givulescudavid-netizen/Jarvis/issues/new?"));
-  const report = decodeURIComponent(href);
+  const report = new URL(href).searchParams.get("body");
   check("report includes the logged bug and the error log", report.includes("music") && report.includes("[api]"));
   check("report never contains keys", !/sk-ant-/.test(report));
+  check("report includes what you said and the error Jarvis showed", /\[you said\] what's new/.test(report) && /\[error shown\] The API key was rejected/.test(report), report.slice(-600));
+  await p.click("#closeBtn").catch(() => {}); await p.waitForTimeout(150);
+  await say(p, "jarvis email a.b@example.com or call +34 600 000 000 about https://x.example/y", 900);
+  await p.click("#gearBtn"); await p.waitForTimeout(200);
+  const red = new URL(await p.locator("#issueLink").getAttribute("href")).searchParams.get("body");
+  check("…with emails, phone numbers and links blanked out (reports are public)", /\[you said\] [Jj]arvis email \[email\] or call \[number\] about \[link\]/.test(red) && !/example\.com|600 000/.test(red), red.slice(-500));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
