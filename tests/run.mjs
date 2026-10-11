@@ -10,7 +10,8 @@ const root = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PAGE = pathToFileURL(path.join(root, "index.html")).href;
 const shots = path.join(root, "tests", "screenshots"); fs.mkdirSync(shots, { recursive: true });
 const exe = process.env.CHROMIUM_PATH || (fs.existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
-const browser = await chromium.launch(exe ? { executablePath: exe } : {});
+// A fake microphone (Chrome's built-in test device) so the mic check can be tested
+const browser = await chromium.launch({ ...(exe ? { executablePath: exe } : {}), args:["--use-fake-ui-for-media-stream", "--use-fake-device-for-media-stream"] });
 // Some checks need a real web address (Google sign-in is disabled for file:// pages), so serve the page locally too.
 import http from "node:http";
 const server = http.createServer((req, res) => { const f = path.join(root, decodeURIComponent(req.url.split("?")[0])); fs.readFile(f, (err, data) => { if(err){ res.writeHead(404); res.end(); return; } res.writeHead(200, { "content-type": f.endsWith(".html") ? "text/html" : "text/plain" }); res.end(data); }); });
@@ -21,8 +22,9 @@ let failed = 0, passed = 0;
 function check(name, ok, info = ""){ if(ok){ passed++; console.log("  ✓", name); } else { failed++; console.log("  ✗", name, info); } }
 
 // Fakes injected before the page loads. `script` is the list of replies the fake Claude gives, in order.
-function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, events = [], unread = 0, googleBefore = false, noSR = false } = {}){
-  return [({ mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR }) => {
+function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, events = [], unread = 0, googleBefore = false, noSR = false, micBusy = false } = {}){
+  return [({ mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy }) => {
+    if(micBusy) navigator.mediaDevices.getUserMedia = () => Promise.reject(Object.assign(new Error("Could not start audio source"), { name:"NotReadableError" }));
     if(googleBefore){ localStorage.setItem("jarvis.gon", "true"); localStorage.setItem("jarvis.gconsented3", "true"); }
     localStorage.setItem("jarvis.key", '"sk-ant-test"'); localStorage.setItem("jarvis.gclient", '"x.apps.googleusercontent.com"');
     if(eleven) localStorage.setItem("jarvis.elKey", '"el-test-key"');
@@ -42,9 +44,16 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
         }, 5); } };
     Object.defineProperty(window, "speechSynthesis", { value: synth });
     window.SpeechSynthesisUtterance = function(t){ this.text = t; };
-    class FakeSR { constructor(){ window.__rec = this; } start(){ setTimeout(() => this.onstart && this.onstart(), 5); } stop(){ this.onend && this.onend(); } abort(){ this.onend && this.onend(); } }
+    // Fake speech recognition that behaves like Chrome's: on* handlers AND addEventListener
+    class FakeSR extends EventTarget {
+      constructor(){ super(); window.__rec = this; }
+      fire(type, props = {}){ const ev = Object.assign(new Event(type), props); this["on" + type] && this["on" + type](ev); this.dispatchEvent(ev); }
+      start(){ setTimeout(() => this.fire("start"), 5); }
+      stop(){ this.fire("end"); } abort(){ this.fire("end"); }
+    }
     window.SpeechRecognition = FakeSR; window.webkitSpeechRecognition = FakeSR;
-    window.__say = txt => { const r = [{ transcript: txt }]; r.isFinal = true; window.__rec && window.__rec.onresult({ resultIndex:0, results:[r] }); };
+    window.__say = txt => { const r = [{ transcript: txt }]; r.isFinal = true; window.__rec && window.__rec.fire("result", { resultIndex:0, results:[r] }); };
+    window.__micError = err => window.__rec && window.__rec.fire("error", { error: err });
     window.google = { accounts:{ oauth2:{ initTokenClient: o => ({ requestAccessToken: () => setTimeout(() => o.callback({ access_token:"tok", expires_in:3600 }), 5) }) } } };
     let call = 0; const realFetch = window.fetch;
     window.fetch = async (u, o) => {
@@ -77,7 +86,7 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
     window.__opened = [];
     window.open = url => { window.__opened.push(String(url)); return window.__blockPopups ? null : {}; };
     if(noSR){ window.SpeechRecognition = undefined; window.webkitSpeechRecognition = undefined; }
-  }, { mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR }];
+  }, { mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy }];
 }
 async function open(opts, viewport = { width:1440, height:900 }, url = PAGE){
   const p = await browser.newPage({ viewport }); const errs = [];
@@ -375,6 +384,29 @@ console.log("ElevenLabs voice");
   check("Voice Library voice on a free plan: explains it needs a paid plan and suggests standard voices", /Voice Library/.test(await p.locator("#elStatus").textContent()) && /George/.test(await p.locator("#voiceErr").textContent()));
   check("no page errors", errs.length === 0, errs.join(" | "));
   await p.close();
+}
+
+console.log("Microphone indicator and mic check");
+{
+  const p = await open({ script:[ { text:"Yes, sir." } ] }, undefined, HTTP_PAGE);
+  await p.click("#bootBtn"); await settle(p);
+  check("header shows the mic is listening", /listening/.test(await p.locator("#micChipTxt").textContent()) && (await p.locator("#micChip").getAttribute("class")).includes("on"));
+  await say(p, "jarvis what time is it");
+  await p.click("#micChip"); await p.waitForTimeout(800);
+  check("mic check shows what it last heard", /what time is it/.test(await p.locator("#mcHeard").textContent()));
+  check("mic check shows which microphone Chrome is using", !/–|not available/.test(await p.locator("#mcDev").textContent()), await p.locator("#mcDev").textContent());
+  check("mic check shows Chrome's permission", /allowed|not decided/.test(await p.locator("#mcPerm").textContent()), await p.locator("#mcPerm").textContent());
+  await p.click("#closeBtn");
+  await p.evaluate(() => window.__micError("not-allowed")); await p.waitForTimeout(300);
+  check("blocked mic: header turns red and says why", /blocked/.test(await p.locator("#micChipTxt").textContent()) && /blocking the microphone/.test(await p.locator("#mcErr").textContent()));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+  const q = await open({ micBusy:true }, undefined, HTTP_PAGE);
+  await q.click("#bootBtn"); await settle(q);
+  await q.click("#micChip"); await q.waitForTimeout(500);
+  check("mic in use by another app: says so plainly", /another app/.test(await q.locator("#mcErr").textContent()), await q.locator("#mcErr").textContent());
+  check("no page errors", q.errs.length === 0, q.errs.join(" | "));
+  await q.close();
 }
 
 console.log("Browsers without voice listening");

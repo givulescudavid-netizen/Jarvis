@@ -104,6 +104,16 @@ ul.mem li{align-items:center;border-bottom:1px dashed var(--line);padding-bottom
 ul.mem li span:first-child{white-space:normal;font-size:.88rem}
 a.btn{font-family:var(--f-display);font-size:.64rem;letter-spacing:.2em;text-transform:uppercase;color:var(--void);background:var(--cyan);border:1px solid var(--cyan);padding:9px 13px;text-decoration:none}
 a.btn:hover{background:var(--ice)}
+.micchip{margin-left:10px;padding:2px 8px;font-family:var(--f-mono);font-size:.68rem;letter-spacing:.08em;text-transform:none;border:1px solid var(--line);background:transparent;color:var(--dim)}
+.micchip.on{color:var(--ok);border-color:rgba(77,255,176,.45)}
+.micchip.bad{color:var(--red);border-color:rgba(255,77,77,.6)}
+.micchip.warn{color:var(--amber);border-color:rgba(255,174,52,.5)}
+.micchip:hover{background:transparent;color:var(--ice)}
+.mc{display:flex;justify-content:space-between;gap:10px;align-items:center;font-size:.86rem;min-width:0}
+.mc span{color:var(--dim);flex:none}
+.mc b{font-weight:500;color:var(--ice);text-align:right;min-width:0;overflow-wrap:anywhere}
+.lvl{flex:1;max-width:160px;height:6px;background:rgba(95,220,255,.12)}
+.lvl i{display:block;height:100%;width:0;background:var(--ok);box-shadow:0 0 8px var(--ok)}
 .voice-err{margin:8px 0 0;max-width:min(760px,100%);color:var(--amber);font-family:var(--f-mono);font-size:.82rem;text-align:center;line-height:1.5}
 .openlink{margin-top:10px;max-width:min(760px,100%);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;box-sizing:border-box}
 a.btn:focus-visible{outline:2px solid var(--ice);outline-offset:2px}
@@ -140,7 +150,7 @@ html.mini #popBtn{display:none}
 
 <div class="wrap">
   <header>
-    <div class="status"><span class="dot warn" id="linkDot"></span><span id="linkTxt">Establishing uplink…</span><span class="ver" id="verBadge"></span></div>
+    <div class="status"><span class="dot warn" id="linkDot"></span><span id="linkTxt">Establishing uplink…</span><span class="ver" id="verBadge"></span><button type="button" class="micchip" id="micChip" title="Microphone status: click for a mic check">🎙 <span id="micChipTxt">starting…</span></button></div>
     <div class="row">
       <button type="button" class="gear" id="popBtn" title="Pop Jarvis out into its own small window, so it keeps listening while you use other tabs" aria-label="Pop out into its own window">⧉</button>
       <button type="button" class="gear" id="gearBtn" aria-label="Settings" aria-expanded="false" aria-controls="drawer">⚙</button>
@@ -205,6 +215,18 @@ html.mini #popBtn{display:none}
     <h2>Settings</h2>
     <button type="button" id="closeBtn" aria-label="Close settings">✕</button>
   </div>
+
+  <section id="micCheck">
+    <h3>Mic check</h3>
+    <div class="mc"><span>Chrome permission</span><b id="mcPerm">checking…</b></div>
+    <div class="mc"><span>Microphone in use</span><b id="mcDev">–</b></div>
+    <div class="mc"><span>Sound level (talk now)</span><div class="lvl"><i id="mcLvl"></i></div></div>
+    <div class="mc"><span>Listening</span><b id="mcState">–</b></div>
+    <div class="mc"><span>Last thing I heard</span><b id="mcHeard">nothing yet</b></div>
+    <div class="mc"><span>Last problem</span><b id="mcErr">none</b></div>
+    <button type="button" id="mcTest">Test microphone</button>
+    <p class="note">If the level bar moves when you talk but "Last thing I heard" stays empty, your mic works and Chrome's speech recognition is the problem. If the bar doesn't move, Chrome is using the wrong microphone or none at all.</p>
+  </section>
 
   <section>
     <h3>Voice</h3>
@@ -309,7 +331,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.13";
+const VERSION = "2026.10.11.14";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -1134,11 +1156,29 @@ let wakeOn = !!SR, awaiting = false, convoOpen = false, awaitTimer = null;
 const WAKE = /\b(?:(?:hey|hi|ok|okay|yo)[\s,]+)?(?:jarvis|jarvas|jarves|jarviz|jervis|javis|garvis|charvis|harvis|travis)(?:'s)?\b[\s,.!?]*(.*)$/i;
 
 function micBlocked(){
-  wakeOn = false; convo = false;
+  wakeOn = false; convo = false; micState("blocked", "Chrome is blocking the microphone for this site");
   addMsg("sys","Microphone access is blocked. Click the mic icon in the address bar, choose Allow, then reload the page.");
+}
+/* microphone status, shown in the header chip and in ⚙ → Mic check */
+let micStatus = "off";
+const MIC_ERR = { "not-allowed":"Chrome is blocking the microphone for this site", "service-not-allowed":"Chrome's speech service is blocked", "audio-capture":"no microphone found (or another app is using it)", "network":"speech recognition couldn't reach Google (internet/VPN/firewall)", "language-not-supported":"language not supported" };
+function micState(st, detail){
+  micStatus = st;
+  const chip = $("micChip"), txt = { listening:"listening", paused:"paused", blocked:"blocked", nomic:"no mic", error:"problem", off:"off", busy:"…" }[st] || st;
+  $("micChipTxt").textContent = txt;
+  chip.className = "micchip" + (st === "listening" ? " on" : st === "blocked" || st === "nomic" ? " bad" : st === "error" ? " warn" : "");
+  $("mcState").textContent = st === "listening" ? "yes, listening now" : detail || txt;
 }
 function makeRec(continuous){
   const r = new SR(); r.lang = "en-US"; r.interimResults = true; r.continuous = continuous;
+  r.addEventListener("start", () => micState("listening"));
+  r.addEventListener("end", () => setTimeout(() => { if(!recOn) micState(dormant ? "paused" : mode === "speaking" || mode === "thinking" ? "busy" : micStatus === "blocked" || micStatus === "nomic" ? micStatus : "off", dormant ? "paused: Jarvis is open in another tab" : undefined); }, 400));
+  r.addEventListener("result", e => { const t = e.results[e.results.length - 1][0].transcript.trim(); if(t) $("mcHeard").textContent = `"${clip(t, 60)}" at ${new Date().toLocaleTimeString([], { hour:"2-digit", minute:"2-digit", second:"2-digit" })}`; });
+  r.addEventListener("error", e => {
+    if(e.error === "no-speech" || e.error === "aborted") return;
+    $("mcErr").textContent = `${MIC_ERR[e.error] || e.error} (${new Date().toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" })})`;
+    micState(e.error === "not-allowed" || e.error === "service-not-allowed" ? "blocked" : e.error === "audio-capture" ? "nomic" : "error", MIC_ERR[e.error]);
+  });
   r.onerror = e => {
     if(e.error !== "no-speech" && e.error !== "aborted") logDiag("mic", e.error);
     if(e.error === "not-allowed" || e.error === "service-not-allowed") micBlocked();
@@ -1298,7 +1338,26 @@ async function initMicMeter(){
     const ac = audioCtx(); await ac.resume?.();
     micAnalyser = ac.createAnalyser(); micAnalyser.fftSize = 512; micBuf = new Uint8Array(micAnalyser.fftSize);
     ac.createMediaStreamSource(stream).connect(micAnalyser);
-  }catch{ micAnalyser = null; }
+    const track = stream.getAudioTracks()[0];
+    $("mcDev").textContent = track?.label || "default microphone";
+    track?.addEventListener("ended", () => { $("mcErr").textContent = "the microphone was disconnected"; micAnalyser = null; micState("nomic"); });
+  }catch(e){
+    micAnalyser = null;
+    const why = { NotAllowedError:"Chrome or your computer is blocking the microphone", NotFoundError:"no microphone found", NotReadableError:"another app (Zoom, Discord, Teams…) is using the microphone, or Windows/Mac privacy settings block Chrome", OverconstrainedError:"the microphone isn't available" }[e?.name] || (e?.message || "unknown problem");
+    $("mcDev").textContent = "not available"; $("mcErr").textContent = why; logDiag("mic", `getUserMedia ${e?.name}: ${why}`);
+    micState(e?.name === "NotAllowedError" ? "blocked" : "nomic", why);
+  }
+}
+async function refreshMicCheck(){
+  try{ const st = await navigator.permissions.query({ name:"microphone" }); $("mcPerm").textContent = { granted:"allowed ✓", denied:"BLOCKED ✗ (click the icon left of the address bar → Microphone → Allow, then reload)", prompt:"not decided yet (Chrome will ask)" }[st.state] || st.state; st.onchange = refreshMicCheck; }
+  catch{ $("mcPerm").textContent = "unknown"; }
+  if(!SR){ $("mcState").textContent = noVoiceMsg(); }
+}
+let lvlLoop = 0;
+function runLevelBar(){
+  cancelAnimationFrame(lvlLoop);
+  const step = () => { if($("drawer").hidden) return; $("mcLvl").style.width = Math.round(readMic() * 100) + "%"; lvlLoop = requestAnimationFrame(step); };
+  step();
 }
 function readMic(){
   if(!micAnalyser) return 0;
@@ -1410,7 +1469,7 @@ const tabId = Math.random().toString(36).slice(2);
 let dormant = false, tabs = null;
 function goDormant(){
   if(dormant) return;
-  dormant = true; wakeOn = false; convoOpen = false; awaiting = false;
+  dormant = true; wakeOn = false; convoOpen = false; awaiting = false; micState("paused", "paused: Jarvis is open in another tab");
   ctl?.abort(); speakJob++; stopVoice(); stopRec(); bargeOn = false; setMode("idle", "Paused");
   $("bootBtn").textContent = "Use Jarvis in this tab";
   $("bootNote").textContent = "Jarvis was opened in another tab, so this one is paused (otherwise both would answer you).";
@@ -1438,7 +1497,9 @@ $("testVoice").onclick = () => { const t = "Voice check complete, sir. You're he
 
 /* settings drawer */
 function openDrawer(open){ $("drawer").hidden = !open; $("gearBtn").setAttribute("aria-expanded", String(open)); }
-$("gearBtn").onclick = () => openDrawer($("drawer").hidden);
+$("gearBtn").onclick = () => { openDrawer($("drawer").hidden); if(!$("drawer").hidden){ refreshMicCheck(); initMicMeter().then(runLevelBar); } };
+$("micChip").onclick = () => { openDrawer(true); refreshMicCheck(); initMicMeter().then(runLevelBar); $("micCheck").scrollIntoView({ block:"start" }); };
+$("mcTest").onclick = async () => { micAnalyser = null; $("mcErr").textContent = "none"; await initMicMeter(); refreshMicCheck(); runLevelBar(); if(micAnalyser && wakeOn && !recOn && mode === "idle") startWake(); };
 $("popBtn").onclick = popOut;
 $("popBtn2").onclick = () => { openDrawer(false); popOut(); };
 $("installBtn").onclick = async () => { if(!installEvt) return; installEvt.prompt(); const r = await installEvt.userChoice.catch(() => null); if(r?.outcome === "accepted") $("installBtn").hidden = true; installEvt = null; };
@@ -1594,7 +1655,7 @@ addMsg("j","Good to see you, sir. Just say my name.");
     document.addEventListener("click", e => { if(!google.token && e.target.id !== "gBtn") connectGoogle(); }, { once:true });
   }
   if(wakeOn){ startWake(); document.addEventListener("click", initMicMeter, { once:true }); }
-  else if(!SR) addMsg("sys", noVoiceMsg());
+  else if(!SR){ addMsg("sys", noVoiceMsg()); micState("error", noVoiceMsg()); }
   logDiag("start", `${whereAmI()}, listening ${SR ? "available" : "NOT available"}, ${location.host || "file"}`);
 })();
 
