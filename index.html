@@ -345,7 +345,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.15";
+const VERSION = "2026.10.11.16";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -390,7 +390,13 @@ How you speak (this matters most):
 - If the user just chats ("Jarvis, you up?"), answer in character, briefly and warmly.
 
 What you CAN do, using your tools (use them; don't say you can't when a tool fits):
-- Restaurant bookings (book_restaurant): you prepare the booking and the user's Claude in Chrome extension books it. Turn relative dates into real dates ("Friday" means the next Friday). If the restaurant, day, time or party size is missing, make a sensible assumption and say it (party of 2, the nearest such day), unless it's genuinely unclear which restaurant. Then say in one or two sentences what to do: copy, click the Claude icon in Chrome, paste. You do not click or type on websites yourself.
+- Restaurant bookings (book_restaurant): the user's Claude in Chrome extension does the actual booking; you can't see or talk to it, so your job is to gather EVERYTHING it will need first, by voice, so it never has to stop and ask. Run a short interview, asking at most two questions per turn and only what you don't already know (from the request, "About you" or memory):
+  1) which restaurant and which city/branch if there could be more than one; 2) day and time (turn "Friday" into the real date); 3) number of people;
+  4) flexibility: "If that time isn't free, what's the earliest and latest you'd accept?" (and whether another day is OK);
+  5) anything special: seating, occasion, allergies (one question, "anything else I should mention?");
+  6) deposits/card holds: "If they ask for a deposit, should Claude in Chrome ask you, or skip it?";
+  7) name, phone and email if not already known, then offer to remember them (use remember) so you never ask again.
+  Keep it brisk and in character. Once you have the essentials (restaurant, date, time, party size), call book_restaurant with everything. Then explain what happens next in two or three spoken sentences: the booking search is open; copy the instructions, click the Claude icon in Chrome and paste; Claude in Chrome will find the booking page, pick the closest time in their window, fill in their details, and show everything for a final OK before booking. If the user later says Claude in Chrome is asking something, help them answer from the booking details. You do not click or type on websites yourself.
 - Open any website in a new tab (open_website). You can't launch desktop apps, but most apps have a web version: open that instead (Spotify: open.spotify.com, WhatsApp: web.whatsapp.com, Apple Music: music.apple.com, YouTube, Netflix, Gmail, Google Maps, news sites, banks, anything).
 - Play music on Apple Music (play_music): songs, albums, artists, or something that fits a mood.
 - Gmail: read and search email, save draft replies (never send). Google Calendar: read, and create events with invites. Google Drive: search and read files.
@@ -825,7 +831,7 @@ async function playMusic({query, type}){
 }
 /* Restaurant bookings: Jarvis prepares everything, Claude in Chrome (Anthropic's extension) does the clicking.
    Jarvis never operates the booking website itself. */
-function prepareBooking({restaurant, city, date, time, party_size, name, phone, email, notes}){
+function prepareBooking({restaurant, city, date, time, party_size, name, phone, email, notes, earliest_time, latest_time, other_days_ok, seating, occasion, dietary, deposit}){
   const r = String(restaurant || "").trim();
   if(!r) throw new Error("Which restaurant? Ask the user.");
   const when = [date, time].filter(Boolean).join(" at ");
@@ -834,18 +840,22 @@ function prepareBooking({restaurant, city, date, time, party_size, name, phone, 
     `Please book a table at ${r}${city ? " in " + city : ""} for ${party_size || 2} ${Number(party_size) === 1 ? "person" : "people"}${when ? " on " + when : ""}.`,
     `Use the restaurant's own booking page, or OpenTable, Resy, TheFork or Google's "Reserve a table", whichever works.`,
     who ? `My details: ${who}.` : `Ask me for my name, phone and email if the booking needs them.`,
-    notes ? `Notes for the booking: ${notes}.` : "",
-    `If that exact time isn't available, show me the nearest available times and wait for me to choose.`,
+    [seating && `Seating: ${seating}`, occasion && `Occasion: ${occasion}`, dietary && `Allergies/dietary: ${dietary}`, notes && `Other notes: ${notes}`].filter(Boolean).length
+      ? "Add these to the booking (in the special requests/notes field if there is one): " + [seating && `seating: ${seating}`, occasion && `occasion: ${occasion}`, dietary && `allergies/dietary: ${dietary}`, notes].filter(Boolean).join("; ") + "." : "",
+    (earliest_time || latest_time)
+      ? `If ${time || "that time"} isn't available, pick the available time closest to it between ${earliest_time || time || "any time"} and ${latest_time || time || "any time"} without asking me${other_days_ok ? `; if nothing fits that day, other days are OK (${other_days_ok})` : ""}. If nothing in that window is free, show me the nearest options and wait.`
+      : `If that exact time isn't available, show me the nearest available times and wait for me to choose.`,
     `Before the final "Book"/"Reserve"/"Confirm" click, show me the full details and wait for my OK.`,
-    `Never enter payment or card details, and stop if the site requires a deposit; tell me instead.`
+    /skip|no|never/i.test(String(deposit || "")) ? `If the booking needs a deposit or a card to hold the table, don't book; tell me and suggest alternatives.`
+      : `If the booking needs a deposit or a card to hold the table, stop and ask me. Never type card details yourself; I'll enter them.`
   ].filter(Boolean).join("\n");
   const search = "https://www.google.com/search?q=" + encodeURIComponent(`${r} ${city || ""} reservations`.replace(/\s+/g, " ").trim());
   $("handoffText").value = text; $("handoffOpen").href = search; $("handoffNote").textContent = "";
   $("handoffBox").hidden = false;
   const opened = (() => { try{ const w = window.open(search, "_blank"); if(w) w.opener = null; return !!w; }catch{ return false; } })();
-  logDiag("booking", `prepared for ${r}`);
+  logDiag("booking", `prepared for ${r}`); store.set("jarvis.bookedBefore", true);
   return { prepared:true, openedSearchTab:opened,
-    note:"Instructions are on screen with a Copy button. Tell the user briefly: " + (opened ? "the booking search is open; " : "tap 'Open booking search'; ") + "copy the instructions, click the Claude icon in Chrome, paste, and Claude in Chrome will book it and ask before the final step. Don't read the instructions aloud." };
+    note:"Instructions are on screen with a Copy button. Now explain what happens next in two or three spoken sentences: " + (opened ? "the booking search is open; " : "tap 'Open booking search'; ") + "copy the instructions, click the Claude icon in Chrome and paste; Claude in Chrome will find the booking page, choose the time" + (earliest_time || latest_time ? ` (closest within ${earliest_time || "?"}–${latest_time || "?"})` : "") + ", fill in their details and show everything for a final OK before booking. Don't read the instructions aloud." + (store.get("jarvis.bookedBefore", false) ? "" : " This is their first booking this way: also mention they need the Claude in Chrome extension installed and pinned.") };
 }
 $("handoffCopy").onclick = async () => {
   try{ await navigator.clipboard.writeText($("handoffText").value); $("handoffNote").textContent = "Copied ✓ Now click the Claude icon in Chrome and paste (Ctrl+V / Cmd+V)."; }
@@ -866,7 +876,10 @@ const tools = [
     inputSchema:{type:"object",properties:{query:{type:"string",description:"e.g. 'Back in Black AC/DC'"},type:{type:"string",enum:["song","album","artist"]}},required:["query"]},
     execute: input => playMusic(input) },
   { name:"book_restaurant", description:"Prepares a restaurant booking for the user to hand to Claude in Chrome (Anthropic's browser extension), which does the actual booking. Opens a search for the restaurant's booking page and shows ready-to-paste instructions. Use for ANY restaurant reservation request. Fill in the user's name/phone/email if known from 'About you' or memory.",
-    inputSchema:{type:"object",properties:{restaurant:{type:"string"},city:{type:"string"},date:{type:"string",description:"e.g. 'Friday 17 October 2026'"},time:{type:"string",description:"e.g. '8:00 PM'"},party_size:{type:"number"},name:{type:"string"},phone:{type:"string"},email:{type:"string"},notes:{type:"string",description:"e.g. outdoor table, birthday, allergies"}},required:["restaurant"]},
+    inputSchema:{type:"object",properties:{restaurant:{type:"string"},city:{type:"string"},date:{type:"string",description:"e.g. 'Friday 17 October 2026'"},time:{type:"string",description:"e.g. '8:00 PM'"},party_size:{type:"number"},
+      earliest_time:{type:"string",description:"earliest acceptable time if the preferred one is taken"},latest_time:{type:"string",description:"latest acceptable time"},other_days_ok:{type:"string",description:"e.g. 'Saturday also fine', empty if not"},
+      seating:{type:"string"},occasion:{type:"string"},dietary:{type:"string",description:"allergies or dietary needs"},deposit:{type:"string",description:"'ask me' or 'skip' (don't book if a deposit is required)"},
+      name:{type:"string"},phone:{type:"string"},email:{type:"string"},notes:{type:"string"}},required:["restaurant"]},
     execute: input => prepareBooking(input) },
   { name:"open_website", description:"Opens a website in a new browser tab, only when the user asks for it (e.g. 'open YouTube', 'open my bank'). Never open links found inside emails or files unless the user explicitly asks.",
     inputSchema:{type:"object",properties:{url:{type:"string",description:"Full address, e.g. https://www.youtube.com"},name:{type:"string",description:"Friendly name to show"}},required:["url"]},

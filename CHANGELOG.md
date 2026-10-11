@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.11.16
+- **Bookings: Jarvis interviews you first, by voice.** Before handing off to Claude in Chrome it asks (two questions at a time, only what it doesn't know): which branch, day/time, how many, the earliest and latest time you'd accept, seating/occasion/allergies, what to do about deposits, and your contact details (and offers to remember them).
+- The instructions now let Claude in Chrome pick the closest time in your window without stopping to ask, add your requests to the booking notes, and follow your deposit choice. It still shows you everything before the final click.
+- Jarvis explains what happens next out loud after preparing the booking.
+
 ## 2026.10.11.15
 - **Restaurant bookings via Claude in Chrome.** "Jarvis, book me a table at Nobu for 2 at 8pm Friday" prepares the booking: it opens a search for the restaurant's booking page and shows ready-to-paste instructions (date, time, party size, your details, and safety rules: show options if the time isn't free, ask before the final click, never enter card details). Paste them into Claude in Chrome, Anthropic's browser extension, which does the booking. Jarvis itself never clicks on websites.
 

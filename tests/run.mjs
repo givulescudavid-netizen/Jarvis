@@ -389,20 +389,25 @@ console.log("ElevenLabs voice");
 console.log("Restaurant bookings (hand-off to Claude in Chrome)");
 {
   const p = await open({ script:[
-    { tool:"book_restaurant", input:{ restaurant:"Nobu", city:"Madrid", date:"Friday 17 October 2026", time:"8:00 PM", party_size:2, name:"Alex Test", phone:"+34 600 000 000", email:"alex@example.com", notes:"window table" } },
-    { text:"The booking search is open, sir. Copy the instructions, click the Claude icon in Chrome and paste." } ] }, undefined, HTTP_PAGE);
+    { text:"Certainly, sir. How many of you, and if eight isn't free, what's the earliest and latest you'd accept?" },
+    { tool:"book_restaurant", input:{ restaurant:"Nobu", city:"Madrid", date:"Friday 17 October 2026", time:"8:00 PM", party_size:2, earliest_time:"7:30 PM", latest_time:"9:00 PM", seating:"window table", occasion:"anniversary", dietary:"no shellfish", deposit:"skip", name:"Alex Test", phone:"+34 600 000 000", email:"alex@example.com" } },
+    { text:"The booking search is open, sir. Copy the instructions, click the Claude icon in Chrome and paste; it will pick the closest time between half seven and nine and show you everything before booking." } ] }, undefined, HTTP_PAGE);
   await p.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(HTTP_PAGE).origin });
   await p.click("#bootBtn"); await settle(p);
-  await say(p, "jarvis book me a table at nobu for 2 at 8pm friday", 900);
+  await say(p, "jarvis book me a table at nobu friday at 8", 900);
+  check("booking: Jarvis asks follow-up questions by voice first", /earliest and latest/.test((await p.evaluate(() => window.__spoken)).at(-1) || ""));
+  await say(p, "two of us, between seven thirty and nine, window table, it's our anniversary, no shellfish, skip it if there's a deposit", 900);
   const text = await p.locator("#handoffText").inputValue();
   check("booking: instructions card appears", await p.locator("#handoffBox").isVisible());
-  check("…with restaurant, date, time, party size and your details", /Nobu in Madrid for 2 people on Friday 17 October 2026 at 8:00 PM/.test(text) && /Alex Test/.test(text) && /window table/.test(text), text);
-  check("…and the safety rules (ask before final click, no card details)", /wait for my OK/.test(text) && /Never enter payment or card details/.test(text));
+  check("…with restaurant, date, time, party size and your details", /Nobu in Madrid for 2 people on Friday 17 October 2026 at 8:00 PM/.test(text) && /Alex Test/.test(text), text);
+  check("…with your time window, so Claude in Chrome doesn't need to ask", /closest to it between 7:30 PM and 9:00 PM without asking me/.test(text), text);
+  check("…with seating, occasion and allergies as special requests", /window table/.test(text) && /anniversary/.test(text) && /no shellfish/.test(text));
+  check("…with your deposit choice and the safety rules", /deposit or a card to hold the table, don't book/.test(text) && /wait for my OK/.test(text));
   check("…and opens a search for the booking page", (await p.evaluate(() => window.__opened)).some(u => /google\.com\/search\?q=Nobu%20Madrid%20reservations/.test(u)));
   await p.click("#handoffCopy"); await p.waitForTimeout(200);
   check("Copy puts the instructions on the clipboard", (await p.evaluate(() => navigator.clipboard.readText())) === text);
   check("…and says what to do next", /click the Claude icon/.test(await p.locator("#handoffNote").textContent()));
-  check("Jarvis is told it doesn't click on websites itself", /You do not click or type on websites yourself/.test((await log(p))[0].system));
+  check("Jarvis is told to interview you first and explain what happens next", /You do not click or type on websites yourself/.test((await log(p))[0].system) && /earliest and latest you'd accept/.test((await log(p))[0].system) && /offer to remember them/.test((await log(p))[0].system));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
