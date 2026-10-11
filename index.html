@@ -2694,7 +2694,7 @@ function route(text){
   return { model, effort:"low", lane:"normal" };
 }
 // A correction ("no, I meant…") gets a short reminder to Claude to save anything lasting it reveals
-const CORRECTION = /^(?:jarvis[\s,]*)?(?:no[,.!]?\s+\S|nope\b|not (?:that|quite|what i)|that'?s (?:wrong|not (?:right|it|what))|wrong\b|actually[, ]|i (?:said|meant|told you|asked)\b|you (?:got (?:it|that) wrong|misheard|misunderstood)|i didn'?t (?:say|mean|ask))/i;
+const CORRECTION = /^(?:jarvis[\s,]*)?(?:no[,.!]?\s+(?!(?:thanks?|thank you|problem|worries|rush|need|way|idea|doubt|wonder)\b)\S|nope\b|not (?:that|quite|what i)|not [\w'-]+(?: [\w'-]+)?[,;] |that'?s (?:wrong|not (?:right|it|what))|wrong\b|actually[, ]|i (?:said|meant|told you|asked)\b|you (?:got (?:it|that) wrong|misheard|misunderstood)|i didn'?t (?:say|mean|ask))/i;
 function withCorrectionHint(text){ return CORRECTION.test(text.trim()) ? text + "\n[This sounds like a correction. Fix it, and if it shows a lasting preference or fact, save it with remember.]" : text; }
 let apiSystem = null, webOn = true, apiEffort = "low", effortTurns = true;
 async function askApi(text, signal, onText){

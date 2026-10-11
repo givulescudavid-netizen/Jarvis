@@ -450,6 +450,8 @@ console.log("Learning from corrections");
   check("a correction carries a reminder to save what it reveals", corr && /sounds like a correction/.test(corr.last.content), corr?.last?.content);
   check("…and the lasting fact is saved to memory", (await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.memory") || "[]"))).some(m => /euros/.test(m.text)));
   await say(p, "what time is it", 600);
+  const det = await p.evaluate(() => ["no thanks", "no problem", "no worries, sir", "not dollars, euros", "not Mark, Marc with a c", "no, I meant Friday", "I told you I use 5.5%"].map(t => CORRECTION.test(t)));
+  check("spots corrections ('not dollars, euros') but not 'no thanks' or 'no problem'", det.join() === "false,false,false,true,true,true,true", det.join());
   check("normal questions don't get the reminder", !/sounds like a correction/.test((await log(p)).at(-1).last.content));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
