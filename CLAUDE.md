@@ -31,6 +31,11 @@ Main parts of `index.html`, in order:
 - Don't break: wake word on the bare name, conversation mode, the Initialize screen (Chrome blocks speech without a click),
   centred reactor, phone layout.
 
+## Committing (required, or GitHub rejects the push)
+The owner's GitHub blocks pushes that expose a personal email. Before committing, always run:
+`git config user.name "givulescudavid-netizen" && git config user.email "340622496+givulescudavid-netizen@users.noreply.github.com"`
+Never put a personal email address in commits, code or docs.
+
 ## How to work (weekly engineer session and any other session)
 1. Read open issues. **`gh issue list` / `gh pr list` (GraphQL) are blocked in Claude Code sessions — use the REST API:**
    `gh api 'repos/givulescudavid-netizen/Jarvis/issues?state=open&per_page=50'` (entries with a `pull_request` key are PRs)
