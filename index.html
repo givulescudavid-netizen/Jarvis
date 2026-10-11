@@ -180,7 +180,7 @@ button.x{padding:2px 8px;font-family:var(--f-body);font-size:.8rem;letter-spacin
 
 <div class="boot" id="boot">
   <button type="button" id="bootBtn">Initialize J.A.R.V.I.S.</button>
-  <p>One click so your browser lets Jarvis speak and listen.</p>
+  <p id="bootNote">One click so your browser lets Jarvis speak and listen.</p>
 </div>
 
 <div class="drawer" id="drawer" hidden>
@@ -282,7 +282,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.10";
+const VERSION = "2026.10.11.11";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -614,7 +614,7 @@ async function ibkr(tool){
 const announced = new Set();
 let greeted = false;
 function checkReminders(){
-  if(!$("alertsOn")?.checked || !dash.events || !greeted) return;
+  if(!$("alertsOn")?.checked || !dash.events || !greeted || dormant) return;
   if(mode === "thinking" || mode === "speaking" || pendingConfirm) return;   // try again on the next tick
   const now = Date.now();
   for(const e of dash.events){
@@ -940,7 +940,7 @@ async function speakEleven(text, chunks, job){
 }
 async function speak(text, opts = {}){
   voiceEnv.ack = !!opts.ack;
-  if(!voiceOn || !text) return;
+  if(!voiceOn || !text || dormant) return;
   if(!elOnly()) return speakBrowser(text);
   const chunks = toChunks(text);
   const job = ++speakJob;
@@ -1337,7 +1337,24 @@ function welcomeLine(){
   if(!dash.events && dash.unread === null) parts.push("All systems are online.");
   return parts.join(" ");
 }
+/* only one Jarvis at a time: opening Jarvis in another tab pauses this one (otherwise both answer you) */
+const tabId = Math.random().toString(36).slice(2);
+let dormant = false, tabs = null;
+function goDormant(){
+  if(dormant) return;
+  dormant = true; wakeOn = false; convoOpen = false; awaiting = false;
+  ctl?.abort(); speakJob++; stopVoice(); stopRec(); bargeOn = false; setMode("idle", "Paused");
+  $("bootBtn").textContent = "Use Jarvis in this tab";
+  $("bootNote").textContent = "Jarvis was opened in another tab, so this one is paused (otherwise both would answer you).";
+  $("boot").hidden = false;
+}
+try{
+  tabs = new BroadcastChannel("jarvis");
+  tabs.onmessage = e => { if(e.data?.type === "active" && e.data.id !== tabId) goDormant(); };
+  tabs.postMessage({ type:"active", id:tabId });
+}catch{}
 $("bootBtn").onclick = async () => {
+  if(dormant){ dormant = false; wakeOn = !!SR; tabs?.postMessage({ type:"active", id:tabId }); }   // take over from the other tab
   $("boot").hidden = true;
   initMicMeter(); chime();
   const morning = new Date().getHours() >= 5 && new Date().getHours() < 13;

@@ -376,6 +376,23 @@ console.log("ElevenLabs voice");
   await p.close();
 }
 
+console.log("Only one Jarvis at a time");
+{
+  const ctx = await browser.newContext();   // same browser profile, two tabs
+  const errs = [];
+  const tab = async () => { const p = await ctx.newPage(); p.on("pageerror", e => errs.push(e.message)); await p.addInitScript(...fakes({ script:[ { text:"Here, sir." }, { text:"Here, sir." } ] })); await p.goto(HTTP_PAGE); await p.waitForTimeout(600); return p; };
+  const a = await tab(); await a.click("#bootBtn"); await settle(a);
+  const b = await tab();
+  await a.waitForTimeout(300);
+  check("opening Jarvis in a second tab pauses the first one", await a.locator("#boot").isVisible() && /another tab/.test(await a.locator("#bootNote").textContent()));
+  await a.evaluate(() => window.__say("jarvis what time is it")); await a.waitForTimeout(800);
+  check("…the paused tab doesn't answer", (await a.evaluate(() => window.__log.length)) === 0 && (await a.evaluate(() => window.__spoken.length)) <= 1);
+  await a.click("#bootBtn"); await a.waitForTimeout(400);
+  check("clicking 'Use Jarvis in this tab' takes over and pauses the other", await b.locator("#boot").isVisible() && /another tab/.test(await b.locator("#bootNote").textContent()) && await a.locator("#boot").isHidden());
+  check("no page errors", errs.length === 0, errs.join(" | "));
+  await ctx.close();
+}
+
 console.log("Online version (claude.ai connectors)");
 {
   const p = await open({ mcp:true });

@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026.10.11.11
+- **Only one Jarvis answers.** Opening Jarvis in another tab now pauses the older tab, so two copies never answer you at once (one tab could be using a different voice). Click "Use Jarvis in this tab" to switch back.
+
 ## 2026.10.11.10 — Acting like the films' JARVIS
 - **Answers out loud when you say its name:** "Yes, sir?", "At your service, sir."…
 - **Never leaves you in silence:** if an answer takes more than a moment, Jarvis says "One moment, sir" / "Right away" while it works.
