@@ -11,13 +11,19 @@ const PAGE = pathToFileURL(path.join(root, "index.html")).href;
 const shots = path.join(root, "tests", "screenshots"); fs.mkdirSync(shots, { recursive: true });
 const exe = process.env.CHROMIUM_PATH || (fs.existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
 const browser = await chromium.launch(exe ? { executablePath: exe } : {});
+// Some checks need a real web address (Google sign-in is disabled for file:// pages), so serve the page locally too.
+import http from "node:http";
+const server = http.createServer((req, res) => { const f = path.join(root, decodeURIComponent(req.url.split("?")[0])); fs.readFile(f, (err, data) => { if(err){ res.writeHead(404); res.end(); return; } res.writeHead(200, { "content-type": f.endsWith(".html") ? "text/html" : "text/plain" }); res.end(data); }); });
+await new Promise(r => server.listen(0, "127.0.0.1", r));
+const HTTP_PAGE = `http://127.0.0.1:${server.address().port}/index.html`;
 
 let failed = 0, passed = 0;
 function check(name, ok, info = ""){ if(ok){ passed++; console.log("  ✓", name); } else { failed++; console.log("  ✗", name, info); } }
 
 // Fakes injected before the page loads. `script` is the list of replies the fake Claude gives, in order.
-function fakes({ mcp = false, script = [], slowVoice = false, eleven = false } = {}){
-  return [({ mcp, script, slowVoice, eleven }) => {
+function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, events = [], unread = 0, googleBefore = false } = {}){
+  return [({ mcp, script, slowVoice, eleven, events, unread, googleBefore }) => {
+    if(googleBefore){ localStorage.setItem("jarvis.gon", "true"); localStorage.setItem("jarvis.gconsented3", "true"); }
     localStorage.setItem("jarvis.key", '"sk-ant-test"'); localStorage.setItem("jarvis.gclient", '"x.apps.googleusercontent.com"');
     if(eleven) localStorage.setItem("jarvis.elKey", '"el-test-key"');
     window.__spoken = []; window.__log = [];
@@ -46,14 +52,15 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false } =
       if(u.includes("api.anthropic.com")){
         const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1), system: body.system });
         const st = script[call++] || { text: "Done." };
+        if(st.delay) await new Promise(r => setTimeout(r, st.delay));
         if(st.err) return J({ error:{ message: st.err } }, st.status || 400);
         if(st.tool) return J({ stop_reason:"tool_use", content:[{ type:"tool_use", id:"t" + call, name: st.tool, input: st.input }] });
         return J({ stop_reason:"end_turn", content:[{ type:"text", text: st.text }] });
       }
       if(u.includes("gmail.googleapis.com") && u.includes("/drafts")){ window.__log.push({ draft: JSON.parse(o.body) }); return J({ id:"d1" }); }
       if(u.includes("calendar/v3") && o && o.method === "POST"){ window.__log.push({ event: JSON.parse(o.body), url: u }); return J({ id:"e1" }); }
-      if(u.includes("calendar/v3")) return J({ items:[] });
-      if(u.includes("gmail.googleapis.com")) return J({ messages:[] });
+      if(u.includes("calendar/v3")) return J({ items: events.map(e => ({ summary:e.title, location:e.location, start:{ dateTime: new Date(Date.now() + e.inMin * 60000).toISOString() }, end:{ dateTime: new Date(Date.now() + (e.inMin + 30) * 60000).toISOString() } })) });
+      if(u.includes("gmail.googleapis.com")) return J({ messages:[], resultSizeEstimate: unread });
       return realFetch(u, o);
     };
     if(mcp){
@@ -69,9 +76,9 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false } =
     }
     window.__opened = [];
     window.open = url => { window.__opened.push(String(url)); return window.__blockPopups ? null : {}; };
-  }, { mcp, script, slowVoice, eleven }];
+  }, { mcp, script, slowVoice, eleven, events, unread, googleBefore }];
 }
-async function open(opts, viewport = { width:1440, height:900 }){
+async function open(opts, viewport = { width:1440, height:900 }, url = PAGE){
   const p = await browser.newPage({ viewport }); const errs = [];
   p.on("pageerror", e => errs.push(e.message));
   // Fake Apple Music search (the page loads it JSONP-style)
@@ -84,7 +91,7 @@ async function open(opts, viewport = { width:1440, height:900 }){
     route.fulfill({ contentType:"text/javascript", body:`${cb}(${JSON.stringify({ resultCount: results.length, results })});` });
   });
   await p.addInitScript(...fakes(opts));
-  await p.goto(PAGE); await p.waitForTimeout(600);
+  await p.goto(url); await p.waitForTimeout(600);
   p.errs = errs; return p;
 }
 // A real audio clip (a tone, 60 ms per character) so ElevenLabs playback, glow and timing can be tested.
@@ -151,6 +158,30 @@ console.log("Start screen, voice, wake word, conversation");
   await p.setViewportSize({ width:400, height:850 }); await p.waitForTimeout(300);
   check("no sideways scroll on phones", (await p.evaluate(() => document.documentElement.scrollWidth)) <= 400);
   await p.screenshot({ path: path.join(shots, "phone.png") });
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Acting like JARVIS: spoken acknowledgements, welcome status, meeting alerts");
+{
+  const p = await open({ googleBefore:true, script:[ { text:"Two unread, sir. Nothing urgent.", delay:2600 }, { text:"Done, sir." } ],
+    events:[ { title:"Board meeting", location:"Conference room", inMin:10 }, { title:"Lunch with Happy", inMin:120 } ], unread:3 }, undefined, HTTP_PAGE);
+  const spoken = () => p.evaluate(() => window.__spoken);
+  await p.click("#bootBtn"); await settle(p, 1200);   // Google was connected before, so this click reconnects it
+  const hi = (await spoken()).find(t => /Good (morning|afternoon|evening)|Working late/.test(t)) || "";
+  check("'welcome home' greeting gives the time, next appointment and unread mail", /It's \d/.test(hi) && /next appointment is Board meeting/.test(hi) && /3 unread emails/.test(hi), hi);
+  check("speaks up before a meeting without being asked (after saying hello)", (await spoken()).findIndex(t => /Board meeting starts in (9|10) minutes in Conference room/.test(t)) > (await spoken()).indexOf(hi), (await spoken()).join(" | "));
+  await settle(p);
+  const n0 = (await spoken()).length;
+  await say(p, "jarvis", 300);
+  check("answers out loud when you say its name", /^(Yes, sir\?|At your service, sir\.|Sir\?|I'm here, sir\.|Go ahead, sir\.|Listening, sir\.)$/.test((await spoken())[n0] || ""), (await spoken()).slice(n0).join(" | "));
+  const n1 = (await spoken()).length;
+  await sayNow(p, "any important email"); await p.waitForTimeout(2000);
+  const mid = await spoken();
+  check("says 'one moment' while it works on something slow", mid.slice(n1).some(t => /One moment|Right away|Working on it|On it|Just a moment|Checking now/.test(t)), mid.slice(n1).join(" | "));
+  check("…and still shows it's working", /Processing/.test(await p.locator("#mode").textContent()));
+  await settle(p, 1500);
+  check("…then gives the answer", (await spoken()).at(-1) === "Two unread, sir. Nothing urgent.");
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
@@ -358,6 +389,6 @@ console.log("Online version (claude.ai connectors)");
   await p.close();
 }
 
-await browser.close();
+await browser.close(); server.close();
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
