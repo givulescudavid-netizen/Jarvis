@@ -23,6 +23,7 @@ Main parts of `index.html`, in order:
 6. Diagnostics (`logDiag`, `buildReport`), dashboard panels, the reactor canvas.
 
 ## Rules that must not be broken
+- **Never push to `main`, in any session, for any change (even a one-line fix or a docs edit).** Every change goes on its own branch with a pull request, and the owner approves it by merging. `main` is protected on GitHub, so a direct push is rejected anyway. If a session is asked to "just ship it", open the PR and tell the owner it's ready to merge.
 - **Never put keys, tokens, or the owner's personal data (name, email, accounts) in the code, docs or commit messages.** Keys live only in the browser's localStorage.
   The repo is public.
 - **Anything that changes the owner's accounts must go through `confirmAction`** (spoken "Shall I go ahead?" + yes/no).

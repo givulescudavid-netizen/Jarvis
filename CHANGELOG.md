@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.10.11.25 — Trips and packages from your email
+- **Trips:** "Jarvis, what trips do I have coming up?" or "add my flights to the calendar". Jarvis finds flight, train, hotel and rental-car confirmations in your Gmail and tells you what's coming. It offers to put them on your calendar (asking "Shall I go ahead?" for each one), plus a reminder to check in 24 hours before and a "time to leave for the airport" reminder.
+- **Packages:** "Where's my Amazon order?" or "what's arriving this week?" Jarvis reads your shipping emails and tells you what's coming, from whom, and when, including anything delayed or needing action.
+- The morning briefing mentions a trip in the next two days or a package arriving today, only when there is one.
+- Behind the scenes: changes to Jarvis now always come to you as a pull request to approve; nothing goes live without your click.
+
 ## 2026.10.11.24 — Reminders, weather, travel times, Uber and hotels
 - **Reminders:** "Jarvis, remind me at 4 to call the bank" or "remind me in 20 minutes to check the oven". Jarvis says it out loud when it's due. If Jarvis was closed at that moment, it tells you as soon as you open it again. Reminders show on the dashboard (under Timers & reminders) and survive a reload. "What reminders do I have?" and "cancel the bank reminder" work too.
 - **Weather:** "Do I need an umbrella?", "What's the weather in Lisbon this weekend?" Current conditions, the next 12 hours and up to 7 days. The morning briefing now includes the weather for your city (tell Jarvis your city once, or put it in "About you").
