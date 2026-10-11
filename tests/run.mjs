@@ -35,7 +35,7 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
     let current = null; window.__cancels = 0;
     const synth = { speaking:false, pending:false, resume(){}, getVoices(){ return [{ name:"Daniel", lang:"en-GB" }]; },
       cancel(){ window.__cancels++; if(current){ clearInterval(current.tick); const u = current.u; current = null; u.onerror && u.onerror({ error:"interrupted" }); } },
-      speak(u){ window.__spoken.push(u.text);
+      speak(u){ window.__spoken.push(u.text); (window.__spokenAt ||= []).push(Date.now());
         if(!slowVoice){ setTimeout(() => { u.onstart && u.onstart(); setTimeout(() => u.onend && u.onend(), 20); }, 5); return; }
         setTimeout(() => { u.onstart && u.onstart();
           let i = 0, at = 0; const words = u.text.split(" ");
@@ -66,11 +66,36 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
       u = String(u); const J = (x, st = 200) => new Response(JSON.stringify(x), { status: st });
       if(window.__extraFetch){ const r = await window.__extraFetch(u, o, J); if(r) return r; }
       if(u.includes("api.anthropic.com")){
-        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1), msgs: body.messages, system: body.system, cache: body.cache_control, toolCache: body.tools.filter(t => t.cache_control).map(t => t.name) });
+        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1), msgs: body.messages, system: body.system, cache: body.cache_control, toolCache: body.tools.filter(t => t.cache_control).map(t => t.name), stream: body.stream });
         const st = script[call++] || { text: "Done." };
         if(st.delay) await new Promise(r => setTimeout(r, st.delay));
         if(st.err) return J({ error:{ message: st.err } }, st.status || 400);
         if(st.raw) return J(st.raw);
+        // A streamed reply (server-sent events), sent piece by piece `gap` ms apart. Pieces: "words" or { tool, input }.
+        if(st.sse) return new Response(new ReadableStream({ async start(c){
+          const enc = new TextEncoder(), send = d => c.enqueue(enc.encode(`event: ${d.type}\ndata: ${JSON.stringify(d)}\n\n`));
+          const wait = () => new Promise(r => setTimeout(r, st.gap || 0));
+          send({ type:"message_start", message:{ id:"m" + call, model:"claude-opus-5-5", content:[], usage:{ input_tokens:100, output_tokens:1 } } });
+          let idx = -1, open = null;
+          for(const part of st.sse){
+            if(window.__streamCut) break;
+            if(typeof part === "string"){
+              if(open !== "text"){ if(open) send({ type:"content_block_stop", index:idx }); send({ type:"content_block_start", index:++idx, content_block:{ type:"text", text:"" } }); open = "text"; }
+              send({ type:"content_block_delta", index:idx, delta:{ type:"text_delta", text:part } });
+            } else {
+              if(open) send({ type:"content_block_stop", index:idx });
+              send({ type:"content_block_start", index:++idx, content_block:{ type:"tool_use", id:"t" + call, name:part.tool, input:{} } });
+              const js = JSON.stringify(part.input); send({ type:"content_block_delta", index:idx, delta:{ type:"input_json_delta", partial_json:js.slice(0, 5) } });
+              send({ type:"content_block_delta", index:idx, delta:{ type:"input_json_delta", partial_json:js.slice(5) } });
+              send({ type:"content_block_stop", index:idx }); open = null;
+            }
+            await wait();
+          }
+          if(open) send({ type:"content_block_stop", index:idx });
+          send({ type:"message_delta", delta:{ stop_reason: st.sse.some(x => x.tool) ? "tool_use" : "end_turn" }, usage:{ output_tokens:40 } });
+          send({ type:"message_stop" });
+          (window.__streamEnds ||= []).push(Date.now()); c.close();
+        } }), { status:200, headers:{ "content-type":"text/event-stream" } });
         if(st.tool) return J({ stop_reason:"tool_use", content:[{ type:"tool_use", id:"t" + call, name: st.tool, input: st.input }] });
         return J({ stop_reason:"end_turn", content:[{ type:"text", text: st.text }], ...(st.usage ? { model:"claude-opus-5-5", usage: st.usage } : {}) });
       }
@@ -324,6 +349,61 @@ console.log("Interrupting Jarvis (barge-in)");
   check("'stop' just stops: no new reply", (await log(p)).length === n);
   check("…and the conversation stays open", /Go ahead|Yes, sir/.test(await p.locator("#mode").textContent()));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Talking while the answer is still coming in (streaming)");
+{
+  const parts = ["Good evening, sir. ", "Your board meeting ", "is at nine. ", "Lunch with Happy ", "is at one. ", "Anything else?"];
+  const p = await open({ script:[
+    { sse: parts, gap: 350 },
+    { sse: [{ tool:"set_timer", input:{ seconds:300, label:"Tea" } }] }, { sse: ["Tea timer set ", "for five minutes, sir."] },
+  ] });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis what's on today", 2500);
+  const r = await p.evaluate(() => ({ spoken: window.__spoken, at: window.__spokenAt, ends: window.__streamEnds, body: window.__log.at(-1) }));
+  const i = r.spoken.findIndex(x => /^Good evening, sir/.test(x) && !/systems/.test(x));
+  check("starts speaking the first sentence before the answer has finished arriving", i >= 0 && r.at[i] < r.ends[0] - 700, `${r.at[i]} vs ${r.ends[0]}`);
+  const said = r.spoken.slice(i).join(" ");
+  check("the whole answer is spoken, each part once", said.replace(/\s+/g, " ") === parts.join("").trim() && r.spoken.filter(x => /Good evening/.test(x) && !/systems/.test(x)).length === 1, JSON.stringify(r.spoken));
+  check("the whole answer is shown", (await p.locator("#capJ").textContent()).includes("Lunch with Happy is at one. Anything else?"));
+  check("asks for a streamed reply", r.body.stream === true);
+  await say(p, "set a tea timer for five minutes", 900);
+  const L = await log(p), sp = await p.evaluate(() => window.__spoken);
+  check("streamed tool calls still work (timer set, result sent back)", JSON.stringify(L.at(-1).last.content).includes("Timer set for 300 seconds") && /Tea/.test(await p.locator("#timers").textContent()));
+  check("…and the reply after the tool is spoken once", sp.filter(x => /Tea timer set for five minutes, sir\./.test(x)).length === 1, JSON.stringify(sp.slice(-3)));
+  check("conversation history keeps the streamed tool call", JSON.stringify(L.at(-1).msgs).includes('"name":"set_timer"'));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+{
+  const parts = ["Your day looks busy, sir. ", "At nine you have the board meeting. ", "At one, lunch with Happy. ", "Then three calls about the Expo. ", "And the reactor review at five."];
+  const p = await open({ slowVoice:true, script:[ { sse: parts, gap: 500 } ] });
+  await p.click("#bootBtn"); await p.waitForTimeout(2500);
+  await sayNow(p, "jarvis what does my day look like"); await p.waitForTimeout(1200);
+  await sayNow(p, "stop"); await p.waitForTimeout(3500);
+  const sp = await p.evaluate(() => window.__spoken);
+  check("'stop' while the answer is still coming in: the rest isn't spoken", sp.some(x => /looks busy/.test(x)) && !sp.some(x => /reactor review/.test(x)), JSON.stringify(sp));
+  check("…but it is still shown on screen", (await p.locator("#capJ").textContent()).includes("reactor review"));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+{
+  // ElevenLabs fetches the next sentence early; if it isn't written yet, Jarvis must keep "speaking" (and listening for interruptions) until the current one ends
+  const p = await browser.newPage({ viewport:{ width:1440, height:900 } }); const errs = [];
+  p.on("pageerror", e => errs.push(e.message));
+  await fakeEleven(p, "ok");
+  await p.addInitScript(...fakes({ eleven:true, script:[ { sse:["Good evening, sir, your board meeting with Pepper is at nine. ", "And lunch is at one."], gap: 4000 } ] }));
+  await p.goto(PAGE); await p.waitForTimeout(800);
+  await p.click("#bootBtn"); await settle(p, 300);
+  await sayNow(p, "jarvis what's my day");
+  for(let i = 0; i < 40 && !/Speaking/.test(await p.locator("#mode").textContent()); i++) await p.waitForTimeout(100);
+  await p.waitForTimeout(600);
+  check("ElevenLabs + streaming: still 'speaking' while a sentence plays and the next one is being written", /Speaking/.test(await p.locator("#mode").textContent()), await p.locator("#mode").textContent());
+  await p.waitForTimeout(3000);
+  check("…then shows it's working while it waits for the next sentence", /Processing/.test(await p.locator("#mode").textContent()), await p.locator("#mode").textContent());
+  check("no page errors", errs.length === 0, errs.join(" | "));
   await p.close();
 }
 

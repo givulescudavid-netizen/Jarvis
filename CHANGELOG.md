@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.11.27 — Jarvis starts talking sooner
+- Jarvis used to wait until Claude had written the whole answer before saying a word. Now it starts speaking the first sentence as soon as it's written, while the rest is still coming in. Longer answers should feel a few seconds quicker.
+- Saying "stop" while it's talking still works, and the rest of that answer isn't spoken (it still appears on screen).
+- Works with both the computer voice and ElevenLabs. No change in cost.
+
 ## 2026.10.11.26 — Excel DCF templates
 - Your DCF template can now be an Excel file. The first time, Jarvis asks "Make a Google Sheets copy so I can read it?" and, once you say yes, uses that copy as your template. Your Excel file is never changed.
 - Layout and formulas carry over. If any formula doesn't work in Google Sheets (a few Excel-only functions don't), Jarvis tells you which cells so you can fix them in the copy before trusting the numbers.
