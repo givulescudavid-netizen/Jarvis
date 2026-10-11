@@ -61,10 +61,11 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
       u = String(u); const J = (x, st = 200) => new Response(JSON.stringify(x), { status: st });
       if(window.__extraFetch){ const r = await window.__extraFetch(u, o, J); if(r) return r; }
       if(u.includes("api.anthropic.com")){
-        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1), system: body.system });
+        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1), msgs: body.messages, system: body.system });
         const st = script[call++] || { text: "Done." };
         if(st.delay) await new Promise(r => setTimeout(r, st.delay));
         if(st.err) return J({ error:{ message: st.err } }, st.status || 400);
+        if(st.raw) return J(st.raw);
         if(st.tool) return J({ stop_reason:"tool_use", content:[{ type:"tool_use", id:"t" + call, name: st.tool, input: st.input }] });
         return J({ stop_reason:"end_turn", content:[{ type:"text", text: st.text }] });
       }
@@ -452,6 +453,28 @@ console.log("Finance: DCF co-pilot, markets, comps, price alerts");
   const comps = (await p.evaluate(() => window.__sheetsLog)).find(x => /COMPS1\/values:batchUpdate/.test(x.u));
   check("comps: new sheet with tickers, P/E, EV/EBITDA and medians", comps && JSON.stringify(comps.body).includes("NVIDIA Corp") && JSON.stringify(comps.body).includes("55.2") && JSON.stringify(comps.body).includes("=MEDIAN(E2:E3)"));
   check("Jarvis is told it can do DCFs and markets, without investment advice", /DCF co-pilot/.test((await log(p))[0].system) && /Never present anything as investment advice/.test((await log(p))[0].system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Unfinished web-search steps don't break the conversation");
+{
+  const p = await open({ script:[
+    { raw:{ stop_reason:"max_tokens", content:[ { type:"text", text:"Let me check the filings." }, { type:"server_tool_use", id:"srvtoolu_1", name:"code_execution", input:{ code:"..." } } ] } },
+    { text:"Nvidia reports next week, sir." },
+    { err:"messages.9: `code_execution` tool use with id `srvtoolu_01Us8n` was found without a corresponding `code_execution_tool_result` block" },
+    { text:"Back with you, sir." } ] });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis what is nvidia's revenue", 700);
+  await say(p, "when do they report", 700);
+  const l = (await log(p)).filter(x => x.msgs);
+  const sent = JSON.stringify(l[1]?.msgs || []);
+  check("a reply cut off mid-search is saved without the unfinished step", !/server_tool_use/.test(sent) && /Let me check the filings/.test(sent), sent.slice(0, 300));
+  check("…so the next question works", /reports next week/.test((await p.evaluate(() => window.__spoken)).join(" ")));
+  await say(p, "and what about apple", 900);
+  const l2 = (await log(p)).filter(x => x.msgs);
+  check("if Claude still rejects the history, Jarvis starts the conversation afresh and answers", /Back with you/.test((await p.evaluate(() => window.__spoken)).join(" ")) && l2.at(-1).msgs.length === 1, JSON.stringify(l2.at(-1)?.msgs).slice(0, 200));
+  check("…without showing an Uplink error", !/Uplink error/.test(await p.locator("body").innerText()));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }

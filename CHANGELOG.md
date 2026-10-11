@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.11.18 — Fix "Uplink error … without a corresponding code_execution_tool_result"
+- When a web search got cut off part-way, Jarvis saved the unfinished step and then every later question failed until you reloaded. It now keeps only the words of a cut-off reply.
+- If Claude ever rejects the conversation history again, Jarvis quietly starts a fresh conversation and answers instead of showing an error.
+- Replies have more room before they get cut off.
+
 ## 2026.10.11.17 — Finance
 - **DCF co-pilot.** Jarvis learns your own DCF template (a Google Sheet) once, then for any company: makes a copy (your template is never touched), fills historicals from filings with sources, walks you through each assumption by voice (history, a sensible range, a recommendation; you decide), writes your choices in, and reads back EV, equity value, implied price and upside.
 - **Markets (free Finnhub key):** live prices, company metrics, news, earnings dates with estimates and past surprises.

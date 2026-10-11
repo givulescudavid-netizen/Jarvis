@@ -359,7 +359,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.17";
+const VERSION = "2026.10.11.18";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -1852,12 +1852,13 @@ let apiSystem = null, webOn = true;
 async function askApi(text, signal){
   if(apiMsgs.length > 120) apiMsgs = [];
   if(!apiMsgs.length) apiSystem = sysPrompt();   // fixed for the whole conversation
-  const start = apiMsgs.length;
-  apiMsgs.push({role:"user", content:`[${new Date().toLocaleString()}] ${text}`});
+  let start = apiMsgs.length, recovered = false;
+  const userMsg = {role:"user", content:`[${new Date().toLocaleString()}] ${text}`};
+  apiMsgs.push(userMsg);
   try{
     for(let round = 0; round < 10; round++){
       const web = model === "claude-haiku-5-5" ? { type:"web_search_20250305", name:"web_search", max_uses:3 } : { type:"web_search_20260209", name:"web_search", max_uses:3 };
-      const body = { model, max_tokens:4096, system:apiSystem, messages:apiMsgs, tools: webOn ? [...apiTools, web] : apiTools, output_config:{effort:"low"} };
+      const body = { model, max_tokens:8000, system:apiSystem, messages:apiMsgs, tools: webOn ? [...apiTools, web] : apiTools, output_config:{effort:"low"} };
       const headers = { "content-type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" };
       if(model !== "claude-haiku-5-5"){ body.fallbacks = "default"; headers["anthropic-beta"] = "server-side-fallback-2026-07-01"; }
       if(round === 0) logDiag("ask", `api ${model}, ${body.tools.length} tools offered (${body.tools.map(t => t.name).filter(n => /open_website|play_music|web_search/.test(n)).join(", ") || "no open/music tools!"})`);
@@ -1866,9 +1867,13 @@ async function askApi(text, signal){
       if(!res.ok){
         const msg = data?.error?.message || ("HTTP " + res.status);
         if(res.status === 400 && webOn && /web.?search/i.test(msg)){ webOn = false; round--; continue; }   // web search not enabled on this account
+        if(res.status === 400 && !recovered && /without a corresponding|tool_use_id|tool_result/i.test(msg)){   // a broken turn in the history: start the conversation afresh instead of failing forever
+          logDiag("api", "conversation history rejected, starting fresh: " + msg.slice(0, 160));
+          recovered = true; apiMsgs = [userMsg]; apiSystem = sysPrompt(); start = 0; round--; continue;
+        }
         const err = new Error(msg); err.status = res.status; throw err;
       }
-      apiMsgs.push({role:"assistant", content:data.content});
+      apiMsgs.push({role:"assistant", content:tidyTurn(data)});
       logDiag("turn", `stop=${data.stop_reason}, model=${data.model || "?"}, used: ${data.content.filter(b => /tool_use/.test(b.type)).map(b => b.name).join(", ") || "no tools"}, reply ${data.content.filter(b => b.type === "text").map(b => b.text).join(" ").length} chars`);
       if(data.stop_reason === "refusal") return "I'm afraid I can't help with that one, sir.";
       if(data.stop_reason === "pause_turn") continue;   // long web search: let it carry on
@@ -1889,6 +1894,20 @@ async function askApi(text, signal){
   }catch(e){ apiMsgs.length = start; throw e; }
 }
 
+// A reply can stop part-way through a server-side step (web search runs code behind the scenes), e.g. when it runs
+// out of room or is declined. Saving that half-finished step makes every later question fail
+// ("…without a corresponding …_result block"), so in that case keep only the words (and, mid tool loop, our own tool calls).
+function tidyTurn(data){
+  const c = data.content || [];
+  if(data.stop_reason === "pause_turn") return c;   // the API resumes these itself
+  const answered = new Set(c.filter(b => b.tool_use_id).map(b => b.tool_use_id));
+  const dangling = c.some(b => b.type === "server_tool_use" && !answered.has(b.id));
+  if(!dangling && ["end_turn", "tool_use", "stop_sequence"].includes(data.stop_reason)) return c;
+  logDiag("turn", `kept only the text of an unfinished reply (stop=${data.stop_reason}${dangling ? ", unfinished search step" : ""})`);
+  const keep = c.filter(b => (b.type === "text" && b.text) || (data.stop_reason === "tool_use" && b.type === "tool_use"))
+                .map(b => b.type === "text" ? { type:"text", text:b.text } : b);
+  return keep.length ? keep : [{ type:"text", text:"(reply cut short)" }];
+}
 const errCopy = {
   not_granted:"Uplink declined. Allow this page to use Claude to talk to Jarvis.",
   sampling_disabled:"Claude isn't available on this account.",
