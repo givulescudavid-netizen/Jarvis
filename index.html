@@ -388,7 +388,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.25";
+const VERSION = "2026.10.11.26";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -421,7 +421,7 @@ function sysPrompt(){
     + `\n\nMusic: play_music opens songs, albums or artists in Apple Music. Be honest that you can't pause or skip afterwards. If asked for a mood or genre rather than a song, pick a well-known fitting song or album yourself.`
     + `\n\nInterruptions: a message starting with [You were interrupted…] means the user talked over you. React like a person would: if they corrected you or added information, adjust; if they asked something new, answer that and drop the old point unless it still matters; if they said "go on" or "continue", pick up exactly where they stopped hearing you without repeating; never re-read what they already heard. Keep it short.`
     + `\n\nDCF co-pilot (the user is building valuations with you, by voice):
-- First time: if no template is saved (dcf_new will say so), ask what their DCF Google Sheet is called, find it with search_drive (it must be a Google Sheet, not an Excel file: if it's Excel, ask them to open it in Google Sheets and use that copy), read it with dcf_inspect, and work out the input cells (assumptions and historicals) and output cells (EV, equity value, implied share price, upside, sensitivity). Summarise your understanding in a few spoken sentences ("Assumptions are on the Inputs tab: growth in C8 to G8, EBIT margin row 10…"), fix anything they correct, then dcf_save_template.
+- First time: if no template is saved (dcf_new will say so), ask what their DCF template is called, find it with search_drive (a Google Sheet or an Excel file both work: for Excel, dcf_inspect offers to make a Google Sheets copy, keeping their layout and formulas, and from then on that copy's file_id is the template), read it with dcf_inspect, and work out the input cells (assumptions and historicals) and output cells (EV, equity value, implied share price, upside, sensitivity). Summarise your understanding in a few spoken sentences ("Assumptions are on the Inputs tab: growth in C8 to G8, EBIT margin row 10…"), fix anything they correct, then dcf_save_template.
 - New DCF: dcf_new. Then get the historicals (last 3 to 5 years: revenue, EBIT or EBITDA, D&A, capex, change in working capital, tax rate, net debt, diluted shares) from the latest annual report or 10-K via web search and company_metrics, write them with dcf_set_inputs, and say the source and fiscal year. Ask the user to sanity-check the two or three numbers that matter most.
 - Then the assumptions, ONE AT A TIME, in the order their template uses (usually: revenue growth by year, margins, D&A and capex, working capital, tax rate, then WACC inputs (risk-free rate, beta, equity risk premium, cost of debt, capital weights), then terminal growth or exit multiple). For each: state the history or market figure, give a sensible range with one line of reasoning, recommend a number, and let the user decide. Write it in straight away and mention what it did to the implied price when that's interesting.
 - At the end: read the outputs and report enterprise value, equity value, implied share price against the current price (market_quotes) and the upside or downside, plus what the sensitivity range says. Offer scenarios ("bear case: growth 10% lower, margins flat").
@@ -1234,8 +1234,31 @@ const sheetUrl = id => `https://docs.google.com/spreadsheets/d/${id}/edit`;
 const a1 = r => encodeURIComponent(r);
 
 // Read a spreadsheet compactly: every non-empty cell with its value and (if any) formula, so Claude can tell inputs from outputs.
+// Excel templates: the Sheets API can't read .xlsx, so make a Google Sheets copy once (layout and formulas carry over).
+// The Excel file is never changed. The copy is remembered so later inspections reuse it instead of converting again.
+const EXCEL = /spreadsheetml|ms-excel/;
+async function excelToSheet(file_id){
+  const meta = id => gfetch(`${DRIVE}/${encodeURIComponent(id)}?fields=id,name,mimeType,trashed&supportsAllDrives=true`);
+  const f = await meta(file_id).catch(() => ({}));   // can't tell the type: let the Sheets read report the real problem
+  if(!EXCEL.test(f.mimeType || "")) return { file_id };
+  const done = store.get("jarvis.converted", {});
+  if(done[file_id]){   // reuse the earlier copy unless the user has deleted it since
+    const c = await meta(done[file_id]).catch(() => null);
+    if(c?.id && !c.trashed) return { file_id:done[file_id], from:f.name, reused:true };
+  }
+  const name = String(f.name || "DCF template").replace(/\.(xlsx|xlsm|xls)$/i, "") + " (Google Sheets copy)";
+  const ok = await confirmAction(`"${f.name}" is an Excel file. Make a Google Sheets copy called "${name}" so I can read it? Your Excel file stays untouched.`);
+  if(!ok) return { declined:true };
+  const copy = await gsend(`${DRIVE}/${encodeURIComponent(file_id)}/copy?fields=id,name&supportsAllDrives=true`, "POST", { name, mimeType:"application/vnd.google-apps.spreadsheet" });
+  done[file_id] = copy.id; store.set("jarvis.converted", done);
+  return { file_id:copy.id, from:f.name };
+}
 async function dcfInspect({file_id}){
   needWebsite();
+  const conv = await excelToSheet(file_id);
+  if(conv.declined) return "The user declined. Their template is an Excel file, which Jarvis can only read through a Google Sheets copy.";
+  const head = conv.from ? `Converted from Excel: this is a Google Sheets copy (file_id ${conv.file_id}) of the user's Excel file "${conv.from}"${conv.reused ? ", made earlier" : ""}. Their Excel file is untouched. Use ${conv.file_id} as the template's file_id in dcf_save_template.\n` : "";
+  file_id = conv.file_id;
   const meta = await gfetch(`${SHEETS}${encodeURIComponent(file_id)}?fields=properties.title,sheets.properties(title,gridProperties)`);
   const tabs = (meta.sheets || []).slice(0, 10).map(s => s.properties.title);
   const ranges = tabs.map(t => `'${t.replace(/'/g, "''")}'!A1:T160`);
@@ -1244,7 +1267,7 @@ async function dcfInspect({file_id}){
     gfetch(`${SHEETS}${encodeURIComponent(file_id)}/values:batchGet?${q()}&valueRenderOption=FORMULA`),
     gfetch(`${SHEETS}${encodeURIComponent(file_id)}/values:batchGet?${q()}&valueRenderOption=FORMATTED_VALUE`) ]);
   const col = i => { let s = ""; i++; while(i){ const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
-  let out = `Spreadsheet: ${meta.properties?.title}\n`, budget = 14000;
+  let out = head + `Spreadsheet: ${meta.properties?.title}\n`, budget = 14000; const errCells = [];
   (f.valueRanges || []).forEach((fr, k) => {
     const tab = tabs[k], vals = v.valueRanges?.[k]?.values || [];
     out += `\n## Tab '${tab}'\n`;
@@ -1253,12 +1276,14 @@ async function dcfInspect({file_id}){
         if(cell === "" || cell === null || cell === undefined) return null;
         const shown = vals[r]?.[c] ?? "";
         const isF = typeof cell === "string" && cell.startsWith("=");
+        if(isF && /^#(NAME\?|REF!|ERROR!|VALUE!|N\/A|DIV\/0!)/.test(String(shown))) errCells.push(`'${tab}'!${col(c)}${r + 1}`);
         return `${col(c)}${r + 1}=${isF ? `${shown} [${String(cell).slice(0, 60)}]` : String(shown).slice(0, 40)}`;
       }).filter(Boolean);
       if(cells.length && budget > 0){ const line = cells.join(" | ") + "\n"; out += line; budget -= line.length; }
     });
   });
   if(budget <= 0) out += "\n(truncated: the sheet is large; inspect specific ranges with dcf_read if needed)";
+  if(errCells.length) out += `\n\nFormulas showing an error: ${errCells.slice(0, 20).join(", ")}${errCells.length > 20 ? ` and ${errCells.length - 20} more` : ""}. ${conv.from ? "Some Excel functions don't carry over to Google Sheets: tell the user which cells and that they need fixing in the copy before the valuation can be trusted." : "Mention these to the user."}`;
   return out + "\n\nIn the listing, [=...] marks a formula (an output or calculation). Plain numbers next to a label are usually inputs.";
 }
 function dcfSaveTemplate({file_id, title, inputs, outputs, notes}){
@@ -1270,7 +1295,7 @@ function dcfSaveTemplate({file_id, title, inputs, outputs, notes}){
 async function dcfNew({company, ticker}){
   needWebsite();
   const t = store.get("jarvis.dcfTemplate", null);
-  if(!t) throw new Error("No DCF template saved yet. Ask the user which Google Sheet is their DCF template, then inspect it and save it with dcf_save_template.");
+  if(!t) throw new Error("No DCF template saved yet. Ask the user which file is their DCF template (Google Sheet or Excel), then inspect it and save it with dcf_save_template.");
   const name = `DCF: ${company || ticker}${ticker && company ? ` (${ticker})` : ""}, ${new Date().toLocaleDateString([], { day:"numeric", month:"short", year:"numeric" })}`;
   const ok = await confirmAction(`Make a copy of your DCF template called "${name}" in your Google Drive? I'll fill in that copy only; your template stays untouched.`);
   if(!ok) return "The user declined. Nothing was created.";
@@ -1505,7 +1530,7 @@ const tools = [
   { name:"play_music", description:"Finds a song, album or artist on Apple Music and opens it there so it plays with the user's Apple Music subscription. Jarvis cannot pause, skip or change volume afterwards; the user does that in Apple Music.",
     inputSchema:{type:"object",properties:{query:{type:"string",description:"e.g. 'Back in Black AC/DC'"},type:{type:"string",enum:["song","album","artist"]}},required:["query"]},
     execute: input => playMusic(input) },
-  { name:"dcf_inspect", description:"Reads a Google Sheet (e.g. the user's DCF template) and lists every non-empty cell with its value, and formula if any, so you can work out which cells are inputs and which are outputs. Find the file id with search_drive first.",
+  { name:"dcf_inspect", description:"Reads a Google Sheet or Excel file (e.g. the user's DCF template; for Excel it first offers to make a Google Sheets copy) and lists every non-empty cell with its value, and formula if any, so you can work out which cells are inputs and which are outputs. Find the file id with search_drive first.",
     inputSchema:{type:"object",properties:{file_id:{type:"string"}},required:["file_id"]}, execute: input => dcfInspect(input) },
   { name:"dcf_save_template", description:"Saves which cells of the user's DCF template are inputs (with what each means) and outputs, after the user agrees with your understanding. Cells use A1 notation with the tab, e.g. 'DCF'!C8.",
     inputSchema:{type:"object",properties:{file_id:{type:"string"},title:{type:"string"},inputs:{type:"array",items:{type:"object",properties:{name:{type:"string"},cell:{type:"string"},meaning:{type:"string"}},required:["name","cell"]}},outputs:{type:"array",items:{type:"object",properties:{name:{type:"string"},cell:{type:"string"}},required:["name","cell"]}},notes:{type:"string"}},required:["file_id","inputs","outputs"]},
