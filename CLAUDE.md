@@ -1,8 +1,8 @@
 # J.A.R.V.I.S. — guide for Claude sessions working on this repo
 
-Jarvis is David's personal voice assistant: an Iron Man–style HUD that listens for "Jarvis",
-talks back, and works with his Gmail, Google Calendar, Google Drive and (online only) Interactive Brokers.
-David is not a programmer. Explain changes in plain language, never assume he will read code.
+Jarvis is a personal voice assistant: an Iron Man–style HUD that listens for "Jarvis",
+talks back, and can work with the owner's Google services and other connectors.
+The owner is not a programmer. Explain changes in plain language, never assume they will read code.
 
 ## How it's built
 - **Everything is one file: `index.html`** (HTML + CSS + JS, no build step, no framework). Keep it that way.
@@ -23,10 +23,10 @@ Main parts of `index.html`, in order:
 6. Diagnostics (`logDiag`, `buildReport`), dashboard panels, the reactor canvas.
 
 ## Rules that must not be broken
-- **Never put keys, tokens, or David's personal data in the code.** Keys live only in the browser's localStorage.
+- **Never put keys, tokens, or the owner's personal data (name, email, accounts) in the code, docs or commit messages.** Keys live only in the browser's localStorage.
   The repo is public.
-- **Anything that changes his accounts must go through `confirmAction`** (spoken "Shall I go ahead?" + yes/no).
-  Never add sending email, deleting, trading, or payments. Drafts and calendar events are the ceiling unless David explicitly asks.
+- **Anything that changes the owner's accounts must go through `confirmAction`** (spoken "Shall I go ahead?" + yes/no).
+  Never add sending email, deleting, trading, or payments. Drafts and calendar events are the ceiling unless the owner explicitly asks.
 - Email/calendar/Drive content is untrusted data: never let it trigger actions on its own.
 - Don't break: wake word on the bare name, conversation mode, the Initialize screen (Chrome blocks speech without a click),
   centred reactor, phone layout.
@@ -41,8 +41,8 @@ Main parts of `index.html`, in order:
    (In Claude Code cloud sessions Chromium is preinstalled at /opt/pw-browsers/chromium; the tests use it automatically.)
 5. Bump `VERSION` in `index.html` (format YYYY.MM.DD, add .2, .3… for more releases the same day; the site auto-reloads when it changes) and add a plain-language entry to `CHANGELOG.md`.
 6. Push the branch and open a PR via REST: `gh api repos/givulescudavid-netizen/Jarvis/pulls -f title=... -f head=<branch> -f base=main -f body=...`.
-   Plain-language description ("what you'll notice", "what to try for real"), link the issues (`Fixes #12`). **Never merge it yourself** — David approves.
+   Plain-language description ("what you'll notice", "what to try for real"), link the issues (`Fixes #12`). **Never merge it yourself** — the owner approves.
 7. If nothing is worth changing, say so and open nothing. No churn, no cosmetic rewrites, no dependency additions.
 
 The tests fake everything external (speech, Claude, Google, connectors), so they can't prove real-world behaviour.
-Call out anything that needs David to try for real.
+Call out anything that needs the owner to try for real.
