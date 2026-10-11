@@ -1885,7 +1885,7 @@ function talker(){
     }
   };
   t.push = s => { if(t.ended || t.hushed) return; t.text += s; take(); wake(); if(!t.running) start(); };
-  t.end = () => { if(t.ended) return; take(); t.ended = true; take(); wake(); settle(); return t.finished; };
+  t.end = (more = "") => { if(t.ended) return t.finished; t.text += more; t.ended = true; take(); wake(); settle(); return t.finished; };
   t.hush = () => { if(t.hushed) return; t.hushed = true; clearTimeout(t.later); wake(); settle(); };
   return t;
 }
@@ -2797,11 +2797,11 @@ async function ask(text, shown, interruptedHeard){
     if(talk){
       // usually already spoken as it streamed in; add anything that wasn't (e.g. "Done, sir.", or no streaming)
       const flat = x => x.replace(/\s+/g, " ").trim(), bare = x => x.replace(/\s+/g, "");
-      if(!bare(talk.text).includes(bare(clean))) talk.push((talk.text.trim() ? " " : "") + clean);
-      out.textContent = flat(talk.text); showCaps();
+      const more = bare(talk.text).includes(bare(clean)) ? "" : (talk.text.trim() ? " " : "") + clean;
+      out.textContent = flat(talk.text + more); showCaps();
       if(busyAsk === myAsk) busyAsk = 0;
       if(mode === "thinking") setMode("idle");
-      await talk.end();
+      await talk.end(more);
       if(liveTalk === talk) liveTalk = null;
     } else {
       out.textContent = clean; showCaps();
