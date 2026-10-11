@@ -2296,7 +2296,7 @@ async function gesturesOn(){
   }
 }
 function gesturesOff(save = true){
-  gest.on = false; clearTimeout(gest.timer); gest.grab = null; $("airCursor").classList.remove("grab");
+  gest.on = false; clearTimeout(gest.timer); gest.grab = null; gest.downAt = 0; $("airCursor").classList.remove("grab");
   gest.stream?.getTracks().forEach(t => t.stop()); gest.stream = null;
   $("gestChip").hidden = true; $("handHud").hidden = true; $("airCursor").hidden = true;
   if(save){ store.set("jarvis.gestures", false); $("gestStatus").textContent = "Off. The camera is closed."; }
@@ -2335,7 +2335,8 @@ function onHand(r){
   if(gest.grab) return;   // no swipes or held gestures mid-drag
   // swipe: the wrist moving fast sideways
   // a swipe down only counts if the hand is still in view a moment later (not just dropping out of the camera)
-  if(gest.downAt && now - gest.downAt > 350){ const ok = lm[0].y < .9 && lm[0].y - gest.downY < .1; gest.downAt = 0; if(ok) onGesture("Swipe_Down"); }
+  // (and only soon after: a stale one, e.g. after the camera paused, is dropped)
+  if(gest.downAt && now - gest.downAt > 350){ const ok = now - gest.downAt < 1000 && lm[0].y < .9 && lm[0].y - gest.downY < .1; gest.downAt = 0; if(ok) onGesture("Swipe_Down"); }
   gest.trail.push({ t:now, x:lm[0].x, y:lm[0].y }); gest.trail = gest.trail.filter(p => now - p.t < 450);
   const dx = gest.trail.length >= 2 ? gest.trail.at(-1).x - gest.trail[0].x : 0, dy = gest.trail.length >= 2 ? gest.trail.at(-1).y - gest.trail[0].y : 0;
   if(Math.abs(dx) > .28 && now - gest.lastSwipe > 1200){
