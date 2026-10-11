@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026.10.11.15
+- **Restaurant bookings via Claude in Chrome.** "Jarvis, book me a table at Nobu for 2 at 8pm Friday" prepares the booking: it opens a search for the restaurant's booking page and shows ready-to-paste instructions (date, time, party size, your details, and safety rules: show options if the time isn't free, ask before the final click, never enter card details). Paste them into Claude in Chrome, Anthropic's browser extension, which does the booking. Jarvis itself never clicks on websites.
+
 ## 2026.10.11.14
 - **Mic status at the top:** 🎙 listening (green), paused, blocked or no mic (red), problem (amber). Click it for a full mic check.
 - **Mic check (⚙):** Chrome's permission, which microphone Chrome is using, a live sound-level bar, the last thing Jarvis heard, and the last problem in plain English (blocked, no mic, another app using it, network). A "Test microphone" button retries.

@@ -386,6 +386,27 @@ console.log("ElevenLabs voice");
   await p.close();
 }
 
+console.log("Restaurant bookings (hand-off to Claude in Chrome)");
+{
+  const p = await open({ script:[
+    { tool:"book_restaurant", input:{ restaurant:"Nobu", city:"Madrid", date:"Friday 17 October 2026", time:"8:00 PM", party_size:2, name:"Alex Test", phone:"+34 600 000 000", email:"alex@example.com", notes:"window table" } },
+    { text:"The booking search is open, sir. Copy the instructions, click the Claude icon in Chrome and paste." } ] }, undefined, HTTP_PAGE);
+  await p.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(HTTP_PAGE).origin });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis book me a table at nobu for 2 at 8pm friday", 900);
+  const text = await p.locator("#handoffText").inputValue();
+  check("booking: instructions card appears", await p.locator("#handoffBox").isVisible());
+  check("…with restaurant, date, time, party size and your details", /Nobu in Madrid for 2 people on Friday 17 October 2026 at 8:00 PM/.test(text) && /Alex Test/.test(text) && /window table/.test(text), text);
+  check("…and the safety rules (ask before final click, no card details)", /wait for my OK/.test(text) && /Never enter payment or card details/.test(text));
+  check("…and opens a search for the booking page", (await p.evaluate(() => window.__opened)).some(u => /google\.com\/search\?q=Nobu%20Madrid%20reservations/.test(u)));
+  await p.click("#handoffCopy"); await p.waitForTimeout(200);
+  check("Copy puts the instructions on the clipboard", (await p.evaluate(() => navigator.clipboard.readText())) === text);
+  check("…and says what to do next", /click the Claude icon/.test(await p.locator("#handoffNote").textContent()));
+  check("Jarvis is told it doesn't click on websites itself", /You do not click or type on websites yourself/.test((await log(p))[0].system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("Microphone indicator and mic check");
 {
   const p = await open({ script:[ { text:"Yes, sir." } ] }, undefined, HTTP_PAGE);

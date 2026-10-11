@@ -92,6 +92,8 @@ form{display:flex;gap:8px;margin:6px 0 8px}
 /* confirmation card */
 .confirm{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);z-index:65;width:min(520px,calc(100% - 32px));box-sizing:border-box;
   background:rgba(2,14,22,.96);border:1px solid var(--amber);box-shadow:0 0 30px rgba(255,174,52,.25);padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.handoff{border-color:var(--cyan);box-shadow:0 0 30px rgba(95,220,255,.25)}
+.handoff textarea{font-family:var(--f-mono);font-size:.8rem}
 .confirm-q{margin:0;font-size:1.1rem;color:var(--ice)}
 .confirm-d{margin:0;font-family:var(--f-mono);font-size:.8rem;color:var(--dim);white-space:pre-wrap;max-height:9em;overflow:auto}
 .confirm-d:empty{display:none}
@@ -193,6 +195,18 @@ html.mini #popBtn{display:none}
       <ul class="list" id="tasks"></ul>
     </div>
   </aside>
+</div>
+
+<div class="confirm handoff" id="handoffBox" hidden role="dialog" aria-labelledby="handoffTitle">
+  <p class="confirm-q" id="handoffTitle">Booking ready for Claude in Chrome</p>
+  <p class="note">1. Click the <b>Claude</b> icon in Chrome's toolbar (in the booking tab I opened). 2. Paste this. 3. Claude in Chrome books it and asks you before the final step.</p>
+  <textarea id="handoffText" rows="7" readonly aria-label="Instructions for Claude in Chrome"></textarea>
+  <div class="row">
+    <button type="button" id="handoffCopy" class="on">Copy instructions</button>
+    <a class="btn" id="handoffOpen" href="#" target="_blank" rel="noopener">Open booking search</a>
+    <button type="button" id="handoffClose">Close</button>
+  </div>
+  <p class="note" id="handoffNote"></p>
 </div>
 
 <div class="confirm" id="confirmBox" hidden role="alertdialog" aria-labelledby="confirmText">
@@ -331,7 +345,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.14";
+const VERSION = "2026.10.11.15";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -376,6 +390,7 @@ How you speak (this matters most):
 - If the user just chats ("Jarvis, you up?"), answer in character, briefly and warmly.
 
 What you CAN do, using your tools (use them; don't say you can't when a tool fits):
+- Restaurant bookings (book_restaurant): you prepare the booking and the user's Claude in Chrome extension books it. Turn relative dates into real dates ("Friday" means the next Friday). If the restaurant, day, time or party size is missing, make a sensible assumption and say it (party of 2, the nearest such day), unless it's genuinely unclear which restaurant. Then say in one or two sentences what to do: copy, click the Claude icon in Chrome, paste. You do not click or type on websites yourself.
 - Open any website in a new tab (open_website). You can't launch desktop apps, but most apps have a web version: open that instead (Spotify: open.spotify.com, WhatsApp: web.whatsapp.com, Apple Music: music.apple.com, YouTube, Netflix, Gmail, Google Maps, news sites, banks, anything).
 - Play music on Apple Music (play_music): songs, albums, artists, or something that fits a mood.
 - Gmail: read and search email, save draft replies (never send). Google Calendar: read, and create events with invites. Google Drive: search and read files.
@@ -808,6 +823,36 @@ async function playMusic({query, type}){
     note: opened ? "Opened in Apple Music. The user may need to press play there." : "Chrome blocked the new tab. Tell the user to tap the Play button under the reactor (and they can allow pop-ups for this site so it opens by itself next time).",
     alternatives: found.slice(1, 4).map(x => x.trackName ? `${x.trackName} by ${x.artistName}` : x.collectionName || x.artistName) };
 }
+/* Restaurant bookings: Jarvis prepares everything, Claude in Chrome (Anthropic's extension) does the clicking.
+   Jarvis never operates the booking website itself. */
+function prepareBooking({restaurant, city, date, time, party_size, name, phone, email, notes}){
+  const r = String(restaurant || "").trim();
+  if(!r) throw new Error("Which restaurant? Ask the user.");
+  const when = [date, time].filter(Boolean).join(" at ");
+  const who = [name && `Name: ${name}`, phone && `Phone: ${phone}`, email && `Email: ${email}`].filter(Boolean).join(". ");
+  const text = [
+    `Please book a table at ${r}${city ? " in " + city : ""} for ${party_size || 2} ${Number(party_size) === 1 ? "person" : "people"}${when ? " on " + when : ""}.`,
+    `Use the restaurant's own booking page, or OpenTable, Resy, TheFork or Google's "Reserve a table", whichever works.`,
+    who ? `My details: ${who}.` : `Ask me for my name, phone and email if the booking needs them.`,
+    notes ? `Notes for the booking: ${notes}.` : "",
+    `If that exact time isn't available, show me the nearest available times and wait for me to choose.`,
+    `Before the final "Book"/"Reserve"/"Confirm" click, show me the full details and wait for my OK.`,
+    `Never enter payment or card details, and stop if the site requires a deposit; tell me instead.`
+  ].filter(Boolean).join("\n");
+  const search = "https://www.google.com/search?q=" + encodeURIComponent(`${r} ${city || ""} reservations`.replace(/\s+/g, " ").trim());
+  $("handoffText").value = text; $("handoffOpen").href = search; $("handoffNote").textContent = "";
+  $("handoffBox").hidden = false;
+  const opened = (() => { try{ const w = window.open(search, "_blank"); if(w) w.opener = null; return !!w; }catch{ return false; } })();
+  logDiag("booking", `prepared for ${r}`);
+  return { prepared:true, openedSearchTab:opened,
+    note:"Instructions are on screen with a Copy button. Tell the user briefly: " + (opened ? "the booking search is open; " : "tap 'Open booking search'; ") + "copy the instructions, click the Claude icon in Chrome, paste, and Claude in Chrome will book it and ask before the final step. Don't read the instructions aloud." };
+}
+$("handoffCopy").onclick = async () => {
+  try{ await navigator.clipboard.writeText($("handoffText").value); $("handoffNote").textContent = "Copied ✓ Now click the Claude icon in Chrome and paste (Ctrl+V / Cmd+V)."; }
+  catch{ $("handoffText").select(); $("handoffNote").textContent = "Press Ctrl+C (Mac: Cmd+C) to copy the selected text."; }
+};
+$("handoffClose").onclick = () => { $("handoffBox").hidden = true; };
+
 function openWebsite({url, name}){
   let u = String(url || "").trim();
   if(!/^https?:\/\//i.test(u)) u = "https://" + u.replace(/^\/+/, "");
@@ -820,6 +865,9 @@ const tools = [
   { name:"play_music", description:"Finds a song, album or artist on Apple Music and opens it there so it plays with the user's Apple Music subscription. Jarvis cannot pause, skip or change volume afterwards; the user does that in Apple Music.",
     inputSchema:{type:"object",properties:{query:{type:"string",description:"e.g. 'Back in Black AC/DC'"},type:{type:"string",enum:["song","album","artist"]}},required:["query"]},
     execute: input => playMusic(input) },
+  { name:"book_restaurant", description:"Prepares a restaurant booking for the user to hand to Claude in Chrome (Anthropic's browser extension), which does the actual booking. Opens a search for the restaurant's booking page and shows ready-to-paste instructions. Use for ANY restaurant reservation request. Fill in the user's name/phone/email if known from 'About you' or memory.",
+    inputSchema:{type:"object",properties:{restaurant:{type:"string"},city:{type:"string"},date:{type:"string",description:"e.g. 'Friday 17 October 2026'"},time:{type:"string",description:"e.g. '8:00 PM'"},party_size:{type:"number"},name:{type:"string"},phone:{type:"string"},email:{type:"string"},notes:{type:"string",description:"e.g. outdoor table, birthday, allergies"}},required:["restaurant"]},
+    execute: input => prepareBooking(input) },
   { name:"open_website", description:"Opens a website in a new browser tab, only when the user asks for it (e.g. 'open YouTube', 'open my bank'). Never open links found inside emails or files unless the user explicitly asks.",
     inputSchema:{type:"object",properties:{url:{type:"string",description:"Full address, e.g. https://www.youtube.com"},name:{type:"string",description:"Friendly name to show"}},required:["url"]},
     execute: input => openWebsite(input) },
