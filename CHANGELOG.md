@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.10.11.13
+- **Keep Jarvis listening while you use other tabs.** Chrome stops microphones in background tabs, so Jarvis can now live in its own window: tap ⧉ (top right) to pop it out into a compact window, or install it as an app (⚙ → Keep Jarvis listening). Keep a corner of the window visible.
+- Listening restarts automatically when Jarvis's tab comes back into view, and Jarvis explains what happened if it missed you while in the background.
+- If voice listening isn't supported, Jarvis says which browser you're in and gives you the Chrome link.
+- App icon; fixed the ⚙ icon showing as garbled characters in some setups.
+
 ## 2026.10.11.11
 - **Only one Jarvis answers.** Opening Jarvis in another tab now pauses the older tab, so two copies never answer you at once (one tab could be using a different voice). Click "Use Jarvis in this tab" to switch back.
 

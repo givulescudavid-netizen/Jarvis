@@ -21,8 +21,8 @@ let failed = 0, passed = 0;
 function check(name, ok, info = ""){ if(ok){ passed++; console.log("  ✓", name); } else { failed++; console.log("  ✗", name, info); } }
 
 // Fakes injected before the page loads. `script` is the list of replies the fake Claude gives, in order.
-function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, events = [], unread = 0, googleBefore = false } = {}){
-  return [({ mcp, script, slowVoice, eleven, events, unread, googleBefore }) => {
+function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, events = [], unread = 0, googleBefore = false, noSR = false } = {}){
+  return [({ mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR }) => {
     if(googleBefore){ localStorage.setItem("jarvis.gon", "true"); localStorage.setItem("jarvis.gconsented3", "true"); }
     localStorage.setItem("jarvis.key", '"sk-ant-test"'); localStorage.setItem("jarvis.gclient", '"x.apps.googleusercontent.com"');
     if(eleven) localStorage.setItem("jarvis.elKey", '"el-test-key"');
@@ -76,7 +76,8 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
     }
     window.__opened = [];
     window.open = url => { window.__opened.push(String(url)); return window.__blockPopups ? null : {}; };
-  }, { mcp, script, slowVoice, eleven, events, unread, googleBefore }];
+    if(noSR){ window.SpeechRecognition = undefined; window.webkitSpeechRecognition = undefined; }
+  }, { mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR }];
 }
 async function open(opts, viewport = { width:1440, height:900 }, url = PAGE){
   const p = await browser.newPage({ viewport }); const errs = [];
@@ -374,6 +375,39 @@ console.log("ElevenLabs voice");
   check("Voice Library voice on a free plan: explains it needs a paid plan and suggests standard voices", /Voice Library/.test(await p.locator("#elStatus").textContent()) && /George/.test(await p.locator("#voiceErr").textContent()));
   check("no page errors", errs.length === 0, errs.join(" | "));
   await p.close();
+}
+
+console.log("Browsers without voice listening");
+{
+  const p = await open({ noSR:true });
+  check("explains which browser it's in and to use Chrome, with the link", /Listening doesn't work in/.test(await p.locator("#capJ").textContent()) && /Google Chrome/.test(await p.locator("#capJ").textContent()) && /github\.io\/Jarvis/.test(await p.locator("#capJ").textContent()));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Its own window (pop out / app)");
+{
+  const p = await open({}, undefined, HTTP_PAGE);
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#popBtn");
+  const opened = await p.evaluate(() => window.__opened);
+  check("⧉ pops Jarvis out into its own window", opened.some(u => /index\.html\?mini=1$/.test(u)), opened.join(" "));
+  // simulate leaving the tab for a while, then coming back
+  await p.evaluate(() => { Object.defineProperty(document, "visibilityState", { configurable:true, get:() => "hidden" }); document.dispatchEvent(new Event("visibilitychange")); });
+  await p.evaluate(() => { window.__hiddenAt = Date.now(); });
+  await p.evaluate(() => { const real = Date.now; Date.now = () => real() + 10000; Object.defineProperty(document, "visibilityState", { configurable:true, get:() => "visible" }); document.dispatchEvent(new Event("visibilitychange")); Date.now = real; });
+  check("after being in a background tab, explains why and suggests ⧉", /own window/.test(await p.locator("#capJ").textContent()));
+  check("app install details are published", (await p.evaluate(async () => (await fetch("manifest.webmanifest")).ok && (await fetch("icons/icon-512.png")).ok)));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+  const m = await open({}, { width:440, height:600 }, HTTP_PAGE + "?mini=1");
+  check("the pop-out window shows just the reactor (compact layout)", await m.evaluate(() => document.documentElement.classList.contains("mini")) && await m.locator(".side.left").isHidden() && await m.locator("#reactor").isVisible());
+  await m.click("#bootBtn"); await settle(m);
+  check("…and works normally", (await m.evaluate(() => window.__spoken.length)) === 1 && /Say "Jarvis"|Go ahead|Yes, sir/.test(await m.locator("#mode").textContent()));
+  check("…no sideways scrolling", (await m.evaluate(() => document.documentElement.scrollWidth)) <= 440);
+  await m.screenshot({ path: path.join(shots, "popout.png") });
+  check("no page errors", m.errs.length === 0, m.errs.join(" | "));
+  await m.close();
 }
 
 console.log("Only one Jarvis at a time");

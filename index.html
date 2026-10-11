@@ -1,4 +1,10 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>J.A.R.V.I.S.</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#010509">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Rajdhani:wght@400;500;600&family=Share+Tech+Mono&display=swap">
@@ -114,6 +120,14 @@ button.x{padding:2px 8px;font-family:var(--f-body);font-size:.8rem;letter-spacin
 .drawer section > button{align-self:flex-start}
 
 /* narrower screens: reactor first, info stacked underneath */
+/* mini: the pop-out window, or any small window. Just the reactor and subtitles. */
+html.mini .side{display:none}
+html.mini .center{min-height:100vh;padding-block:40px 8px;order:0}
+html.mini #reactor{width:min(100vw - 32px,100vh - 170px,560px)}
+html.mini .center::before{display:none}
+html.mini .captions{height:auto;min-height:4.2em}
+html.mini .cap-j{font-size:1.05rem}
+html.mini #popBtn{display:none}
 @media (max-width:1000px){
   .wrap{display:flex;flex-direction:column;padding-block:0 24px}
   .center{min-height:auto;padding-block:56px 8px;order:-1}
@@ -127,7 +141,10 @@ button.x{padding:2px 8px;font-family:var(--f-body);font-size:.8rem;letter-spacin
 <div class="wrap">
   <header>
     <div class="status"><span class="dot warn" id="linkDot"></span><span id="linkTxt">Establishing uplink…</span><span class="ver" id="verBadge"></span></div>
-    <button type="button" class="gear" id="gearBtn" aria-label="Settings" aria-expanded="false" aria-controls="drawer">⚙</button>
+    <div class="row">
+      <button type="button" class="gear" id="popBtn" title="Pop Jarvis out into its own small window, so it keeps listening while you use other tabs" aria-label="Pop out into its own window">⧉</button>
+      <button type="button" class="gear" id="gearBtn" aria-label="Settings" aria-expanded="false" aria-controls="drawer">⚙</button>
+    </div>
   </header>
 
   <aside class="side left">
@@ -219,6 +236,16 @@ button.x{padding:2px 8px;font-family:var(--f-body);font-size:.8rem;letter-spacin
     <ul class="list mem" id="memList"></ul>
   </section>
 
+  <section id="installBox">
+    <h3>Keep Jarvis listening</h3>
+    <p class="note">Chrome stops listening in tabs you aren't looking at. Give Jarvis its own window instead: use ⧉ Pop out (top right), or install it as an app with its own icon. Keep at least a corner of the window visible.</p>
+    <div class="row">
+      <button type="button" id="popBtn2">⧉ Pop out now</button>
+      <button type="button" id="installBtn" hidden>Install Jarvis as an app</button>
+    </div>
+    <p class="note" id="installNote"></p>
+  </section>
+
   <section>
     <h3>Alerts</h3>
     <label class="check"><input type="checkbox" id="alertsOn"> Speak up before meetings (10 minutes before, and when they start)</label>
@@ -282,7 +309,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.11";
+const VERSION = "2026.10.11.13";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -1061,6 +1088,47 @@ if(window.claude) $("elBox").hidden = true;   // the claude.ai version can't rea
 
 /* ---------- speech in: push-to-talk + "Jarvis" wake word ---------- */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+// Which browser are we in? Voice listening only really works in Google Chrome and Microsoft Edge.
+function whereAmI(){
+  const ua = navigator.userAgent;
+  if(window.claude || /Electron|Claude/i.test(ua)) return "the Claude app's built-in viewer";
+  if(navigator.brave) return "Brave";
+  if(/Firefox|FxiOS/i.test(ua)) return "Firefox";
+  if(/OPR\/|Opera/i.test(ua)) return "Opera";
+  if(/Edg\//i.test(ua)) return "Edge";
+  if(/CriOS/i.test(ua)) return "Chrome on iPhone";
+  if(/Chrome\//i.test(ua)) return "Chrome";
+  if(/Safari/i.test(ua)) return /iPhone|iPad/i.test(ua) ? "Safari on iPhone" : "Safari";
+  return "this browser";
+}
+const JARVIS_URL = "https://givulescudavid-netizen.github.io/Jarvis/";
+// Mini layout in the pop-out window, the installed app window, or any small window
+const isPopout = /[?&](mini|app)=1/.test(location.search);
+function sizeMode(){ document.documentElement.classList.toggle("mini", isPopout || (innerWidth < 560 && innerHeight < 760)); }
+sizeMode(); addEventListener("resize", sizeMode);
+function popOut(){
+  const base = /^https?:$/.test(location.protocol) ? location.origin + location.pathname : JARVIS_URL;
+  const w = window.open(base + "?mini=1", "jarvis-window", "popup=yes,width=440,height=600,left=" + Math.max(0, screen.availWidth - 470) + ",top=40");
+  if(!w){ const a = $("openLink"); a.href = base + "?mini=1"; a.target = "_blank"; a.textContent = "⧉ Open Jarvis in its own window"; a.hidden = false; }
+}
+let installEvt = null;
+addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; $("installBtn").hidden = false; });
+addEventListener("appinstalled", () => { $("installBtn").hidden = true; $("installNote").textContent = "Installed. Open Jarvis from its icon from now on."; });
+// Remember how long the tab was hidden, so we can explain why Jarvis didn't hear you
+let hiddenSince = 0, toldAboutTabs = false;
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState === "hidden"){ hiddenSince = Date.now(); return; }
+  if(hiddenSince && Date.now() - hiddenSince > 8000 && !isPopout && !toldAboutTabs && typeof wakeOn !== "undefined" && wakeOn && $("boot").hidden){
+    toldAboutTabs = true;
+    addMsg("sys", "While this tab was in the background, Chrome wouldn't let me listen. Tap ⧉ (top right) to give me my own window, and I'll hear you while you use other tabs.");
+  }
+  hiddenSince = 0;
+});
+// Chrome can stop listening while the tab is hidden; start again as soon as it's visible.
+document.addEventListener("visibilitychange", () => {
+  if(document.visibilityState === "visible" && typeof wakeOn !== "undefined" && wakeOn && !recOn && !dormant && $("boot").hidden && mode === "idle"){ logDiag("mic", "tab visible again: restarting listening"); startWake(); }
+});
+function noVoiceMsg(){ return `Listening doesn't work in ${whereAmI()}. Open ${JARVIS_URL} in Google Chrome (or Edge) on your computer. You can still type in settings ⚙.`; }
 let rec = null, recOn = false, convo = false;
 let wakeOn = !!SR, awaiting = false, convoOpen = false, awaitTimer = null;
 const WAKE = /\b(?:(?:hey|hi|ok|okay|yo)[\s,]+)?(?:jarvis|jarvas|jarves|jarviz|jervis|javis|garvis|charvis|harvis|travis)(?:'s)?\b[\s,.!?]*(.*)$/i;
@@ -1075,7 +1143,7 @@ function makeRec(continuous){
     if(e.error !== "no-speech" && e.error !== "aborted") logDiag("mic", e.error);
     if(e.error === "not-allowed" || e.error === "service-not-allowed") micBlocked();
     else if(e.error === "audio-capture"){ addMsg("sys","No microphone found. Plug one in or check your sound settings."); wakeOn = false; }
-    else if(e.error === "network"){ addMsg("sys","Speech recognition needs an internet connection."); }
+    else if(e.error === "network"){ addMsg("sys", navigator.brave ? noVoiceMsg() : "Speech recognition needs an internet connection. Check your Wi-Fi."); }
   };
   return r;
 }
@@ -1243,7 +1311,7 @@ function readMic(){
 function tapReactor(){
   initMicMeter();
   if(mode === "thinking" || mode === "speaking"){ stopTalking(); return; }
-  if(!SR){ addMsg("sys","Voice needs Chrome or Edge. Use Type instead in settings ⚙."); openDrawer(true); return; }
+  if(!SR){ addMsg("sys", noVoiceMsg()); return; }
   if(mode === "listening"){ convo = false; stopRec(); setMode("idle"); resumeWake(); return; }
   if(wakeOn){ convoOpen = true; awaiting = true; chime(); armConvoTimer(); setMode("idle"); if(!recOn) startWake(); }
   else { convo = true; startListening(); }
@@ -1274,7 +1342,7 @@ function buildReport(){
     `- Version: ${VERSION}`,
     `- Mode: ${sample ? "online (claude.ai)" : "local / own API key"}${!sample ? `, model ${model}, web search ${webOn ? "on" : "off"}` : ""}`,
     `- Opened from: ${location.protocol === "file:" ? "file (double-clicked)" : location.host}`,
-    `- Browser: ${navigator.userAgent}`,
+    `- Browser: ${whereAmI()} (${navigator.userAgent})`,
     `- Speech recognition: ${SR ? "yes" : "no"}, voices: ${voices.length}, voice out: ${voiceOn ? "on" : "off"}, wake word: ${wakeOn ? "on" : "off"}`,
     `- ElevenLabs: ${elKey ? (elVoiceId ? "on (ElevenLabs only)" : "key saved, no voice chosen") : "not set up"}; last voice error: ${$("voiceErr").textContent || "none"}`,
     `- Google: ${google.mode || "unavailable"}${google.connected ? ", connected" : ", not connected"}`,
@@ -1371,6 +1439,10 @@ $("testVoice").onclick = () => { const t = "Voice check complete, sir. You're he
 /* settings drawer */
 function openDrawer(open){ $("drawer").hidden = !open; $("gearBtn").setAttribute("aria-expanded", String(open)); }
 $("gearBtn").onclick = () => openDrawer($("drawer").hidden);
+$("popBtn").onclick = popOut;
+$("popBtn2").onclick = () => { openDrawer(false); popOut(); };
+$("installBtn").onclick = async () => { if(!installEvt) return; installEvt.prompt(); const r = await installEvt.userChoice.catch(() => null); if(r?.outcome === "accepted") $("installBtn").hidden = true; installEvt = null; };
+if(window.claude){ $("installBox").hidden = true; $("popBtn").hidden = true; }   // not available inside claude.ai
 $("closeBtn").onclick = () => openDrawer(false);
 document.addEventListener("keydown", e => { if(e.key === "Escape") openDrawer(false); });
 $("typeForm").onsubmit = e => { e.preventDefault(); const t = $("typeIn").value; $("typeIn").value = ""; convo = false; ask(t); };
@@ -1522,7 +1594,8 @@ addMsg("j","Good to see you, sir. Just say my name.");
     document.addEventListener("click", e => { if(!google.token && e.target.id !== "gBtn") connectGoogle(); }, { once:true });
   }
   if(wakeOn){ startWake(); document.addEventListener("click", initMicMeter, { once:true }); }
-  else if(!SR) addMsg("sys","Voice needs Chrome or Edge. You can type in settings ⚙.");
+  else if(!SR) addMsg("sys", noVoiceMsg());
+  logDiag("start", `${whereAmI()}, listening ${SR ? "available" : "NOT available"}, ${location.host || "file"}`);
 })();
 
 /* ---------- clock ---------- */
