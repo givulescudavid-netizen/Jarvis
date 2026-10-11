@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.10.11.25 — Excel DCF templates
+- Your DCF template can now be an Excel file. The first time, Jarvis asks "Make a Google Sheets copy so I can read it?" and, once you say yes, uses that copy as your template. Your Excel file is never changed.
+- Layout and formulas carry over. If any formula doesn't work in Google Sheets (a few Excel-only functions don't), Jarvis tells you which cells so you can fix them in the copy before trusting the numbers.
+
 ## 2026.10.11.24 — Reminders, weather, travel times, Uber and hotels
 - **Reminders:** "Jarvis, remind me at 4 to call the bank" or "remind me in 20 minutes to check the oven". Jarvis says it out loud when it's due. If Jarvis was closed at that moment, it tells you as soon as you open it again. Reminders show on the dashboard (under Timers & reminders) and survive a reload. "What reminders do I have?" and "cancel the bank reminder" work too.
 - **Weather:** "Do I need an umbrella?", "What's the weather in Lisbon this weekend?" Current conditions, the next 12 hours and up to 7 days. The morning briefing now includes the weather for your city (tell Jarvis your city once, or put it in "About you").
