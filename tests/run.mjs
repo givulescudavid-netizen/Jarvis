@@ -412,7 +412,7 @@ console.log("Smart speed: Haiku for quick questions, more thinking for analysis"
   const p = await open({ script:[
     { text:"It's ten past ten, sir." }, { text:"Apple looks pricier, sir." },
     { err:"output_config.effort requires a model that supports per-turn effort; this model does not" }, { text:"Here's the comparison, sir." },
-    { text:"Your inbox is quiet, sir." }, { text:"Noon, sir." } ] });
+    { text:"Your inbox is quiet, sir." }, { err:"messages.3.content.1: unknown content block type" }, { text:"Hello again, sir." }, { text:"Noon, sir." } ] });
   await p.click("#bootBtn"); await settle(p);
   await say(p, "jarvis what time is it", 600);
   let L = await log(p);
@@ -428,6 +428,9 @@ console.log("Smart speed: Haiku for quick questions, more thinking for analysis"
   await say(p, "any new email", 600);
   L = await log(p);
   check("anything touching email stays on Opus", L.at(-1).model === "claude-opus-5-5");
+  await say(p, "thanks", 600);
+  L = await log(p);
+  check("if Haiku can't read the conversation, the same question goes to Opus instead", L.at(-2).model === "claude-haiku-5-5" && L.at(-1).model === "claude-opus-5-5" && /Hello again/.test(await p.locator("#capJ").textContent()), L.slice(-2).map(x => x.model).join(" "));
   await p.click("#gearBtn"); await p.uncheck("#smartOn"); await p.click("#closeBtn");
   await say(p, "what time is it", 600);
   L = await log(p);

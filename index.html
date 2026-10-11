@@ -2697,7 +2697,7 @@ async function askApi(text, signal, onText){
   if(apiMsgs.length > 120) apiMsgs = [];
   if(!apiMsgs.length){ apiSystem = sysPrompt(); apiEffort = "low"; }   // fixed for the whole conversation
   let start = apiMsgs.length, recovered = false;
-  const r = route(text), m = r.model;
+  const r = route(text); let m = r.model;
   // Thinking effort changes per question with an effort-only system message, so the cached conversation stays valid
   if(effortTurns && r.effort !== apiEffort){ apiMsgs.push({ role:"system", content:[], output_config:{ effort:r.effort } }); apiEffort = r.effort; }
   const userMsg = {role:"user", content:`[${new Date().toLocaleString()}] ${text}`};
@@ -2719,6 +2719,10 @@ async function askApi(text, signal, onText){
       const data = res.ok && /event-stream/.test(res.headers.get("content-type") || "") ? await readStream(res, feed) : await res.json().catch(() => ({}));
       if(!res.ok){
         const msg = data?.error?.message || ("HTTP " + res.status);
+        if(m !== model && [400, 404].includes(res.status)){   // the fast model couldn't take this conversation (e.g. a web search step only Opus understands): ask the main model instead
+          logDiag("api", `${m} declined (${res.status}), using ${model}: ` + msg.slice(0, 120));
+          m = model; round--; continue;
+        }
         if(res.status === 400 && webOn && /web.?search/i.test(msg)){ webOn = false; round--; continue; }   // web search not enabled on this account
         if(res.status === 400 && effortTurns && /output_config|per-turn effort|effort|role.{0,20}system/i.test(msg)){   // per-question thinking effort not available: carry on without it
           logDiag("api", "per-question effort rejected, turning it off: " + msg.slice(0, 160));
