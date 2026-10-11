@@ -388,7 +388,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.26";
+const VERSION = "2026.10.11.27";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -1745,66 +1745,78 @@ function elProblem(e){
   $("elStatus").textContent = text;
   voiceError(text);   // shown under the reactor until ElevenLabs speaks successfully again
 }
-async function speakEleven(text, chunks, job){
+async function speakEleven(src, job){
   const ac = audioCtx(); await ac.resume?.();
   if(!ttsAnalyser){ ttsAnalyser = ac.createAnalyser(); ttsAnalyser.fftSize = 512; ttsBuf = new Uint8Array(ttsAnalyser.fftSize); ttsAnalyser.connect(ac.destination); }
-  const get = c => elFetch(`/v1/text-to-speech/${encodeURIComponent(elVoiceId)}/with-timestamps?output_format=mp3_44100_128`, {
+  const fetchClip = c => elFetch(`/v1/text-to-speech/${encodeURIComponent(elVoiceId)}/with-timestamps?output_format=mp3_44100_128`, {
       method:"POST", body:JSON.stringify({ text:c, model_id:EL_MODEL, voice_settings:{ stability:0.45, similarity_boost:0.8, style:0.15 } }) })
     .then(async j => ({ buf: await ac.decodeAudioData(b64ToBuf(j.audio_base64)), align: j.alignment || j.normalized_alignment || null }));
-  let next = get(chunks[0]), offset = 0, played = 0;
-  for(let i = 0; i < chunks.length; i++){
+  // the next sentence is fetched while the current one plays (for a streamed reply it may not be written yet)
+  const audio = i => src.get(i).then(c => c == null || job !== speakJob ? null : fetchClip(c).then(clip => ({ ...clip, text:c })));
+  let next = audio(src.from), offset = src.offsetOf(src.from);
+  for(let i = src.from; ; i++){
     let clip;
     try{ clip = await next; }
     catch(e){ if(job !== speakJob) return; elProblem(e); return { failedAt:i }; }
     if(job !== speakJob) return;
-    if(i + 1 < chunks.length){ next = get(chunks[i + 1]); next.catch(() => {}); }
-    const src = ac.createBufferSource(); src.buffer = clip.buf; src.connect(ttsAnalyser); elSource = src;
-    Object.assign(voiceEnv, { text:chunks[i], offset, eleven:true, align:clip.align, alignStart:ac.currentTime, real:false, start:performance.now() });
-    offset += chunks[i].length + 1;
+    if(!clip) break;
+    next = audio(i + 1); next.catch(() => {});
+    const node = ac.createBufferSource(); node.buffer = clip.buf; node.connect(ttsAnalyser); elSource = node;
+    Object.assign(voiceEnv, { text:clip.text, full:src.full(), offset, eleven:true, align:clip.align, alignStart:ac.currentTime, real:false, start:performance.now() });
+    offset += clip.text.length + 1;
+    src.started?.(i);
     setMode("speaking"); startBarge(); voiceError("");   // it works: clear any old error
-    await new Promise(r => { src.onended = r; src.start(); });
-    if(elSource === src) elSource = null;
+    await new Promise(r => { node.onended = r; node.start(); });
+    if(elSource === node) elSource = null;
     if(job !== speakJob) return;
-    played++;
   }
   return { failedAt:-1 };
 }
-async function speak(text, opts = {}){
+// What to say, sentence chunk by chunk: get(i) gives chunk i (waiting for it if the reply is still
+// being written) or null at the end; from = the first chunk to speak.
+function fixedSource(chunks){
+  return { from:0, get: i => Promise.resolve(chunks[i] ?? null), full: () => chunks.join(" "), offsetOf: k => k ? chunks.slice(0, k).join(" ").length + 1 : 0 };
+}
+function speak(text, opts = {}){
+  if(!text) return Promise.resolve();
+  return speakFrom(fixedSource(toChunks(text)), opts);
+}
+async function speakFrom(src, opts = {}){
   voiceEnv.ack = !!opts.ack;
-  if(!voiceOn || !text || dormant) return;
-  if(!elOnly()) return speakBrowser(text);
-  const chunks = toChunks(text);
-  const job = ++speakJob;
+  if(!voiceOn || dormant) return;
+  if(!elOnly()) return speakBrowser(src);
+  const job = src.job = ++speakJob;
   stopVoice();
-  voiceEnv.full = chunks.join(" "); voiceEnv.offset = 0;
+  voiceEnv.full = src.full(); voiceEnv.offset = 0;
   if(!elVoiceId && elLoading) await Promise.race([elLoading, new Promise(r => setTimeout(r, 6000))]);   // voices still loading
   if(job !== speakJob) return;
   if(!elVoiceId){ voiceError($("elStatus").textContent || "no ElevenLabs voice is selected. Pick one in ⚙ → Voice."); resumeWake(); return; }
-  const r = await speakEleven(text, chunks, job);
+  await speakEleven(src, job);
   if(job !== speakJob) return;                 // interrupted or replaced
   speechDone();   // done (or failed: the reason is on screen)
 }
-function speakBrowser(text){
+function speakBrowser(src){
   if(!synth) return Promise.resolve();
-  const job = ++speakJob;
-  const chunks = toChunks(text);
+  const job = src.job = ++speakJob;
   const wasBusy = synth.speaking || synth.pending;
   stopVoice();
-  voiceEnv.full = chunks.join(" "); voiceEnv.offset = 0; voiceEnv.eleven = false;
+  voiceEnv.full = src.full(); voiceEnv.offset = 0; voiceEnv.eleven = false;
   return new Promise(res => {
-    let started = false, i = 0, offset = 0;
+    let started = false, i = src.from, offset = src.offsetOf(src.from);
     const finish = () => { if(job !== speakJob) return res(); speechDone(); res(); };
-    const next = () => {
-      if(job !== speakJob || i >= chunks.length) return finish();
-      const u = new SpeechSynthesisUtterance(chunks[i++]);
+    const next = async () => {
+      if(job !== speakJob) return finish();
+      const text = await src.get(i);
+      if(job !== speakJob || text == null) return finish();
+      const u = new SpeechSynthesisUtterance(text), at = i++;
       const myOffset = offset; offset += u.text.length + 1;
       keepAlive.push(u); if(keepAlive.length > 20) keepAlive.shift();
       const v = browserVoice(); if(v) u.voice = v;
       u.rate = 1.02; u.pitch = 0.9;
       u.onstart = () => {
         if(job !== speakJob) return;
-        started = true; setMode("speaking");
-        Object.assign(voiceEnv, { text:u.text, start:performance.now(), cps:14.5 * (u.rate || 1), real:false, offset:myOffset, charIdx:0, eleven:false });
+        started = true; setMode("speaking"); src.started?.(at);
+        Object.assign(voiceEnv, { text:u.text, full:src.full(), start:performance.now(), cps:14.5 * (u.rate || 1), real:false, offset:myOffset, charIdx:0, eleven:false });
         startBarge();   // keep listening so the user can interrupt
       };
       u.onboundary = e => { if(e.name && e.name !== "word") return; voiceEnv.real = true; voiceEnv.lastWord = performance.now(); voiceEnv.wordLen = e.charLength || 4; voiceEnv.charIdx = e.charIndex || 0; };
@@ -1822,10 +1834,65 @@ function speakBrowser(text){
     setTimeout(() => { if(!started && job === speakJob){ speakJob++; synth.cancel(); if(!voices.length) addMsg("sys","No voices found on this computer. Check your sound settings, then reload."); finish(); } }, 4000);
   });
 }
+// Talking while the answer is still being written: whole sentences are spoken as soon as they arrive.
+// push(text) adds what Claude just wrote, end() says there's no more, hush() stops for good (the user talked over it).
+// If something else speaks in between (e.g. "Shall I go ahead?"), the rest carries on afterwards.
+let liveTalk = null;
+function talker(){
+  const t = { text:"", cut:0, chunks:[], started:-1, ended:false, hushed:false, cur:null, running:null, waiters:[] };
+  let finish; t.finished = new Promise(r => finish = r);
+  const wake = () => { const w = t.waiters; t.waiters = []; w.forEach(f => f()); };
+  const source = from => ({
+    from,
+    get: async i => {
+      while(i >= t.chunks.length && !t.ended && !t.hushed){
+        if(t.cur?.job === speakJob && mode === "speaking"){ stopBarge(); setMode("thinking"); }   // silent while the rest is written
+        await new Promise(r => t.waiters.push(r));
+      }
+      return t.hushed ? null : t.chunks[i] ?? null;
+    },
+    full: () => t.chunks.join(" "),
+    offsetOf: k => k ? t.chunks.slice(0, k).join(" ").length + 1 : 0,
+    started: i => { t.started = i; },
+  });
+  const start = () => {
+    if(t.running || t.hushed || t.mute || !voiceOn || dormant || t.started + 1 >= t.chunks.length) return;
+    if(voiceEnv.ack && mode === "speaking"){ clearTimeout(t.later); t.later = setTimeout(start, 250); return; }   // let "One moment, sir" finish
+    const src = t.cur = source(t.started + 1);
+    t.running = speakFrom(src).then(() => {
+      if(t.cur !== src) return;
+      t.running = null;
+      if(src.job === speakJob) t.mute = true;   // finished, or couldn't speak (no voice, ElevenLabs error): don't start over
+      settle();   // otherwise something else talked over it: carry on from the next sentence
+    });
+  };
+  const settle = () => {
+    if(!t.running) start();
+    if(!t.running && (t.ended || t.hushed || t.mute || !voiceOn || dormant)) finish();
+  };
+  // complete sentences only (a full stop followed by a space), unless the reply has ended
+  const take = () => {
+    const rest = t.text.slice(t.cut);
+    let upTo = rest.length;
+    if(!t.ended){ const m = [...rest.matchAll(/[.!?…]["')\]]?\s/g)].pop(); upTo = m ? m.index + m[0].length : 0; }
+    const piece = rest.slice(0, upTo).replace(/\s+/g, " ").trim();
+    if(!upTo) return;
+    t.cut += upTo;
+    if(!piece) return;
+    for(const c of toChunks(piece)){
+      const last = t.chunks.length - 1;   // grow a chunk nobody has started fetching yet, so the voice gets whole thoughts
+      if(last > t.started + 1 && (t.chunks[last] + " " + c).length < 180) t.chunks[last] += " " + c; else t.chunks.push(c);
+    }
+  };
+  t.push = s => { if(t.ended || t.hushed) return; t.text += s; take(); wake(); if(!t.running) start(); };
+  t.end = () => { if(t.ended) return; take(); t.ended = true; take(); wake(); settle(); return t.finished; };
+  t.hush = () => { if(t.hushed) return; t.hushed = true; clearTimeout(t.later); wake(); settle(); };
+  return t;
+}
 function paintVoiceBtn(){ $("voiceBtn").textContent = "Voice out: " + (voiceOn ? "on" : "off"); $("voiceBtn").classList.toggle("on", voiceOn); }
 paintVoiceBtn();
 $("voiceBtn").onclick = () => { voiceOn = !voiceOn; store.set("jarvis.voiceOn", voiceOn); if(!voiceOn){ speakJob++; stopVoice(); } paintVoiceBtn(); };
-function stopTalking(){ ctl?.abort(); speakJob++; stopVoice(); stopBarge(); setMode("idle"); resumeWake(); }
+function stopTalking(){ liveTalk?.hush(); ctl?.abort(); speakJob++; stopVoice(); stopBarge(); setMode("idle"); resumeWake(); }
 
 /* ElevenLabs settings */
 function renderVoiceList(){
@@ -2021,6 +2088,7 @@ function startBarge(){
       if(!barged){
         if(!final && said.split(/\s+/).length < 2 && !STOPWORD.test(said)) continue;   // wait for a little more
         barged = { heard: spokenSoFar(), text: said, ack: voiceEnv.ack };
+        if(!voiceEnv.ack) liveTalk?.hush();      // and don't carry on with the rest of a reply still coming in
         speakJob++; stopVoice();                // stop talking right away
         setMode("listening", "Go ahead, sir");
       }
@@ -2472,7 +2540,7 @@ let dormant = false, tabs = null;
 function goDormant(){
   if(dormant) return;
   dormant = true; wakeOn = false; convoOpen = false; awaiting = false; micState("paused", "paused: Jarvis is open in another tab");
-  ctl?.abort(); speakJob++; stopVoice(); stopRec(); bargeOn = false; setMode("idle", "Paused");
+  liveTalk?.hush(); ctl?.abort(); speakJob++; stopVoice(); stopRec(); bargeOn = false; setMode("idle", "Paused");
   $("bootBtn").textContent = "Use Jarvis in this tab";
   $("bootNote").textContent = "Jarvis was opened in another tab, so this one is paused (otherwise both would answer you).";
   $("boot").hidden = false;
@@ -2558,22 +2626,69 @@ function renderCost(){
   el.textContent = !t && !m.cost ? "Cost: nothing yet today." :
     `Cost today ${$$(t?.cost || 0)} (${t?.calls || 0} request${t?.calls === 1 ? "" : "s"}), this month ${$$(m.cost)}. Caching saved ${$$(Math.max(0, m.saved))} this month. Estimate; exact figures at console.anthropic.com → Usage.`;
 }
+// Reads a streamed reply (server-sent events) and rebuilds the same message the non-streamed API returns,
+// calling onText(words, blockIndex) as the words arrive.
+async function readStream(res, onText){
+  const msg = { content:[], usage:{} }, json = {};
+  const handle = d => {
+    if(d.type === "message_start"){ Object.assign(msg, d.message, { content: msg.content, usage: { ...(d.message?.usage || {}) } }); }
+    else if(d.type === "content_block_start"){
+      msg.content[d.index] = { ...d.content_block };
+      if(/tool_use$/.test(d.content_block.type)) json[d.index] = "";
+    }
+    else if(d.type === "content_block_delta"){
+      const b = msg.content[d.index], x = d.delta; if(!b) return;
+      if(x.type === "text_delta"){ b.text = (b.text || "") + x.text; try{ onText?.(x.text, d.index); }catch{} }
+      else if(x.type === "input_json_delta") json[d.index] = (json[d.index] || "") + x.partial_json;
+      else if(x.type === "citations_delta") (b.citations ||= []).push(x.citation);
+      else if(x.type === "thinking_delta") b.thinking = (b.thinking || "") + x.thinking;
+      else if(x.type === "signature_delta") b.signature = x.signature;
+    }
+    else if(d.type === "content_block_stop" && d.index in json){
+      try{ msg.content[d.index].input = json[d.index] ? JSON.parse(json[d.index]) : {}; }catch{ msg.content[d.index].input = {}; }
+      delete json[d.index];
+    }
+    else if(d.type === "message_delta"){ Object.assign(msg, d.delta || {}); Object.assign(msg.usage, d.usage || {}); }
+    else if(d.type === "error"){
+      const e = new Error(d.error?.message || "the reply stream broke off");
+      e.status = /overloaded/.test(d.error?.type) ? 529 : /rate_limit/.test(d.error?.type) ? 429 : 500; throw e;
+    }
+  };
+  const reader = res.body.getReader(), dec = new TextDecoder(); let buf = "";
+  for(;;){
+    const { value, done } = await reader.read();
+    buf += dec.decode(value || new Uint8Array(), { stream: !done }).replace(/\r/g, "");
+    let i;
+    while((i = buf.indexOf("\n\n")) >= 0 || (done && buf.trim() && (i = buf.length) >= 0)){
+      const ev = buf.slice(0, i); buf = buf.slice(i + 2);
+      const data = ev.split("\n").filter(l => l.startsWith("data:")).map(l => l.slice(5).trim()).join("\n");
+      let d; try{ d = data && JSON.parse(data); }catch{ d = null; }
+      if(d) handle(d);
+    }
+    if(done) break;
+  }
+  msg.content = msg.content.filter(Boolean);
+  return msg;
+}
 let apiSystem = null, webOn = true;
-async function askApi(text, signal){
+async function askApi(text, signal, onText){
   if(apiMsgs.length > 120) apiMsgs = [];
   if(!apiMsgs.length) apiSystem = sysPrompt();   // fixed for the whole conversation
   let start = apiMsgs.length, recovered = false;
   const userMsg = {role:"user", content:`[${new Date().toLocaleString()}] ${text}`};
   apiMsgs.push(userMsg);
+  // streamed words go to onText as they arrive, with a space between separate blocks of text
+  let said = "", block = null;
   try{
     for(let round = 0; round < 10; round++){
+      const feed = (w, i) => { if(block !== round + ":" + i){ block = round + ":" + i; if(said && !/\s$/.test(said) && /^[\w"'(]/.test(w)) w = " " + w; } said += w; onText?.(w); };
       const web = model === "claude-haiku-5-5" ? { type:"web_search_20250305", name:"web_search", max_uses:3 } : { type:"web_search_20260209", name:"web_search", max_uses:3 };
-      const body = { model, max_tokens:8000, system:apiSystem, messages:apiMsgs, tools: webOn ? [...apiTools, web] : apiTools, output_config:{effort:"low"}, cache_control:{ type:"ephemeral" } };   // also cache the conversation so far
+      const body = { model, max_tokens:8000, system:apiSystem, messages:apiMsgs, tools: webOn ? [...apiTools, web] : apiTools, output_config:{effort:"low"}, cache_control:{ type:"ephemeral" }, stream:true };   // also cache the conversation so far; stream so Jarvis can start talking early
       const headers = { "content-type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" };
       if(model !== "claude-haiku-5-5"){ body.fallbacks = "default"; headers["anthropic-beta"] = "server-side-fallback-2026-07-01"; }
       if(round === 0) logDiag("ask", `api ${model}, ${body.tools.length} tools offered (${body.tools.map(t => t.name).filter(n => /open_website|play_music|web_search/.test(n)).join(", ") || "no open/music tools!"})`);
       const res = await fetch("https://api.anthropic.com/v1/messages", { method:"POST", headers, body:JSON.stringify(body), signal });
-      const data = await res.json().catch(() => ({}));
+      const data = res.ok && /event-stream/.test(res.headers.get("content-type") || "") ? await readStream(res, feed) : await res.json().catch(() => ({}));
       if(!res.ok){
         const msg = data?.error?.message || ("HTTP " + res.status);
         if(res.status === 400 && webOn && /web.?search/i.test(msg)){ webOn = false; round--; continue; }   // web search not enabled on this account
@@ -2584,11 +2699,12 @@ async function askApi(text, signal){
         const err = new Error(msg); err.status = res.status; throw err;
       }
       addCost(data);
-      apiMsgs.push({role:"assistant", content:tidyTurn(data)});
+      const turn = tidyTurn(data);
+      apiMsgs.push({role:"assistant", content:turn});
       logDiag("turn", `stop=${data.stop_reason}, model=${data.model || "?"}, used: ${data.content.filter(b => /tool_use/.test(b.type)).map(b => b.name).join(", ") || "no tools"}, reply ${data.content.filter(b => b.type === "text").map(b => b.text).join(" ").length} chars`);
       if(data.stop_reason === "refusal") return "I'm afraid I can't help with that one, sir.";
       if(data.stop_reason === "pause_turn") continue;   // long web search: let it carry on
-      const uses = data.content.filter(b => b.type === "tool_use");
+      const uses = turn.filter(b => b.type === "tool_use");
       if(data.stop_reason !== "tool_use" || !uses.length){
         return data.content.filter(b => b.type === "text").map(b => b.text).join(" ").trim() || "Done, sir.";
       }
@@ -2609,9 +2725,13 @@ async function askApi(text, signal){
 // out of room or is declined. Saving that half-finished step makes every later question fail
 // ("…without a corresponding …_result block"), so in that case keep only the words (and, mid tool loop, our own tool calls).
 function tidyTurn(data){
-  const c = data.content || [];
-  if(data.stop_reason === "pause_turn") return c;   // the API resumes these itself
+  let c = data.content || [];
   const answered = new Set(c.filter(b => b.tool_use_id).map(b => b.tool_use_id));
+  // A streamed reply that switched model part-way (refusal fallback) keeps the first model's partial reply: only its words
+  // and finished searches may be sent back, not its thinking or tool calls.
+  const fb = c.map(b => b.type).lastIndexOf("fallback");
+  if(fb > 0) c = c.filter((b, i) => i >= fb || !(/^(thinking|redacted_thinking|tool_use)$/.test(b.type) || (b.type === "server_tool_use" && !answered.has(b.id))));
+  if(data.stop_reason === "pause_turn") return c;   // the API resumes these itself
   const dangling = c.some(b => b.type === "server_tool_use" && !answered.has(b.id));
   if(!dangling && ["end_turn", "tool_use", "stop_sequence"].includes(data.stop_reason)) return c;
   logDiag("turn", `kept only the text of an unfinished reply (stop=${data.stop_reason}${dangling ? ", unfinished search step" : ""})`);
@@ -2649,10 +2769,12 @@ async function ask(text, shown, interruptedHeard){
   const myAsk = busyAsk = ++askSeq;
   const out = addMsg("j","…");
   ctl = new AbortController();
+  liveTalk?.hush();
+  const talk = sample ? null : (liveTalk = talker());
   // Like JARVIS: if the answer takes more than a moment, acknowledge out loud while working
   // …but only for genuinely slow answers, and not every time (at most once every 2 minutes)
   setTimeout(() => {
-    if(busyAsk !== myAsk || mode !== "thinking" || pendingConfirm || Date.now() - lastThinkAck < 120000) return;
+    if(busyAsk !== myAsk || mode !== "thinking" || pendingConfirm || talk?.chunks.length || Date.now() - lastThinkAck < 120000) return;
     lastThinkAck = Date.now(); speak(pick(THINK_ACKS), { ack:true });
   }, 4000);
   try{
@@ -2669,17 +2791,29 @@ async function ask(text, shown, interruptedHeard){
         }));
       }catch(e){ turns.pop(); throw e; }
     } else {
-      reply = await askApi(text, ctl.signal);
+      reply = await askApi(text, ctl.signal, w => { talk.push(w); out.textContent = talk.text.replace(/\s+/g, " ").trim(); showCaps(); });
     }
     const clean = reply.replace(/\s*\n\s*\n\s*/g," ").trim();
-    out.textContent = clean; showCaps();
-    if(sample) turns.push({role:"assistant",content:clean});
-    if(busyAsk === myAsk) busyAsk = 0;
-    setMode("idle");
-    await speak(clean);
+    if(talk){
+      // usually already spoken as it streamed in; add anything that wasn't (e.g. "Done, sir.", or no streaming)
+      const flat = x => x.replace(/\s+/g, " ").trim(), bare = x => x.replace(/\s+/g, "");
+      if(!bare(talk.text).includes(bare(clean))) talk.push((talk.text.trim() ? " " : "") + clean);
+      out.textContent = flat(talk.text); showCaps();
+      if(busyAsk === myAsk) busyAsk = 0;
+      if(mode === "thinking") setMode("idle");
+      await talk.end();
+      if(liveTalk === talk) liveTalk = null;
+    } else {
+      out.textContent = clean; showCaps();
+      turns.push({role:"assistant",content:clean});
+      if(busyAsk === myAsk) busyAsk = 0;
+      setMode("idle");
+      await speak(clean);
+    }
     if(convo && mode === "idle") startListening(); else resumeWake();
   }catch(e){
-    if(e?.code === "cancelled" || e?.name === "AbortError"){ out.textContent = e.text || "(stopped)"; }
+    talk?.hush(); if(liveTalk === talk) liveTalk = null;
+    if(e?.code === "cancelled" || e?.name === "AbortError"){ out.textContent = e.text || (talk?.text.trim() ? talk.text.replace(/\s+/g, " ").trim() + " (stopped)" : "(stopped)"); }
     else {
       const shownErr = e?.code ? (errCopy[e.code] || "Uplink interrupted. Try again.") : apiErr(e);
       addMsg("sys", shownErr); logDiag("error shown", shownErr);
