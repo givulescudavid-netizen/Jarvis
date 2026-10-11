@@ -1234,14 +1234,18 @@ const a1 = r => encodeURIComponent(r);
 // The Excel file is never changed. The copy is remembered so later inspections reuse it instead of converting again.
 const EXCEL = /spreadsheetml|ms-excel/;
 async function excelToSheet(file_id){
-  const f = await gfetch(`${DRIVE}/${encodeURIComponent(file_id)}?fields=id,name,mimeType`);
+  const meta = id => gfetch(`${DRIVE}/${encodeURIComponent(id)}?fields=id,name,mimeType,trashed&supportsAllDrives=true`);
+  const f = await meta(file_id).catch(() => ({}));   // can't tell the type: let the Sheets read report the real problem
   if(!EXCEL.test(f.mimeType || "")) return { file_id };
   const done = store.get("jarvis.converted", {});
-  if(done[file_id]) return { file_id:done[file_id], from:f.name, reused:true };
+  if(done[file_id]){   // reuse the earlier copy unless the user has deleted it since
+    const c = await meta(done[file_id]).catch(() => null);
+    if(c?.id && !c.trashed) return { file_id:done[file_id], from:f.name, reused:true };
+  }
   const name = String(f.name || "DCF template").replace(/\.(xlsx|xlsm|xls)$/i, "") + " (Google Sheets copy)";
   const ok = await confirmAction(`"${f.name}" is an Excel file. Make a Google Sheets copy called "${name}" so I can read it? Your Excel file stays untouched.`);
   if(!ok) return { declined:true };
-  const copy = await gsend(`${DRIVE}/${encodeURIComponent(file_id)}/copy?fields=id,name`, "POST", { name, mimeType:"application/vnd.google-apps.spreadsheet" });
+  const copy = await gsend(`${DRIVE}/${encodeURIComponent(file_id)}/copy?fields=id,name&supportsAllDrives=true`, "POST", { name, mimeType:"application/vnd.google-apps.spreadsheet" });
   done[file_id] = copy.id; store.set("jarvis.converted", done);
   return { file_id:copy.id, from:f.name };
 }

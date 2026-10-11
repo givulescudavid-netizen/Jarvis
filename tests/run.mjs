@@ -420,13 +420,15 @@ console.log("Finance: Excel DCF templates");
 {
   const p = await open({ googleBefore:true, script:[
     { tool:"dcf_inspect", input:{ file_id:"XLS1" } }, { text:"Your template is an Excel file." },
-    { tool:"dcf_inspect", input:{ file_id:"XLS1" } }, { text:"Inputs are on the Inputs tab." } ] }, undefined, HTTP_PAGE);
+    { tool:"dcf_inspect", input:{ file_id:"XLS1" } }, { text:"Inputs are on the Inputs tab." },
+    { tool:"dcf_inspect", input:{ file_id:"XLS1" } }, { text:"Shall I make a new copy?" } ] }, undefined, HTTP_PAGE);
   await p.evaluate(() => {
     window.__sheetsLog = [];
     window.__extraFetch = async (u, o, J) => {
       if(u.includes("sheets.googleapis.com") || u.includes("/drive/v3/files/")){
         window.__sheetsLog.push({ u, method:o?.method || "GET", body:o?.body ? JSON.parse(o.body) : null });
         if(u.includes("/files/XLS1?")) return J({ id:"XLS1", name:"My DCF.xlsx", mimeType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+        if(u.includes("/files/GS1?")) return J({ id:"GS1", trashed:!!window.__gs1Trashed });
         if(u.includes("/copy")) return J({ id:"GS1", name:"My DCF (Google Sheets copy)" });
         if(u.includes("fields=properties.title")) return J({ properties:{ title:"My DCF (Google Sheets copy)" }, sheets:[{ properties:{ title:"Inputs" } }] });
         if(u.includes("valueRenderOption=FORMULA")) return J({ valueRanges:[{ values:[["WACC", 0.09], ["Price", "=XLOOKUP(A1,B:B,C:C)"]] }] });
@@ -448,6 +450,11 @@ console.log("Finance: Excel DCF templates");
   check("Excel DCF: flags formulas that didn't convert", /Formulas showing an error: 'Inputs'!B2/.test(insp), insp.slice(-300));
   await say(p, "look at it again", 900);
   check("Excel DCF: reuses the copy instead of converting again", (await p.evaluate(() => window.__sheetsLog)).filter(x => /\/copy/.test(x.u)).length === 1 && /made earlier/.test(JSON.stringify((await log(p)).at(-1).last.content)));
+  await p.evaluate(() => { window.__gs1Trashed = true; });
+  await say(p, "I deleted that copy, look again", 700);
+  check("Excel DCF: if you deleted the copy, asks to make a new one", await p.locator("#confirmBox").isVisible() && /Excel file/.test(await p.locator("#confirmText").textContent()));
+  check("Excel DCF: also finds files in shared drives", (await p.evaluate(() => window.__sheetsLog)).some(x => /files\/XLS1\?.*supportsAllDrives=true/.test(x.u)));
+  await say(p, "no", 900);
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
