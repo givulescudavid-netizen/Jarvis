@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.10.11.21 — The Brain: linked memory
+- When you ask Jarvis to remember something, it also notes who and what it's about and how they connect (Mark → works at → Acme).
+- "What do I have on Acme?" pulls together linked memories, your DCFs and comps, watchlist, Library documents, and checks email and calendar.
+- ⚙ → Memory → "Keep memory in Google Drive" creates a "Jarvis Brain" spreadsheet (shared by all your devices, editable by you) and a "Jarvis Library" folder: drop documents in and Jarvis reads and indexes them.
+- Tests now wait for Jarvis to be listening before "speaking", so they no longer fail at random on a busy machine.
+
 ## 2026.10.11.20 — Better problem reports
 - "Report a problem" now includes what you said to Jarvis and the exact error it showed, so problems can be reproduced and fixed. Email addresses, phone numbers and links are blanked out, because reports are public.
 - New reports are picked up automatically by a Claude bug-fixer, which proposes a fix for you to approve.
