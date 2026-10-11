@@ -66,13 +66,13 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
       u = String(u); const J = (x, st = 200) => new Response(JSON.stringify(x), { status: st });
       if(window.__extraFetch){ const r = await window.__extraFetch(u, o, J); if(r) return r; }
       if(u.includes("api.anthropic.com")){
-        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1), msgs: body.messages, system: body.system });
+        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1), msgs: body.messages, system: body.system, cache: body.cache_control, toolCache: body.tools.filter(t => t.cache_control).map(t => t.name) });
         const st = script[call++] || { text: "Done." };
         if(st.delay) await new Promise(r => setTimeout(r, st.delay));
         if(st.err) return J({ error:{ message: st.err } }, st.status || 400);
         if(st.raw) return J(st.raw);
         if(st.tool) return J({ stop_reason:"tool_use", content:[{ type:"tool_use", id:"t" + call, name: st.tool, input: st.input }] });
-        return J({ stop_reason:"end_turn", content:[{ type:"text", text: st.text }] });
+        return J({ stop_reason:"end_turn", content:[{ type:"text", text: st.text }], ...(st.usage ? { model:"claude-opus-5-5", usage: st.usage } : {}) });
       }
       if(u.includes("gmail.googleapis.com") && u.includes("/drafts")){ window.__log.push({ draft: JSON.parse(o.body) }); return J({ id:"d1" }); }
       if(u.includes("calendar/v3") && o && o.method === "POST"){ window.__log.push({ event: JSON.parse(o.body), url: u }); return J({ id:"e1" }); }
@@ -610,6 +610,26 @@ console.log("Hand gestures (pretend camera hand)");
   await p.click("#gestChip"); await p.waitForTimeout(300);
   check("clicking '✋ gestures on' turns them off and closes the camera", !(await p.locator("#gestChip").isVisible()) && !(await p.locator("#handHud").isVisible()) && await p.evaluate(() => localStorage.getItem("jarvis.gestures")) === "false");
   check("Jarvis knows about gestures if asked", /Hand gestures/.test((await log(p))[0].system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Prompt caching and the cost meter");
+{
+  const p = await open({ script:[
+    { text:"Good morning, sir.", usage:{ input_tokens:200, cache_creation_input_tokens:10000, cache_read_input_tokens:0, output_tokens:100 } },
+    { text:"Clear skies, sir.", usage:{ input_tokens:300, cache_creation_input_tokens:500, cache_read_input_tokens:10000, output_tokens:100 } } ] });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis good morning", 700);
+  await say(p, "what's the weather", 700);
+  const L = (await log(p)).filter(x => x.tools);
+  check("caching: every request asks Claude to cache the conversation so far", L.length === 2 && L.every(x => x.cache?.type === "ephemeral"));
+  check("…and the tool list (the same in every conversation)", L.every(x => x.toolCache.length === 1));
+  // 1st: 200*4 + 10000*5 + 100*20 = 52,800 → $0.0528; 2nd: 300*4 + 500*5 + 10000*0.2 + 100*20 = 7,700 → $0.0077; total $0.0605
+  // saved: 1st -10000*1 = -0.01; 2nd 10000*3.8 - 500*1 = 37,500 → +0.0375; total $0.0275
+  await p.click("#gearBtn"); await p.waitForTimeout(200);
+  const note = await p.locator("#costNote").textContent();
+  check("cost meter: today's and this month's spend, and what caching saved", /Cost today \$0\.06[01] \(2 requests\), this month \$0\.06[01]\. Caching saved \$0\.02[78]/.test(note), note);
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }

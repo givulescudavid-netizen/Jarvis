@@ -339,6 +339,7 @@ html.mini #popBtn{display:none}
       <option value="claude-opus-5-5">Claude Opus 5.5 (smartest)</option>
       <option value="claude-haiku-5-5">Claude Haiku 5.5 (fastest, cheapest)</option>
     </select>
+    <p class="note" id="costNote">Cost: nothing yet today.</p>
   </section>
 
   <section id="gBox">
@@ -384,7 +385,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.22";
+const VERSION = "2026.10.11.23";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -2112,6 +2113,7 @@ function buildReport(){
     `- ElevenLabs: ${elKey ? (elVoiceId ? "on (ElevenLabs only)" : "key saved, no voice chosen") : "not set up"}; last voice error: ${$("voiceErr").textContent || "none"}`,
     `- Google: ${google.mode || "unavailable"}${google.connected ? ", connected" : ", not connected"}`,
     `- Memories: ${memories().length}, About you filled: ${store.get("jarvis.about","") ? "yes" : "no"}`,
+    `- ${$("costNote").textContent}`,
     "", "### Recent log", diag.length ? diag.slice(-30).map(d => `- ${d.t.slice(5,19)} [${d.kind}] ${d.msg}`).join("\n") : "(empty)"
   ].join("\n");
 }
@@ -2133,6 +2135,7 @@ $("copyReport").onclick = async () => {
 };
 $("clearLog").onclick = () => { store.set("jarvis.diag", []); store.set("jarvis.bugs", []); renderReport(); };
 $("versionNote").textContent = `J.A.R.V.I.S. version ${VERSION}`;
+renderCost();
 $("verBadge").textContent = "v" + VERSION;
 // Auto-update (website only): browsers can keep an old copy for a while after an update.
 async function checkForUpdate(onLoad){
@@ -2236,6 +2239,32 @@ tools.push({ name:"log_bug", description:"Records a problem or improvement idea 
   execute: ({description}) => { const b = store.get("jarvis.bugs", []); b.push({ t:new Date().toISOString(), text:String(description).slice(0, 500) }); store.set("jarvis.bugs", b.slice(-20)); renderReport(); return "Logged. Tell the user they can send it from settings → Report a problem."; } });
 tools.forEach(t => { const run = t.execute; t.execute = async (...a) => { try{ return await run(...a); }catch(e){ logDiag("tool", `${t.name}: ${e?.message || e}`); throw e; } }; });
 const apiTools = tools.filter(t => !t.name.startsWith("portfolio_")).map(t => ({ name:t.name, description:t.description, input_schema:t.inputSchema || {type:"object",properties:{}} }));
+apiTools[apiTools.length - 1].cache_control = { type:"ephemeral" };   // the tool list is identical every time: cache it
+
+/* cost meter: what the API key has spent, estimated from the usage Claude reports with every answer */
+const PRICES = {   // US$ per million tokens: input, output, cache read (cache writes cost 1.25x input)
+  "claude-opus-5-5":[4, 20, .2], "claude-opus-5":[5, 25, .5], "claude-opus-4-8":[5, 25, .5], "claude-haiku-5-5":[.1, .5, .01] };
+function addCost(data){
+  const u = data?.usage; if(!u) return;
+  const [pin, pout, pread] = PRICES[data.model] || PRICES[model] || PRICES["claude-opus-5-5"];
+  const write = u.cache_creation_input_tokens || 0, read = u.cache_read_input_tokens || 0;
+  const searches = u.server_tool_use?.web_search_requests || 0;
+  const cost = ((u.input_tokens || 0) * pin + write * pin * 1.25 + read * pread + (u.output_tokens || 0) * pout) / 1e6 + searches * .01;
+  const saved = (read * (pin - pread) - write * pin * .25) / 1e6;
+  const all = store.get("jarvis.spend", {}), day = new Date().toLocaleDateString("sv");   // YYYY-MM-DD
+  const d = all[day] || { cost:0, saved:0, calls:0 };
+  d.cost += cost; d.saved += saved; d.calls++; all[day] = d;
+  Object.keys(all).sort().slice(0, -62).forEach(k => delete all[k]);   // keep two months
+  store.set("jarvis.spend", all); renderCost();
+}
+function renderCost(){
+  const el = $("costNote"); if(!el) return;
+  const all = store.get("jarvis.spend", {}), today = new Date().toLocaleDateString("sv"), month = today.slice(0, 7);
+  const t = all[today], m = Object.entries(all).filter(([k]) => k.startsWith(month)).reduce((a, [, v]) => ({ cost:a.cost + v.cost, saved:a.saved + v.saved }), { cost:0, saved:0 });
+  const $$ = n => "$" + (n < 1 ? n.toFixed(3) : n.toFixed(2));
+  el.textContent = !t && !m.cost ? "Cost: nothing yet today." :
+    `Cost today ${$$(t?.cost || 0)} (${t?.calls || 0} request${t?.calls === 1 ? "" : "s"}), this month ${$$(m.cost)}. Caching saved ${$$(Math.max(0, m.saved))} this month. Estimate; exact figures at console.anthropic.com → Usage.`;
+}
 let apiSystem = null, webOn = true;
 async function askApi(text, signal){
   if(apiMsgs.length > 120) apiMsgs = [];
@@ -2246,7 +2275,7 @@ async function askApi(text, signal){
   try{
     for(let round = 0; round < 10; round++){
       const web = model === "claude-haiku-5-5" ? { type:"web_search_20250305", name:"web_search", max_uses:3 } : { type:"web_search_20260209", name:"web_search", max_uses:3 };
-      const body = { model, max_tokens:8000, system:apiSystem, messages:apiMsgs, tools: webOn ? [...apiTools, web] : apiTools, output_config:{effort:"low"} };
+      const body = { model, max_tokens:8000, system:apiSystem, messages:apiMsgs, tools: webOn ? [...apiTools, web] : apiTools, output_config:{effort:"low"}, cache_control:{ type:"ephemeral" } };   // also cache the conversation so far
       const headers = { "content-type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" };
       if(model !== "claude-haiku-5-5"){ body.fallbacks = "default"; headers["anthropic-beta"] = "server-side-fallback-2026-07-01"; }
       if(round === 0) logDiag("ask", `api ${model}, ${body.tools.length} tools offered (${body.tools.map(t => t.name).filter(n => /open_website|play_music|web_search/.test(n)).join(", ") || "no open/music tools!"})`);
@@ -2261,6 +2290,7 @@ async function askApi(text, signal){
         }
         const err = new Error(msg); err.status = res.status; throw err;
       }
+      addCost(data);
       apiMsgs.push({role:"assistant", content:tidyTurn(data)});
       logDiag("turn", `stop=${data.stop_reason}, model=${data.model || "?"}, used: ${data.content.filter(b => /tool_use/.test(b.type)).map(b => b.name).join(", ") || "no tools"}, reply ${data.content.filter(b => b.type === "text").map(b => b.text).join(" ").length} chars`);
       if(data.stop_reason === "refusal") return "I'm afraid I can't help with that one, sir.";

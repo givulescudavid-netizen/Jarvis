@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.10.11.23 — Cheaper: prompt caching + cost meter
+- Jarvis now asks Claude to keep its instructions, tool list and the conversation so far ready between questions ("prompt caching"). Re-reading them costs about a twentieth of the normal price, so an active conversation should cost roughly half or less.
+- ⚙ → Brain shows what today and this month cost on your API key, and how much caching saved (an estimate; exact numbers at console.anthropic.com → Usage).
+
 ## 2026.10.11.22 — Hand gestures
 - ⚙ → Hand gestures: control Jarvis with your hand in front of the webcam. Hold an open palm to wake it, make a fist to stop it talking, thumbs up / down to answer "Shall I go ahead?", peace sign for focus mode (just the reactor), 🤟 for music you like, point to move a glowing cursor and pinch to click, swipe to close what's open.
 - A small holographic wireframe of your hand shows bottom left, and "✋ gestures on" at the top shows when the camera is watching (click it to turn off).
