@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.11.22 — Hand gestures
+- ⚙ → Hand gestures: control Jarvis with your hand in front of the webcam. Hold an open palm to wake it, make a fist to stop it talking, thumbs up / down to answer "Shall I go ahead?", peace sign for focus mode (just the reactor), 🤟 for music you like, point to move a glowing cursor and pinch to click, swipe to close what's open.
+- A small holographic wireframe of your hand shows bottom left, and "✋ gestures on" at the top shows when the camera is watching (click it to turn off).
+- Hand tracking runs on your computer (Google's MediaPipe); the video is never uploaded or recorded.
+
 ## 2026.10.11.21 — The Brain: linked memory
 - When you ask Jarvis to remember something, it also notes who and what it's about and how they connect (Mark → works at → Acme).
 - "What do I have on Acme?" pulls together linked memories, your DCFs and comps, watchlist, Library documents, and checks email and calendar.

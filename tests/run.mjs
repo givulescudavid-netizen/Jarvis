@@ -552,6 +552,68 @@ console.log("The Brain: linked memory in Google Drive, recall, the Library");
   await q.close();
 }
 
+console.log("Hand gestures (pretend camera hand)");
+{
+  const p = await open({ slowVoice:true, script:[
+    { text:"Once upon a time, sir, there was a billionaire who built a suit in a cave with a box of scraps, and it went rather well from there on." },
+    { tool:"draft_email", input:{ to:["pepper@example.com"], subject:"Board", body:"See you at 9." } }, { text:"Draft saved, sir." },
+    { text:"Playing Back in Black, sir." } ] }, undefined, HTTP_PAGE);
+  await p.evaluate(() => {
+    window.__gr = { gestures:[], landmarks:[] };
+    window.__fakeGR = { recognizeForVideo: () => window.__gr };
+    // a hand whose fingertip is at screen point (sx, sy); thumb tip far away unless pinching
+    window.__hand = (gesture, sx = innerWidth / 2, sy = innerHeight / 2, o = {}) => {
+      const x = 1 - sx / innerWidth, y = sy / innerHeight;
+      const lm = Array.from({ length:21 }, () => ({ x, y, z:0 }));
+      lm[0] = { x: o.wrist ?? x, y: Math.min(1, y + .2), z:0 };
+      lm[4] = o.pinch ? { x, y, z:0 } : { x: x + .15, y: y + .1, z:0 };
+      window.__gr = { landmarks:[lm], gestures: gesture ? [[{ categoryName:gesture, score:.9 }]] : [[{ categoryName:"None", score:.9 }]] };
+    };
+    window.__noHand = () => { window.__gr = { gestures:[], landmarks:[] }; };
+  });
+  const show = async (g, ms = 1000, ...a) => { await p.evaluate(([g, a]) => window.__hand(g, ...a), [g, a]); await p.waitForTimeout(ms); };
+  const away = async () => { await p.evaluate(() => window.__noHand()); await p.waitForTimeout(300); };
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn"); await p.click("#gestOn"); await p.waitForTimeout(1500);
+  check("gestures: turning them on starts the camera and shows it's watching", await p.locator("#gestChip").isVisible() && /On\. Show your hand/.test(await p.locator("#gestStatus").textContent()) && await p.locator("#handHud").isVisible(), await p.locator("#gestStatus").textContent());
+  await p.click("#closeBtn"); await away();
+  await show("Open_Palm", 1500);
+  check("✋ holding an open palm wakes Jarvis (like saying its name)", /Go ahead, sir/.test(await p.locator("#mode").textContent()) && /LISTENING/.test(await p.locator("#gestToast").textContent()), await p.locator("#mode").textContent());
+  check("…and the hand shows as a cursor and a wireframe", await p.locator("#airCursor").isVisible());
+  await away();
+  await sayNow(p, "tell me a long story"); await p.waitForTimeout(1500);
+  check("(Jarvis is talking)", /Speaking/.test(await p.locator("#mode").textContent()));
+  await show("Closed_Fist", 700);
+  check("✊ a fist stops Jarvis talking", !/Speaking|Processing/.test(await p.locator("#mode").textContent()) && /STOP/.test(await p.locator("#gestToast").textContent()), await p.locator("#mode").textContent());
+  await away(); await settle(p);
+  await say(p, "jarvis draft pepper an email", 800);
+  check("(Jarvis asks 'Shall I go ahead?')", await p.locator("#confirmBox").isVisible());
+  await show("Thumb_Up", 1500); await away(); await settle(p, 800);
+  check("👍 thumbs up answers yes: the draft is saved", (await log(p)).some(x => x.draft) && !(await p.locator("#confirmBox").isVisible()));
+  await show("Victory", 1200);
+  check("✌️ peace sign: focus mode hides the side panels", await p.evaluate(() => document.documentElement.classList.contains("focus")) && !(await p.locator(".side.left").isVisible()));
+  await away();
+  const g = await p.locator("#gearBtn").boundingBox(), gx = g.x + g.width / 2, gy = g.y + g.height / 2;
+  await show(null, 1500, gx, gy);
+  check("☝️ pointing at a button highlights it", await p.evaluate(() => document.getElementById("airCursor").classList.contains("over")));
+  await show(null, 600, gx, gy, { pinch:true });
+  check("🤏 a pinch clicks it (settings open)", await p.locator("#drawer").isVisible());
+  await show(null, 200, gx, gy);
+  for(const w of [.15, .25, .35, .45, .55, .65]) await show(null, 50, gx, gy, { wrist:w });
+  await p.waitForTimeout(400);
+  check("👋 a swipe closes what's open (settings) and leaves focus mode", !(await p.locator("#drawer").isVisible()) && !(await p.evaluate(() => document.documentElement.classList.contains("focus"))));
+  await away(); await settle(p);
+  await show("ILoveYou", 1600); await away(); await settle(p, 900);
+  check("🤟 rock on asks Jarvis for music you like", /Play something I'd like/.test(JSON.stringify((await log(p)).at(-1).last)) && /Playing Back in Black/.test((await p.evaluate(() => window.__spoken)).join(" ")));
+  await show("Thumb_Up", 1000); await away();
+  check("👍 does nothing when there's no question pending", !(await p.locator("#confirmBox").isVisible()) && (await log(p)).filter(x => x.draft).length === 1);
+  await p.click("#gestChip"); await p.waitForTimeout(300);
+  check("clicking '✋ gestures on' turns them off and closes the camera", !(await p.locator("#gestChip").isVisible()) && !(await p.locator("#handHud").isVisible()) && await p.evaluate(() => localStorage.getItem("jarvis.gestures")) === "false");
+  check("Jarvis knows about gestures if asked", /Hand gestures/.test((await log(p))[0].system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("Unfinished web-search steps don't break the conversation");
 {
   const p = await open({ script:[
