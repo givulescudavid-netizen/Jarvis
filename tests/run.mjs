@@ -22,8 +22,10 @@ let failed = 0, passed = 0;
 function check(name, ok, info = ""){ if(ok){ passed++; console.log("  ✓", name); } else { failed++; console.log("  ✗", name, info); } }
 
 // Fakes injected before the page loads. `script` is the list of replies the fake Claude gives, in order.
-function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, events = [], unread = 0, googleBefore = false, noSR = false, micBusy = false, ls = {} } = {}){
-  return [({ mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy, ls }) => {
+function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, events = [], unread = 0, googleBefore = false, noSR = false, micBusy = false, ls = {}, fakeHand = false, voiceNeedsClick = false } = {}){
+  return [({ mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy, ls, fakeHand, voiceNeedsClick }) => {
+    // a pretend camera hand, ready before Jarvis starts (for pages that start by themselves)
+    if(fakeHand){ window.__gr = { gestures:[], landmarks:[] }; window.__fakeGR = { recognizeForVideo: () => window.__gr }; }
     // the automatic morning briefing would otherwise make the results depend on the time of day
     Object.entries({ "jarvis.autoBrief": false, ...ls }).forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v)));
     if(micBusy) navigator.mediaDevices.getUserMedia = () => Promise.reject(Object.assign(new Error("Could not start audio source"), { name:"NotReadableError" }));
@@ -35,7 +37,10 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
     let current = null; window.__cancels = 0;
     const synth = { speaking:false, pending:false, resume(){}, getVoices(){ return [{ name:"Daniel", lang:"en-GB" }]; },
       cancel(){ window.__cancels++; if(current){ clearInterval(current.tick); const u = current.u; current = null; u.onerror && u.onerror({ error:"interrupted" }); } },
-      speak(u){ window.__spoken.push(u.text);
+      speak(u){
+        // like Chrome: no talking until someone has clicked in this window
+        if(voiceNeedsClick && !navigator.userActivation.hasBeenActive){ setTimeout(() => u.onerror && u.onerror({ error:"not-allowed" }), 5); return; }
+        window.__spoken.push(u.text); (window.__spokenAt ||= []).push(Date.now());
         if(!slowVoice){ setTimeout(() => { u.onstart && u.onstart(); setTimeout(() => u.onend && u.onend(), 20); }, 5); return; }
         setTimeout(() => { u.onstart && u.onstart();
           let i = 0, at = 0; const words = u.text.split(" ");
@@ -66,11 +71,36 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
       u = String(u); const J = (x, st = 200) => new Response(JSON.stringify(x), { status: st });
       if(window.__extraFetch){ const r = await window.__extraFetch(u, o, J); if(r) return r; }
       if(u.includes("api.anthropic.com")){
-        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1), msgs: body.messages, system: body.system, cache: body.cache_control, toolCache: body.tools.filter(t => t.cache_control).map(t => t.name) });
+        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1), msgs: body.messages, system: body.system, cache: body.cache_control, toolCache: body.tools.filter(t => t.cache_control).map(t => t.name), stream: body.stream, model: body.model, beta: o.headers["anthropic-beta"] || "" });
         const st = script[call++] || { text: "Done." };
         if(st.delay) await new Promise(r => setTimeout(r, st.delay));
         if(st.err) return J({ error:{ message: st.err } }, st.status || 400);
         if(st.raw) return J(st.raw);
+        // A streamed reply (server-sent events), sent piece by piece `gap` ms apart. Pieces: "words" or { tool, input }.
+        if(st.sse) return new Response(new ReadableStream({ async start(c){
+          const enc = new TextEncoder(), send = d => c.enqueue(enc.encode(`event: ${d.type}\ndata: ${JSON.stringify(d)}\n\n`));
+          const wait = () => new Promise(r => setTimeout(r, st.gap || 0));
+          send({ type:"message_start", message:{ id:"m" + call, model:"claude-opus-5-5", content:[], usage:{ input_tokens:100, output_tokens:1 } } });
+          let idx = -1, open = null;
+          for(const part of st.sse){
+            if(window.__streamCut) break;
+            if(typeof part === "string"){
+              if(open !== "text"){ if(open) send({ type:"content_block_stop", index:idx }); send({ type:"content_block_start", index:++idx, content_block:{ type:"text", text:"" } }); open = "text"; }
+              send({ type:"content_block_delta", index:idx, delta:{ type:"text_delta", text:part } });
+            } else {
+              if(open) send({ type:"content_block_stop", index:idx });
+              send({ type:"content_block_start", index:++idx, content_block:{ type:"tool_use", id:"t" + call, name:part.tool, input:{} } });
+              const js = JSON.stringify(part.input); send({ type:"content_block_delta", index:idx, delta:{ type:"input_json_delta", partial_json:js.slice(0, 5) } });
+              send({ type:"content_block_delta", index:idx, delta:{ type:"input_json_delta", partial_json:js.slice(5) } });
+              send({ type:"content_block_stop", index:idx }); open = null;
+            }
+            await wait();
+          }
+          if(open) send({ type:"content_block_stop", index:idx });
+          send({ type:"message_delta", delta:{ stop_reason: st.sse.some(x => x.tool) ? "tool_use" : "end_turn" }, usage:{ output_tokens:40 } });
+          send({ type:"message_stop" });
+          (window.__streamEnds ||= []).push(Date.now()); c.close();
+        } }), { status:200, headers:{ "content-type":"text/event-stream" } });
         if(st.tool) return J({ stop_reason:"tool_use", content:[{ type:"tool_use", id:"t" + call, name: st.tool, input: st.input }] });
         return J({ stop_reason:"end_turn", content:[{ type:"text", text: st.text }], ...(st.usage ? { model:"claude-opus-5-5", usage: st.usage } : {}) });
       }
@@ -101,7 +131,7 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
     window.__opened = [];
     window.open = url => { window.__opened.push(String(url)); return window.__blockPopups ? null : {}; };
     if(noSR){ window.SpeechRecognition = undefined; window.webkitSpeechRecognition = undefined; }
-  }, { mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy, ls }];
+  }, { mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy, ls, fakeHand, voiceNeedsClick }];
 }
 async function open(opts, viewport = { width:1440, height:900 }, url = PAGE){
   const p = await browser.newPage({ viewport }); const errs = [];
@@ -327,6 +357,112 @@ console.log("Interrupting Jarvis (barge-in)");
   await p.close();
 }
 
+console.log("Talking while the answer is still coming in (streaming)");
+{
+  const parts = ["Good evening, sir. ", "Your board meeting ", "is at nine. ", "Lunch with Happy ", "is at one. ", "Anything else?"];
+  const p = await open({ script:[
+    { sse: parts, gap: 350 },
+    { sse: [{ tool:"set_timer", input:{ seconds:300, label:"Tea" } }] }, { sse: ["Tea timer set ", "for five minutes, sir."] },
+  ] });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis what's on today", 2500);
+  const r = await p.evaluate(() => ({ spoken: window.__spoken, at: window.__spokenAt, ends: window.__streamEnds, body: window.__log.at(-1) }));
+  const i = r.spoken.findIndex(x => /^Good evening, sir/.test(x) && !/systems/.test(x));
+  check("starts speaking the first sentence before the answer has finished arriving", i >= 0 && r.at[i] < r.ends[0] - 700, `${r.at[i]} vs ${r.ends[0]}`);
+  const said = r.spoken.slice(i).join(" ");
+  check("the whole answer is spoken, each part once", said.replace(/\s+/g, " ") === parts.join("").trim() && r.spoken.filter(x => /Good evening/.test(x) && !/systems/.test(x)).length === 1, JSON.stringify(r.spoken));
+  check("the whole answer is shown", (await p.locator("#capJ").textContent()).includes("Lunch with Happy is at one. Anything else?"));
+  check("asks for a streamed reply", r.body.stream === true);
+  await say(p, "set a tea timer for five minutes", 900);
+  const L = await log(p), sp = await p.evaluate(() => window.__spoken);
+  check("streamed tool calls still work (timer set, result sent back)", JSON.stringify(L.at(-1).last.content).includes("Timer set for 300 seconds") && /Tea/.test(await p.locator("#timers").textContent()));
+  check("…and the reply after the tool is spoken once", sp.filter(x => /Tea timer set for five minutes, sir\./.test(x)).length === 1, JSON.stringify(sp.slice(-3)));
+  check("conversation history keeps the streamed tool call", JSON.stringify(L.at(-1).msgs).includes('"name":"set_timer"'));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+{
+  const parts = ["Your day looks busy, sir. ", "At nine you have the board meeting. ", "At one, lunch with Happy. ", "Then three calls about the Expo. ", "And the reactor review at five."];
+  const p = await open({ slowVoice:true, script:[ { sse: parts, gap: 500 } ] });
+  await p.click("#bootBtn"); await p.waitForTimeout(2500);
+  await sayNow(p, "jarvis what does my day look like"); await p.waitForTimeout(1200);
+  await sayNow(p, "stop"); await p.waitForTimeout(3500);
+  const sp = await p.evaluate(() => window.__spoken);
+  check("'stop' while the answer is still coming in: the rest isn't spoken", sp.some(x => /looks busy/.test(x)) && !sp.some(x => /reactor review/.test(x)), JSON.stringify(sp));
+  check("…but it is still shown on screen", (await p.locator("#capJ").textContent()).includes("reactor review"));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+{
+  // ElevenLabs fetches the next sentence early; if it isn't written yet, Jarvis must keep "speaking" (and listening for interruptions) until the current one ends
+  const p = await browser.newPage({ viewport:{ width:1440, height:900 } }); const errs = [];
+  p.on("pageerror", e => errs.push(e.message));
+  await fakeEleven(p, "ok");
+  await p.addInitScript(...fakes({ eleven:true, script:[ { sse:["Good evening, sir, your board meeting with Pepper is at nine. ", "And lunch is at one."], gap: 4000 } ] }));
+  await p.goto(PAGE); await p.waitForTimeout(800);
+  await p.click("#bootBtn"); await settle(p, 300);
+  await sayNow(p, "jarvis what's my day");
+  for(let i = 0; i < 40 && !/Speaking/.test(await p.locator("#mode").textContent()); i++) await p.waitForTimeout(100);
+  await p.waitForTimeout(600);
+  check("ElevenLabs + streaming: still 'speaking' while a sentence plays and the next one is being written", /Speaking/.test(await p.locator("#mode").textContent()), await p.locator("#mode").textContent());
+  await p.waitForTimeout(3000);
+  check("…then shows it's working while it waits for the next sentence", /Processing/.test(await p.locator("#mode").textContent()), await p.locator("#mode").textContent());
+  check("no page errors", errs.length === 0, errs.join(" | "));
+  await p.close();
+}
+
+console.log("Smart speed: Haiku for quick questions, more thinking for analysis");
+{
+  const p = await open({ script:[
+    { text:"It's ten past ten, sir." }, { text:"Apple looks pricier, sir." },
+    { err:"output_config.effort requires a model that supports per-turn effort; this model does not" }, { text:"Here's the comparison, sir." },
+    { text:"Your inbox is quiet, sir." }, { err:"messages.3.content.1: unknown content block type" }, { text:"Hello again, sir." }, { text:"Noon, sir." } ] });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis what time is it", 600);
+  let L = await log(p);
+  check("a quick question goes to fast Haiku", L.at(-1).model === "claude-haiku-5-5", L.at(-1).model);
+  await say(p, "compare apple and microsoft valuations", 600);
+  L = await log(p);
+  const deep = L.at(-1), sys = deep.msgs.at(-2);
+  check("an analysis question stays on Opus", deep.model === "claude-opus-5-5", deep.model);
+  check("…with more thinking, without breaking the cached conversation", sys.role === "system" && sys.output_config?.effort === "medium" && /mid-conversation-output-config/.test(deep.beta) && deep.msgs.length > 2, JSON.stringify(sys) + " " + deep.beta);
+  await say(p, "why did apple's margins shrink", 800);
+  L = await log(p);
+  check("if the account can't change thinking per question, it retries without it and still answers", !L.at(-1).msgs.some(x => x.output_config) && /Here's the comparison/.test(await p.locator("#capJ").textContent()), JSON.stringify(L.at(-1).msgs.map(x => x.role)));
+  await say(p, "any new email", 600);
+  L = await log(p);
+  check("anything touching email stays on Opus", L.at(-1).model === "claude-opus-5-5");
+  await say(p, "thanks", 600);
+  L = await log(p);
+  check("if Haiku can't read the conversation, the same question goes to Opus instead", L.at(-2).model === "claude-haiku-5-5" && L.at(-1).model === "claude-opus-5-5" && /Hello again/.test(await p.locator("#capJ").textContent()), L.slice(-2).map(x => x.model).join(" "));
+  await p.click("#gearBtn"); await p.uncheck("#smartOn"); await p.click("#closeBtn");
+  await say(p, "what time is it", 600);
+  L = await log(p);
+  check("with smart speed off, everything uses the chosen model", L.at(-1).model === "claude-opus-5-5");
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Learning from corrections");
+{
+  const p = await open({ script:[ { text:"That's 1,200 dollars, sir." }, { tool:"remember", input:{ fact:"Prefers amounts in euros, not dollars" } }, { text:"Euros it is, sir. I'll remember that." }, { text:"Noon, sir." } ] });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis how much was the hotel", 600);
+  await say(p, "no, I meant in euros not dollars", 900);
+  const L = await log(p), corr = L.find(x => typeof x.last?.content === "string" && /in euros/.test(x.last.content));
+  check("Claude is told how to learn from corrections", /Learning from corrections/.test(JSON.stringify(L[0].system)));
+  check("a correction carries a reminder to save what it reveals", corr && /sounds like a correction/.test(corr.last.content), corr?.last?.content);
+  check("…and the lasting fact is saved to memory", (await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.memory") || "[]"))).some(m => /euros/.test(m.text)));
+  await say(p, "what time is it", 600);
+  const CORRECTION = eval(fs.readFileSync(path.join(root, "index.html"), "utf8").match(/const CORRECTION = (\/.*\/i);/)[1]);   // the page's own pattern
+  const det = ["no thanks", "no problem", "no worries, sir", "not dollars, euros", "not Mark, Marc with a c", "no, I meant Friday", "I told you I use 5.5%"].map(t => CORRECTION.test(t));
+  check("spots corrections ('not dollars, euros') but not 'no thanks' or 'no problem'", det.join() === "false,false,false,true,true,true,true", det.join());
+  check("normal questions don't get the reminder", !/sounds like a correction/.test((await log(p)).at(-1).last.content));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("ElevenLabs voice");
 {
   const LONG = "Good evening, sir. Your board meeting with Pepper is at nine, lunch with Happy is at one, and the reactor review runs all afternoon.";
@@ -416,6 +552,49 @@ console.log("ElevenLabs voice");
   await p.close();
 }
 
+console.log("Finance: Excel DCF templates");
+{
+  const p = await open({ googleBefore:true, script:[
+    { tool:"dcf_inspect", input:{ file_id:"XLS1" } }, { text:"Your template is an Excel file." },
+    { tool:"dcf_inspect", input:{ file_id:"XLS1" } }, { text:"Inputs are on the Inputs tab." },
+    { tool:"dcf_inspect", input:{ file_id:"XLS1" } }, { text:"Shall I make a new copy?" } ] }, undefined, HTTP_PAGE);
+  await p.evaluate(() => {
+    window.__sheetsLog = [];
+    window.__extraFetch = async (u, o, J) => {
+      if(u.includes("sheets.googleapis.com") || u.includes("/drive/v3/files/")){
+        window.__sheetsLog.push({ u, method:o?.method || "GET", body:o?.body ? JSON.parse(o.body) : null });
+        if(u.includes("/files/XLS1?")) return J({ id:"XLS1", name:"My DCF.xlsx", mimeType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+        if(u.includes("/files/GS1?")) return J({ id:"GS1", trashed:!!window.__gs1Trashed });
+        if(u.includes("/copy")) return J({ id:"GS1", name:"My DCF (Google Sheets copy)" });
+        if(u.includes("fields=properties.title")) return J({ properties:{ title:"My DCF (Google Sheets copy)" }, sheets:[{ properties:{ title:"Inputs" } }] });
+        if(u.includes("valueRenderOption=FORMULA")) return J({ valueRanges:[{ values:[["WACC", 0.09], ["Price", "=XLOOKUP(A1,B:B,C:C)"]] }] });
+        if(u.includes("valueRenderOption=FORMATTED_VALUE")) return J({ valueRanges:[{ values:[["WACC", "9.0%"], ["Price", "#NAME?"]] }] });
+        return J({});
+      }
+      return null;
+    };
+  });
+  await p.click("#bootBtn"); await settle(p, 1000);
+  await say(p, "jarvis my template is My DCF", 700);
+  check("Excel DCF: asks before making a Google Sheets copy", await p.locator("#confirmBox").isVisible() && /Excel file/.test(await p.locator("#confirmText").textContent()) && /stays untouched/.test(await p.locator("#confirmText").textContent()));
+  await say(p, "yes", 1200);
+  const sl = await p.evaluate(() => window.__sheetsLog);
+  const cp = sl.find(x => /files\/XLS1\/copy/.test(x.u));
+  check("Excel DCF: copies it as a Google Sheet (Excel file never edited)", cp && cp.method === "POST" && cp.body.mimeType === "application/vnd.google-apps.spreadsheet" && !sl.some(x => /XLS1/.test(x.u) && x.method !== "GET" && !/\/copy/.test(x.u)));
+  const insp = JSON.stringify((await log(p)).at(-1).last.content);
+  check("Excel DCF: reads the copy and gives Jarvis its new file id", /Converted from Excel/.test(insp) && /GS1/.test(insp) && /B1=9\.0%/.test(insp), insp.slice(0, 300));
+  check("Excel DCF: flags formulas that didn't convert", /Formulas showing an error: 'Inputs'!B2/.test(insp), insp.slice(-300));
+  await say(p, "look at it again", 900);
+  check("Excel DCF: reuses the copy instead of converting again", (await p.evaluate(() => window.__sheetsLog)).filter(x => /\/copy/.test(x.u)).length === 1 && /made earlier/.test(JSON.stringify((await log(p)).at(-1).last.content)));
+  await p.evaluate(() => { window.__gs1Trashed = true; });
+  await say(p, "I deleted that copy, look again", 700);
+  check("Excel DCF: if you deleted the copy, asks to make a new one", await p.locator("#confirmBox").isVisible() && /Excel file/.test(await p.locator("#confirmText").textContent()));
+  check("Excel DCF: also finds files in shared drives", (await p.evaluate(() => window.__sheetsLog)).some(x => /files\/XLS1\?.*supportsAllDrives=true/.test(x.u)));
+  await say(p, "no", 900);
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("Finance: DCF co-pilot, markets, comps, price alerts");
 {
   const p = await open({ googleBefore:true, ls:{ "jarvis.fhKey":"fh-test" }, script:[
@@ -473,6 +652,8 @@ console.log("Finance: DCF co-pilot, markets, comps, price alerts");
   await say(p, "watch nvidia and tell me if it drops below 110", 1500);
   await p.waitForTimeout(800);
   check("markets: watchlist shows on the dashboard with the price", await p.locator("#marketsBox").isVisible() && /NVDA/.test(await p.locator("#marketsList").textContent()) && /108\.50/.test(await p.locator("#marketsList").textContent()));
+  // the alert waits until Jarvis has finished its sentence, so give a busy machine a few seconds
+  await p.waitForFunction(() => window.__spoken.some(t => /NVDA has dropped below 110/.test(t)), null, { timeout:5000 }).catch(() => {});
   check("markets: speaks a price alert when it drops below your level", (await p.evaluate(() => window.__spoken)).some(t => /NVDA has dropped below 110: now 108\.50/.test(t)), (await p.evaluate(() => window.__spoken)).slice(-3).join(" | "));
   await say(p, "build comps for nvidia and amd", 700);
   check("comps: asks before creating a sheet", await p.locator("#confirmBox").isVisible());
@@ -605,7 +786,7 @@ console.log("Hand gestures (pretend camera hand)");
   await show(null, 600, gx, gy, { pinch:true });
   check("🤏 a pinch clicks it (settings open)", await p.locator("#drawer").isVisible());
   await show(null, 200, gx, gy);
-  for(const w of [.15, .25, .35, .45, .55, .65]) await show(null, 50, gx, gy, { wrist:w });
+  for(const w of [.1, .25, .4, .55, .7, .85]) await show(null, 60, gx, gy, { wrist:w });   // a big, quick sweep, so even a busy machine sees it
   await p.waitForTimeout(400);
   check("👋 a swipe closes what's open (settings) and leaves focus mode", !(await p.locator("#drawer").isVisible()) && !(await p.evaluate(() => document.documentElement.classList.contains("focus"))));
   await away(); await settle(p);
@@ -616,6 +797,93 @@ console.log("Hand gestures (pretend camera hand)");
   await p.click("#gestChip"); await p.waitForTimeout(300);
   check("clicking '✋ gestures on' turns them off and closes the camera", !(await p.locator("#gestChip").isVisible()) && !(await p.locator("#handHud").isVisible()) && await p.evaluate(() => localStorage.getItem("jarvis.gestures")) === "false");
   check("Jarvis knows about gestures if asked", /Hand gestures/.test((await log(p))[0].system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Moving Jarvis between screens (pinch-drag and voice)");
+{
+  // two pretend monitors side by side; moveTo records where the window went
+  const screensFake = allow => {
+    const A = { left:0, top:0, width:1920, height:1080, availLeft:0, availTop:0, availWidth:1920, availHeight:1040, isPrimary:true };
+    const B = { left:1920, top:0, width:1920, height:1080, availLeft:1920, availTop:0, availWidth:1920, availHeight:1040, isPrimary:false };
+    const d = { screens:[A, B], currentScreen:A };
+    window.__moves = [];
+    window.getScreenDetails = async () => { if(!allow) throw Object.assign(new Error("Permission denied."), { name:"NotAllowedError" }); return d; };
+    window.moveTo = (x, y) => { window.__moves.push([x, y]); d.currentScreen = x + 200 >= 1920 ? B : A; };
+  };
+  const lastResult = async p => JSON.stringify((await log(p)).filter(x => x.last).at(-1).last.content);
+  // in a normal tab: Jarvis explains it needs its own window
+  const t = await open({ script:[{ tool:"move_window", input:{ screen:"next" } }, { text:"I need my own window for that, sir." }, { tool:"resize_window", input:{ size:"big" } }, { text:"Same there, sir." }] }, undefined, HTTP_PAGE);
+  await t.evaluate(screensFake, true);
+  await t.click("#bootBtn"); await settle(t);
+  await say(t, "jarvis move to the other screen", 1200);
+  check("in a normal tab, moving says to pop out with ⧉ first (Chrome can't move tabs)", /pop me out/.test(await lastResult(t)) && (await t.evaluate(() => window.__moves.length)) === 0, await lastResult(t));
+  check("Jarvis knows it can move its window", (await log(t))[0].tools.includes("move_window") && /move_window/.test((await log(t))[0].system));
+  await say(t, "jarvis go full screen", 1200);
+  check("in a normal tab, resizing also says to pop out first", /pop me out/.test(await lastResult(t)) && (await log(t))[0].tools.includes("resize_window") && /resize_window/.test((await log(t))[0].system), await lastResult(t));
+  await t.close();
+  // in the pop-out, without Chrome's OK yet
+  const n = await open({ script:[{ tool:"move_window", input:{} }, { text:"Chrome needs your OK, sir." }] }, { width:440, height:600 }, HTTP_PAGE + "?mini=1");
+  await n.evaluate(screensFake, false);
+  await settle(n);
+  await say(n, "jarvis move to the other screen", 1200);
+  check("without Chrome's permission, Jarvis says where to allow it", /Allow moving between screens/.test(await lastResult(n)), await lastResult(n));
+  await n.close();
+  // in the pop-out, allowed: voice and pinch-drag
+  const p = await open({ fakeHand:true, ls:{ "jarvis.gestures": true }, script:[{ tool:"move_window", input:{ screen:"next" } }, { text:"Done, sir." }, { tool:"resize_window", input:{ size:"small" } }, { text:"Minimised, sir." }] }, { width:440, height:600 }, HTTP_PAGE + "?mini=1");
+  await p.evaluate(screensFake, true);
+  await p.evaluate(() => {
+    window.__hand = (sx, sy, pinch) => {
+      const x = 1 - sx / innerWidth, y = sy / innerHeight;
+      const lm = Array.from({ length:21 }, () => ({ x, y, z:0 }));
+      lm[0] = { x, y: Math.min(1, y + .2), z:0 };
+      lm[4] = pinch ? { x, y, z:0 } : { x: x + .15, y: y + .1, z:0 };
+      window.__gr = { landmarks:[lm], gestures:[[{ categoryName:"None", score:.9 }]] };
+    };
+  });
+  await settle(p); await p.waitForTimeout(800);
+  check("(hand gestures are on in the pop-out)", await p.locator("#gestChip").isVisible());
+  await say(p, "jarvis move to the other screen", 1200);
+  check("🗣 'move to the other screen' moves the pop-out to screen 2", /Moved to screen 2 of 2/.test(await lastResult(p)) && (await p.evaluate(() => window.__moves.at(-1)?.[0])) >= 1920, await lastResult(p));
+  // put the window back on screen 1 for the drag
+  await p.evaluate(() => { window.moveTo(100, 100); window.__moves = []; });
+  const hand = async (sx, sy, pinch, ms) => { await p.evaluate(([a, b, c]) => window.__hand(a, b, c), [sx, sy, pinch]); await p.waitForTimeout(ms); };
+  const ex = 8, ey = 590;   // an empty spot (bottom left corner)
+  check("(that spot isn't a button)", !(await p.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest("button, a[href], [role=button], #reactor, label.check, summary"), [ex, ey])));
+  await hand(ex, ey, false, 400);
+  await hand(ex, ey, true, 900);
+  check("🤏 pinch and hold on an empty spot grabs the window", /GRABBED/.test(await p.locator("#gestToast").textContent()) && await p.evaluate(() => document.getElementById("airCursor").classList.contains("grab")), await p.locator("#gestToast").textContent());
+  for(const sx of [80, 160, 240, 320, 400]) await hand(sx, ey, true, 120);
+  check("…moving the hand drags the window across the screens", (await p.evaluate(() => Math.max(...window.__moves.map(m => m[0])))) > 1000, JSON.stringify(await p.evaluate(() => window.__moves.slice(-3))));
+  await hand(400, ey, false, 400);
+  const drop = await p.evaluate(() => window.__moves.at(-1));
+  check("…and letting go drops it fully on screen 2", drop[0] >= 1920 && /SCREEN 2/.test(await p.locator("#gestToast").textContent()) && !(await p.evaluate(() => document.getElementById("airCursor").classList.contains("grab"))), JSON.stringify(drop));
+  const before = await p.evaluate(() => window.__moves.length);
+  await hand(ex, ey, true, 200); await hand(ex, ey, false, 300);
+  check("a quick pinch (not held) doesn't grab or move anything", (await p.evaluate(() => window.__moves.length)) === before);
+  // bigger / smaller: resizeTo records the size, and the window reports it back
+  await p.evaluate(() => { Object.entries({ availWidth:1920, availHeight:1040, availLeft:0, availTop:0 }).forEach(([k, v]) => Object.defineProperty(screen, k, { configurable:true, get:() => v })); });   // a 1920×1080 monitor
+  await p.evaluate(() => { window.__sizes = []; window.resizeTo = (w, h) => { window.__sizes.push([w, h]); Object.defineProperty(window, "outerWidth", { configurable:true, get:() => w }); }; });
+  await hand(200, 450, false, 1300);   // hand still, in the middle
+  for(const sy of [450, 390, 330, 270, 210, 150]) await hand(200, sy, false, 50);
+  await hand(200, 150, false, 300);
+  const full = await p.evaluate(() => [window.__sizes.at(-1), screen.availWidth, screen.availHeight]);
+  check("👆 swipe up makes the pop-out full screen", full[0] && full[0][0] === full[1] && full[0][1] === full[2] && /FULL SCREEN/.test(await p.locator("#gestToast").textContent()), JSON.stringify(full));
+  await p.setViewportSize({ width:1400, height:850 }); await p.waitForTimeout(200);
+  check("…and full screen shows the whole dashboard, not just the reactor", !(await p.evaluate(() => document.documentElement.classList.contains("mini"))) && await p.locator(".side.left").isVisible());
+  await p.setViewportSize({ width:440, height:600 });
+  await hand(200, 90, false, 1300);
+  for(const sy of [90, 150, 210, 270, 330, 380]) await hand(200, sy, false, 50);
+  await hand(200, 380, false, 600);
+  check("👇 swipe down (hand stays in view) makes it the normal pop-out again", JSON.stringify(await p.evaluate(() => window.__sizes.at(-1))) === "[440,600]" && /SMALLER/.test(await p.locator("#gestToast").textContent()), JSON.stringify(await p.evaluate(() => window.__sizes)));
+  await hand(200, 150, false, 1300);
+  const n0 = await p.evaluate(() => window.__sizes.length);
+  for(const sy of [150, 210, 270, 330, 390, 450, 510, 570, 600]) await hand(200, sy, false, 50);   // the hand keeps going down and out of view
+  await p.evaluate(() => { window.__gr = { gestures:[], landmarks:[] }; }); await p.waitForTimeout(600);
+  check("…but just dropping your hand out of view doesn't shrink it", (await p.evaluate(() => window.__sizes.length)) === n0);
+  await say(p, "jarvis minimize", 1200);
+  check("🗣 'minimize' shrinks Jarvis to a small orb in the corner", JSON.stringify(await p.evaluate(() => window.__sizes.at(-1))) === "[300,340]" && /small/.test(await lastResult(p)), await lastResult(p));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
@@ -719,6 +987,144 @@ console.log("Browsers without voice listening");
   await p.close();
 }
 
+console.log("Looking through the camera (only when asked)");
+{
+  const p = await open({ script:[{ tool:"look_at_camera", input:{ question:"what am I holding?" } }, { text:"A coffee mug, sir." }] }, undefined, HTTP_PAGE);
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis what am i holding", 2500);
+  const L = await log(p), first = L.find(x => x.tools), res = L.filter(x => x.last).at(-1).last.content[0];
+  const img = Array.isArray(res.content) && res.content.find(b => b.type === "image");
+  check("'what am I holding?': Jarvis takes one camera picture and Claude sees it", img && img.source.media_type === "image/jpeg" && img.source.data.length > 1000 && /what am I holding/.test(JSON.stringify(res.content)), JSON.stringify(res).slice(0, 300));
+  check("…and says what it sees", (await p.evaluate(() => window.__spoken)).some(t => /coffee mug/.test(t)) && /LOOKING/.test(await p.locator("#gestToast").textContent()));
+  check("Claude is told it can look, but only when asked", first.tools.includes("look_at_camera") && /look_at_camera\), only when they ask/.test(first.system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Hand gestures pause while barehands is running");
+{
+  const p = await open({ fakeHand:true, ls:{ "jarvis.gestures": true, "jarvis.board": true } }, undefined, HTTP_PAGE);
+  await p.evaluate(() => {
+    window.__bh = false;   // is barehands running?
+    window.__extraFetch = async u => { if(!/127\.0\.0\.1:8794\//.test(u)) return null; if(!window.__bh) throw new TypeError("Failed to fetch"); return new Response("", { status:200 }); };
+    window.__hand = (sx, sy, pinch, gesture = "None") => {
+      const x = 1 - sx / innerWidth, y = sy / innerHeight;
+      const lm = Array.from({ length:21 }, () => ({ x, y, z:0 }));
+      lm[0] = { x, y: Math.min(1, y + .2), z:0 };
+      lm[4] = pinch ? { x, y, z:0 } : { x: x + .15, y: y + .1, z:0 };
+      window.__gr = { landmarks:[lm], gestures:[[{ categoryName:gesture, score:.9 }]] };
+    };
+  });
+  await p.click("#bootBtn"); await settle(p); await p.waitForTimeout(600);
+  const g = await p.locator("#gearBtn").boundingBox(), gx = g.x + g.width / 2, gy = g.y + g.height / 2;
+  check("(gestures on, barehands not running: not paused)", /gestures on/.test(await p.locator("#gestChip").textContent()));
+  await p.evaluate(() => { window.__bh = true; }); await p.waitForTimeout(4600);
+  check("barehands running: Jarvis's gestures pause by themselves and say so", /paused \(barehands\)/.test(await p.locator("#gestChip").textContent()) && /ignores your hands/.test(await p.locator("#gestStatus").textContent()));
+  await p.evaluate(([x, y]) => window.__hand(x, y, false), [gx, gy]); await p.waitForTimeout(1200);
+  await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.waitForTimeout(600);
+  check("…so a pinch on the board doesn't click anything in Jarvis", await p.locator("#drawer").isHidden() && await p.locator("#airCursor").isHidden());
+  await p.evaluate(([x, y]) => window.__hand(x, y, false), [gx, gy]); await p.waitForTimeout(300);
+  await p.evaluate(([x, y]) => window.__hand(x, y, false, "Pointing_Up"), [gx, gy]); await p.waitForTimeout(1400);
+  check("☝️ holding up a pointing finger gives Jarvis your hand for a moment", /JARVIS HAS YOUR HAND/.test(await p.locator("#gestToast").textContent()) && await p.locator("#airCursor").isVisible());
+  await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.waitForTimeout(600);
+  check("…then a pinch works in Jarvis (settings open)", await p.locator("#drawer").isVisible());
+  await p.click("#closeBtn");
+  await p.evaluate(([x, y]) => window.__hand(x, y, false), [gx, gy]); await p.waitForTimeout(6800);
+  await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.waitForTimeout(600);
+  check("…and a few seconds later Jarvis ignores your hand again", await p.locator("#drawer").isHidden() && await p.locator("#airCursor").isHidden());
+  await p.evaluate(() => window.__hand(10, 10, false)); await p.waitForTimeout(200);
+  await p.evaluate(() => { window.__bh = false; }); await p.waitForTimeout(4600);
+  check("barehands closed: gestures come back by themselves", /gestures on/.test(await p.locator("#gestChip").textContent()));
+  await p.evaluate(([x, y]) => window.__hand(x, y, false), [gx, gy]); await p.waitForTimeout(1200);
+  await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.waitForTimeout(600);
+  check("…and a pinch clicks again (settings open)", await p.locator("#drawer").isVisible());
+  await p.click("#closeBtn");
+  await p.evaluate(() => { localStorage.setItem("jarvis.gestBoardPause", "false"); window.__bh = true; }); await p.waitForTimeout(4600);
+  check("with the setting off, gestures stay on even while barehands runs", /gestures on/.test(await p.locator("#gestChip").textContent()));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("barehands board");
+{
+  const capture = () => { window.__board = []; window.__extraFetch = async (u, o) => {
+    if(!/127\.0\.0\.1:\d+\/cmd/.test(u)) return null;
+    if(window.__boardDown) throw new TypeError("Failed to fetch");
+    window.__board.push({ u, mode:o.mode, cmd:JSON.parse(o.body) }); return new Response(null, { status:204 }); }; };
+  const lastResult = async p => JSON.stringify((await log(p)).filter(x => x.last).at(-1).last.content);
+  // switched off: nothing is sent, Jarvis says where to switch it on
+  const off = await open({ script:[{ tool:"show_on_board", input:{ action:"present", title:"Plan" } }, { text:"It's off, sir." }] });
+  await off.evaluate(capture);
+  await off.click("#bootBtn"); await settle(off);
+  await say(off, "jarvis put my plan on the board", 900);
+  check("board switched off: nothing sent, says where to switch it on", (await off.evaluate(() => window.__board.length)) === 0 && /settings → barehands board/.test(await lastResult(off)), await lastResult(off));
+  check("Jarvis knows it can use the board", (await log(off))[0].tools.includes("show_on_board") && /show_on_board/.test((await log(off))[0].system));
+  await off.close();
+  // switched on: the card goes to barehands' local command channel
+  const p = await open({ ls:{ "jarvis.board": true }, script:[
+    { tool:"show_on_board", input:{ action:"present", title:"Today", body:"9:00 standup\n14:00 Board meeting" } }, { text:"It's up, sir." },
+    { tool:"show_on_board", input:{ action:"add_card", title:"Later" } }, { text:"The board isn't answering, sir." },
+    { tool:"show_on_board", input:{ action:"open" } }, { text:"It's open, sir." } ] });
+  await p.evaluate(capture);
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis put today's plan on the board", 900);
+  const b = await p.evaluate(() => window.__board);
+  check("'put it on the board' sends a present card to barehands on this computer", b.length === 1 && b[0].u === "http://127.0.0.1:8794/cmd" && b[0].mode === "no-cors" && b[0].cmd.a === "present" && b[0].cmd.title === "Today" && /Board meeting/.test(b[0].cmd.body), JSON.stringify(b));
+  check("…and tells Jarvis it worked", /centre stage/.test(await lastResult(p)), await lastResult(p));
+  await p.evaluate(() => { window.__boardDown = true; });
+  await say(p, "jarvis add a card for later", 900);
+  check("barehands not running: Jarvis is told to start it", /Couldn't reach the barehands board/.test(await lastResult(p)), await lastResult(p));
+  await say(p, "jarvis open the board", 900);
+  check("'open the board' opens barehands' page in a new tab", (await p.evaluate(() => window.__opened)).includes("http://127.0.0.1:8794/stage.html"), (await p.evaluate(() => window.__opened)).join(" "));
+  // settings: a different port, and the Test button
+  await p.evaluate(() => { window.__boardDown = false; window.__board = []; });
+  await p.evaluate(() => { document.getElementById("boardPort").value = "9000"; document.getElementById("boardForm").requestSubmit(); });
+  await p.waitForTimeout(300);
+  const t = await p.evaluate(() => window.__board);
+  check("settings 'Test it' sends a card to the chosen port", t.length === 1 && t[0].u === "http://127.0.0.1:9000/cmd" && t[0].cmd.a === "add_card" && /Sent ✓/.test(await p.locator("#boardStatus").textContent()), JSON.stringify(t));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("DCF on the board");
+{
+  const tpl = { file_id:"TEMPLATE1", title:"My DCF", inputs:[{ name:"Revenue FY2024 (historical)", cell:"Inputs!C4" }, { name:"Revenue growth Y1", cell:"Inputs!C8" }, { name:"WACC", cell:"Inputs!C20" }],
+    outputs:[{ name:"Enterprise value", cell:"DCF!H38" }, { name:"Implied share price", cell:"DCF!H40" }] };
+  const p = await open({ googleBefore:true, ls:{ "jarvis.board":true, "jarvis.fhKey":"fh-test", "jarvis.dcfTemplate":tpl, "jarvis.myFiles":[{ id:"COPY1", name:"DCF: Nvidia", kind:"dcf", company:"Nvidia", ticker:"NVDA" }] }, script:[
+    { tool:"dcf_show_on_board", input:{ file_id:"COPY1" } }, { text:"It's on the board, sir." },
+    { tool:"dcf_set_inputs", input:{ file_id:"COPY1", values:[{ cell:"Inputs!C8", value:"12%" }] } }, { text:"Implied price is now $150." },
+    { tool:"dcf_show_on_board", input:{ file_id:"TEMPLATE1" } }, { text:"I can only show DCFs I made." } ] }, undefined, HTTP_PAGE);
+  await p.evaluate(() => {
+    window.__board = []; window.__price = "$128.40"; window.__growth = "30%";
+    window.__extraFetch = async (u, o, J) => {
+      if(/127\.0\.0\.1:\d+\/cmd/.test(u)){ window.__board.push(JSON.parse(o.body)); return new Response(null, { status:204 }); }
+      if(u.endsWith("/values:batchUpdate")){ window.__price = "$150.00"; window.__growth = "12%"; return J({ totalUpdatedCells:1 }); }
+      if(u.includes("values:batchGet")){ const rs = [...new URL(u).searchParams.getAll("ranges")];
+        const v = { "DCF!H38":"$3,100bn", "DCF!H40":window.__price, "Inputs!C8":window.__growth, "Inputs!C20":"9.5%", "Inputs!C4":"$61bn" };
+        return J({ valueRanges: rs.map(r => ({ values:[[v[r] ?? ""]] })) }); }
+      if(u.includes("finnhub.io") && u.includes("/quote")) return J({ c:120, d:1, dp:0.8, pc:119 });
+      return null;
+    };
+  });
+  await p.click("#bootBtn"); await settle(p, 1000);
+  await say(p, "jarvis put the nvidia dcf on the board", 1200);
+  let b = await p.evaluate(() => window.__board);
+  const card = (b, t) => b.find(c => c.title && c.title.startsWith(t));
+  check("DCF board: clears, then the valuation goes centre stage", b[0]?.a === "clear" && b.at(-1)?.a === "present" && b.at(-1).title === "DCF · NVDA" && /Implied share price: \$128\.40/.test(b.at(-1).body) && /Enterprise value/.test(b.at(-1).body), JSON.stringify(b));
+  check("DCF board: assumptions card shows growth and WACC, not historicals", /Revenue growth Y1: 30%/.test(card(b, "Assumptions")?.body) && /WACC: 9\.5%/.test(card(b, "Assumptions")?.body) && !/FY2024/.test(card(b, "Assumptions")?.body), JSON.stringify(card(b, "Assumptions")));
+  check("DCF board: upside card compares implied and live price", /Current price: 120\.00/.test(card(b, "Upside")?.body) && /Upside: 7\.0%/.test(card(b, "Upside")?.body) && /not advice/.test(card(b, "Upside")?.body), JSON.stringify(card(b, "Upside")));
+  await p.evaluate(() => { window.__board = []; });
+  await say(p, "bump growth to 12 percent", 1200);
+  b = await p.evaluate(() => window.__board);
+  check("DCF board: a spoken assumption change refreshes the cards", /Revenue growth Y1: 12%/.test(card(b, "Assumptions")?.body) && /\$150\.00/.test(card(b, "DCF")?.body) && /Upside: 25\.0%/.test(card(b, "Upside")?.body) && /board are updated/.test(JSON.stringify((await log(p)).at(-1).last.content)), JSON.stringify(b));
+  await p.evaluate(() => { window.__board = []; });
+  await say(p, "put my template on the board", 900);
+  check("DCF board: only DCFs Jarvis made", (await p.evaluate(() => window.__board.length)) === 0 && /isn't a DCF Jarvis made/.test(JSON.stringify((await log(p)).at(-1).last.content)));
+  check("Jarvis knows how to put a DCF on the board", (await log(p))[0].tools.includes("dcf_show_on_board") && /dcf_show_on_board/.test((await log(p))[0].system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("Its own window (pop out / app)");
 {
   const p = await open({}, undefined, HTTP_PAGE);
@@ -736,12 +1142,24 @@ console.log("Its own window (pop out / app)");
   await p.close();
   const m = await open({}, { width:440, height:600 }, HTTP_PAGE + "?mini=1");
   check("the pop-out window shows just the reactor (compact layout)", await m.evaluate(() => document.documentElement.classList.contains("mini")) && await m.locator(".side.left").isHidden() && await m.locator("#reactor").isVisible());
-  await m.click("#bootBtn"); await settle(m);
+  await settle(m);
+  check("…it starts by itself: no 'Initialize' click needed after ⧉", await m.locator("#boot").isHidden());
   check("…and works normally", (await m.evaluate(() => window.__spoken.length)) === 1 && /Say "Jarvis"|Go ahead|Yes, sir/.test(await m.locator("#mode").textContent()));
   check("…no sideways scrolling", (await m.evaluate(() => document.documentElement.scrollWidth)) <= 440);
   await m.screenshot({ path: path.join(shots, "popout.png") });
   check("no page errors", m.errs.length === 0, m.errs.join(" | "));
   await m.close();
+}
+
+{
+  // Chrome sometimes still wants one click in the new window before Jarvis can speak
+  const b = await open({ voiceNeedsClick:true }, { width:440, height:600 }, HTTP_PAGE + "?mini=1");
+  await settle(b, 800);
+  check("pop-out: if Chrome blocks the voice, the click screen comes back and says why", await b.locator("#boot").isVisible() && /Click anywhere/.test(await b.locator("#bootNote").textContent()));
+  await b.mouse.click(20, 580); await settle(b, 800);
+  check("…a click anywhere on it is enough, and Jarvis talks", await b.locator("#boot").isHidden() && (await b.evaluate(() => window.__spoken.length)) >= 1);
+  check("no page errors", b.errs.length === 0, b.errs.join(" | "));
+  await b.close();
 }
 
 console.log("Only one Jarvis at a time");
