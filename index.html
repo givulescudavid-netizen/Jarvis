@@ -317,7 +317,7 @@ html.mini #popBtn{display:none}
     <p class="note" id="gestHelp">✋ Hold an open palm: wake Jarvis · ✊ Fist: stop talking · 👍 / 👎: yes / no to "Shall I go ahead?" · ✌️ Peace: focus mode (hide the side panels) · 🤟 Rock on: play music you like · ☝️ Point to move the cursor, pinch thumb and finger to click · 🤏 Pinch and hold on an empty spot to grab Jarvis's window, move your hand to drag it to another screen, let go to drop it (pop-out or installed app only) · 👆 / 👇 Swipe up / down: make Jarvis's window bigger (full screen) or smaller (a small orb in the corner), pop-out or installed app only · 👋 Swipe sideways: close what's open. The video never leaves your computer.</p>
     <p class="note">Moving between screens (pinch-drag, or say "Jarvis, move to the other screen") needs Chrome's OK once: <button type="button" id="screensBtn">Allow moving between screens</button></p>
     <p class="note" id="screensStatus"></p>
-    <label class="check"><input type="checkbox" id="gestBoardPause"> Pause them while barehands is running (so moving cards on the board doesn't click things in Jarvis)</label>
+    <label class="check"><input type="checkbox" id="gestBoardPause"> While barehands is running, ignore my hands unless I hold up a pointing finger ☝️ first (so moving cards on the board doesn't click things in Jarvis)</label>
     <p class="note" id="gestStatus"></p>
   </section>
 
@@ -471,7 +471,7 @@ What you CAN do, using your tools (use them; don't say you can't when a tool fit
 - Weather anywhere, now and for the next days (get_weather), and travel times between places by car, on foot or by bike (travel_time). Driving times don't include live traffic: say "usually about 25 minutes" and offer to open Google Maps for live traffic. If the user says "home", "the office" or a person's place and you don't know the address, ask once, then remember it.
 - Uber price and pickup estimates for a ride right now (uber_estimate). You can't book: the user books in the Uber app. On the website version it opens Uber with the trip filled in.
 - Hotels from Tripadvisor (find_hotels, and hotel_info for one hotel): give two or three good options with price per night, rating and area, not the whole list. You can't book; offer to open the hotel's page. On the website version, find_hotels opens Tripadvisor and you suggest options from web search.
-- Hand gestures (if the user switched them on in settings, website in Chrome): open palm wakes you, fist stops you talking, thumbs up/down answer "Shall I go ahead?", peace sign toggles focus mode, "rock on" (🤟) asks you for music they like, pointing moves an on-screen cursor and a pinch clicks; pinching and holding on an empty spot grabs Jarvis's window so they can drag it to another monitor, and in its own window a swipe up makes it bigger and a swipe down smaller. While barehands is running, your gestures pause by themselves (so moving cards on the board doesn't click things in Jarvis) and come back when it closes; they can untick that in settings → Hand gestures. If they ask how gestures work, explain briefly.
+- Hand gestures (if the user switched them on in settings, website in Chrome): open palm wakes you, fist stops you talking, thumbs up/down answer "Shall I go ahead?", peace sign toggles focus mode, "rock on" (🤟) asks you for music they like, pointing moves an on-screen cursor and a pinch clicks; pinching and holding on an empty spot grabs Jarvis's window so they can drag it to another monitor, and in its own window a swipe up makes it bigger and a swipe down smaller. While barehands is running, you ignore their hands (so moving cards on the board doesn't click things in Jarvis) until they hold up a pointing finger for a second, which gives you their hand for a few seconds (e.g. to pinch-drag your window to another screen); they can untick that in settings → Hand gestures. If they ask how gestures work, explain briefly.
 - The barehands board (show_on_board): a hand-tracked glass board on the user's computer where they move cards with their hands. When they ask to SEE something or put it on the board, put it up as a short card (a title and a few lines) instead of reading it all out, and say in one sentence what you put up. It only shows things; it can't show you what's on it. If they ask to open the board, use action open. A DCF goes up with dcf_show_on_board (valuation, assumptions and upside cards that update as assumptions change). You can't start barehands itself: they start it on their computer.
 - Move your own window to another monitor (move_window), e.g. "move to the other screen", and make it bigger or smaller (resize_window: "expand", "full screen", "minimize", "shrink", "back to normal"). Both only work when you're in your own window (⧉ pop-out or installed app). "Minimize" shrinks you to a small orb in the corner, because you have to stay visible to hear.
 Anything that changes the user's accounts (drafts, events) asks them to confirm first. You cannot send email, delete anything, edit files, or trade; if asked, say so briefly and offer the closest thing you can do (e.g. a draft).
@@ -2427,7 +2427,7 @@ function resizeWindow(to){
 const MP = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35";
 const GMODEL = "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task";
 const HAND_LINKS = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
-const gest = { on:false, rec:null, stream:null, timer:null, held:null, since:0, fired:false, pinch:false, pinchAt:0, grab:null, downAt:0, downY:0, paused:false, cur:null, trail:[], lastSwipe:0, lastFire:0 };
+const gest = { on:false, rec:null, stream:null, timer:null, held:null, since:0, fired:false, pinch:false, pinchAt:0, grab:null, downAt:0, downY:0, paused:false, wakeUntil:0, pointSince:0, cur:null, trail:[], lastSwipe:0, lastFire:0 };
 const GEST_HOLD = { Open_Palm:700, Closed_Fist:350, Thumb_Up:600, Thumb_Down:600, Victory:600, ILoveYou:700 };
 function toast(text){ const t = $("gestToast"); t.textContent = text; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 1300); }
 async function loadRecognizer(){
@@ -2467,20 +2467,22 @@ function gesturesOff(save = true){
 function gestLoop(){
   if(!gest.on) return;
   gest.timer = setTimeout(gestLoop, 80);   // ~12 checks a second is plenty and keeps the fan quiet
-  if(document.hidden || dormantNow() || gest.paused) return;
+  if(document.hidden || dormantNow()) return;
   const v = $("gestVideo"); if(!window.__fakeGR && v.readyState < 2) return;
   let r; try{ r = gest.rec.recognizeForVideo(v, performance.now()); }catch(e){ logDiag("gestures", e.message); return; }
   onHand(r);
 }
-// barehands (the hand-tracked board) watches the same hands through the same camera. While it's running, Jarvis's own
-// gestures pause, or every move on the board would also point, pinch and click inside Jarvis.
+// barehands (the hand-tracked board) watches the same hands through the same camera. While it's running, Jarvis ignores
+// your hands (or every move on the board would also point, pinch and click inside Jarvis) until you hold up a pointing
+// finger ☝️ for a second: then Jarvis takes your hand for a few seconds, e.g. to pinch-drag its window to another screen.
 // Jarvis can't read barehands' state, only whether its page answers on this computer, so it checks every few seconds.
 function pauseGestures(on){
   if(gest.paused === on) return;
   gest.paused = on; logDiag("gestures", on ? "paused: barehands is running" : "resumed");
-  if(on){ $("airCursor").hidden = true; drawHand(null); gest.held = null; gest.trail = []; gest.pinch = false; gest.downAt = 0; if(gest.grab) grabEnd(); }
-  $("gestChip").textContent = on ? "✋ paused (barehands)" : "✋ gestures on";
-  if(gest.on) $("gestStatus").textContent = on ? "Paused while barehands is running, so your moves there don't click things here. They come back by themselves when you close barehands." : "On. Show your hand to the camera.";
+  gest.wakeUntil = 0; gest.pointSince = 0;
+  if(on){ $("airCursor").hidden = true; gest.held = null; gest.trail = []; gest.pinch = false; gest.downAt = 0; if(gest.grab) grabEnd(); }
+  $("gestChip").textContent = on ? "✋ paused (barehands) · ☝️ to use" : "✋ gestures on";
+  if(gest.on) $("gestStatus").textContent = on ? "barehands is running, so Jarvis ignores your hands (your moves there won't click things here). Hold up one pointing finger ☝️ for a second to use Jarvis's gestures for a few seconds, e.g. pinch and drag it to another screen. Everything comes back when you close barehands." : "On. Show your hand to the camera.";
 }
 const boardPauseOn = () => gest.on && store.get("jarvis.board", false) && store.get("jarvis.gestBoardPause", true);
 async function checkBoard(){
@@ -2496,6 +2498,18 @@ function onHand(r){
   const cur = $("airCursor");
   if(!lm){ cur.hidden = true; gest.held = null; gest.trail = []; gest.pinch = false; gest.downAt = 0; if(gest.grab) grabEnd(); return; }
   const now = performance.now();
+  // barehands running: ignore the hand unless a ☝️ held for a second hands it to Jarvis for a few seconds
+  if(gest.paused){
+    if(gest.grab || gest.pinch) gest.wakeUntil = Math.max(gest.wakeUntil, now + 3000);   // never drop a drag halfway
+    if(now >= gest.wakeUntil){
+      cur.hidden = true; gest.held = null; gest.trail = []; gest.pinch = false;
+      const pointing = g && g.score > .6 && g.categoryName === "Pointing_Up";
+      if(!pointing){ gest.pointSince = 0; return; }
+      if(!gest.pointSince) gest.pointSince = now;
+      if(now - gest.pointSince < 900) return;
+      gest.pointSince = 0; gest.wakeUntil = now + 6000; toast("☝️ JARVIS HAS YOUR HAND"); logDiag("gesture", "point: hand control for Jarvis");
+    }
+  }
   // pointer: index fingertip, mirrored like a selfie camera, smoothed
   const x = (1 - lm[8].x) * innerWidth, y = lm[8].y * innerHeight;
   gest.cur = gest.cur ? { x: gest.cur.x * .45 + x * .55, y: gest.cur.y * .45 + y * .55 } : { x, y };

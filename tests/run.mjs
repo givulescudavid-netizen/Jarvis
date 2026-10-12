@@ -991,22 +991,31 @@ console.log("Hand gestures pause while barehands is running");
   await p.evaluate(() => {
     window.__bh = false;   // is barehands running?
     window.__extraFetch = async u => { if(!/127\.0\.0\.1:8794\//.test(u)) return null; if(!window.__bh) throw new TypeError("Failed to fetch"); return new Response("", { status:200 }); };
-    window.__hand = (sx, sy, pinch) => {
+    window.__hand = (sx, sy, pinch, gesture = "None") => {
       const x = 1 - sx / innerWidth, y = sy / innerHeight;
       const lm = Array.from({ length:21 }, () => ({ x, y, z:0 }));
       lm[0] = { x, y: Math.min(1, y + .2), z:0 };
       lm[4] = pinch ? { x, y, z:0 } : { x: x + .15, y: y + .1, z:0 };
-      window.__gr = { landmarks:[lm], gestures:[[{ categoryName:"None", score:.9 }]] };
+      window.__gr = { landmarks:[lm], gestures:[[{ categoryName:gesture, score:.9 }]] };
     };
   });
   await p.click("#bootBtn"); await settle(p); await p.waitForTimeout(600);
   const g = await p.locator("#gearBtn").boundingBox(), gx = g.x + g.width / 2, gy = g.y + g.height / 2;
   check("(gestures on, barehands not running: not paused)", /gestures on/.test(await p.locator("#gestChip").textContent()));
   await p.evaluate(() => { window.__bh = true; }); await p.waitForTimeout(4600);
-  check("barehands running: Jarvis's gestures pause by themselves and say so", /paused \(barehands\)/.test(await p.locator("#gestChip").textContent()) && /Paused while barehands/.test(await p.locator("#gestStatus").textContent()));
+  check("barehands running: Jarvis's gestures pause by themselves and say so", /paused \(barehands\)/.test(await p.locator("#gestChip").textContent()) && /ignores your hands/.test(await p.locator("#gestStatus").textContent()));
   await p.evaluate(([x, y]) => window.__hand(x, y, false), [gx, gy]); await p.waitForTimeout(1200);
   await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.waitForTimeout(600);
   check("…so a pinch on the board doesn't click anything in Jarvis", await p.locator("#drawer").isHidden() && await p.locator("#airCursor").isHidden());
+  await p.evaluate(([x, y]) => window.__hand(x, y, false), [gx, gy]); await p.waitForTimeout(300);
+  await p.evaluate(([x, y]) => window.__hand(x, y, false, "Pointing_Up"), [gx, gy]); await p.waitForTimeout(1400);
+  check("☝️ holding up a pointing finger gives Jarvis your hand for a moment", /JARVIS HAS YOUR HAND/.test(await p.locator("#gestToast").textContent()) && await p.locator("#airCursor").isVisible());
+  await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.waitForTimeout(600);
+  check("…then a pinch works in Jarvis (settings open)", await p.locator("#drawer").isVisible());
+  await p.click("#closeBtn");
+  await p.evaluate(([x, y]) => window.__hand(x, y, false), [gx, gy]); await p.waitForTimeout(6800);
+  await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.waitForTimeout(600);
+  check("…and a few seconds later Jarvis ignores your hand again", await p.locator("#drawer").isHidden() && await p.locator("#airCursor").isHidden());
   await p.evaluate(() => window.__hand(10, 10, false)); await p.waitForTimeout(200);
   await p.evaluate(() => { window.__bh = false; }); await p.waitForTimeout(4600);
   check("barehands closed: gestures come back by themselves", /gestures on/.test(await p.locator("#gestChip").textContent()));
