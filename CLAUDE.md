@@ -55,3 +55,13 @@ Never put a personal email address in commits, code or docs.
 
 The tests fake everything external (speech, Claude, Google, connectors), so they can't prove real-world behaviour.
 Call out anything that needs the owner to try for real.
+
+## graphify
+
+Cloud sessions build a code map at graphify-out/ on startup (`.claude/hooks/graphify-setup.sh` installs graphify; no API key). It's not committed (gitignored).
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+- graphify does not parse the JavaScript inside `index.html`, so for app code, read `index.html` directly.
