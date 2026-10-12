@@ -987,6 +987,20 @@ console.log("Browsers without voice listening");
   await p.close();
 }
 
+console.log("Looking through the camera (only when asked)");
+{
+  const p = await open({ script:[{ tool:"look_at_camera", input:{ question:"what am I holding?" } }, { text:"A coffee mug, sir." }] }, undefined, HTTP_PAGE);
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis what am i holding", 2500);
+  const L = await log(p), first = L.find(x => x.tools), res = L.filter(x => x.last).at(-1).last.content[0];
+  const img = Array.isArray(res.content) && res.content.find(b => b.type === "image");
+  check("'what am I holding?': Jarvis takes one camera picture and Claude sees it", img && img.source.media_type === "image/jpeg" && img.source.data.length > 1000 && /what am I holding/.test(JSON.stringify(res.content)), JSON.stringify(res).slice(0, 300));
+  check("…and says what it sees", (await p.evaluate(() => window.__spoken)).some(t => /coffee mug/.test(t)) && /LOOKING/.test(await p.locator("#gestToast").textContent()));
+  check("Claude is told it can look, but only when asked", first.tools.includes("look_at_camera") && /look_at_camera\), only when they ask/.test(first.system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("Hand gestures pause while barehands is running");
 {
   const p = await open({ fakeHand:true, ls:{ "jarvis.gestures": true, "jarvis.board": true } }, undefined, HTTP_PAGE);

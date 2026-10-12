@@ -398,7 +398,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.12.4";
+const VERSION = "2026.10.12.5";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -473,6 +473,7 @@ What you CAN do, using your tools (use them; don't say you can't when a tool fit
 - Hotels from Tripadvisor (find_hotels, and hotel_info for one hotel): give two or three good options with price per night, rating and area, not the whole list. You can't book; offer to open the hotel's page. On the website version, find_hotels opens Tripadvisor and you suggest options from web search.
 - Hand gestures (if the user switched them on in settings, website in Chrome): open palm wakes you, fist stops you talking, thumbs up/down answer "Shall I go ahead?", peace sign toggles focus mode, "rock on" (🤟) asks you for music they like, pointing moves an on-screen cursor and a pinch clicks; pinching and holding on an empty spot grabs Jarvis's window so they can drag it to another monitor, and in its own window a swipe up makes it bigger and a swipe down smaller. While barehands is running, you ignore their hands (so moving cards on the board doesn't click things in Jarvis) until they hold up a pointing finger for a second, which gives you their hand for a few seconds (e.g. to pinch-drag your window to another screen); they can untick that in settings → Hand gestures. If they ask how gestures work, explain briefly.
 - The barehands board (show_on_board): a hand-tracked glass board on the user's computer where they move cards with their hands. When they ask to SEE something or put it on the board, put it up as a short card (a title and a few lines) instead of reading it all out, and say in one sentence what you put up. It only shows things; it can't show you what's on it. If they ask to open the board, use action open. A DCF goes up with dcf_show_on_board (valuation, assumptions and upside cards that update as assumptions change). You can't start barehands itself: they start it on their computer.
+- See through the user's webcam (look_at_camera), only when they ask you to look: "what am I holding?", "what's this?", "read this", "how do I look?". It takes one picture; answer briefly about what they asked.
 - Move your own window to another monitor (move_window), e.g. "move to the other screen", and make it bigger or smaller (resize_window: "expand", "full screen", "minimize", "shrink", "back to normal"). Both only work when you're in your own window (⧉ pop-out or installed app). "Minimize" shrinks you to a small orb in the corner, because you have to stay visible to hear.
 Anything that changes the user's accounts (drafts, events) asks them to confirm first. You cannot send email, delete anything, edit files, or trade; if asked, say so briefly and offer the closest thing you can do (e.g. a draft).
 
@@ -1704,6 +1705,9 @@ const tools = [
   { name:"move_window", description:"Moves Jarvis's own window to another monitor. Only works when Jarvis is in its own window (the ⧉ pop-out or the installed app) in Chrome or Edge on a computer; the result says what to tell the user otherwise.",
     inputSchema:{type:"object",properties:{screen:{type:"string",description:"'next' (default), 'left', 'right', 'main', or a screen number counted from the left, e.g. '2'"}}},
     execute: async ({screen}) => (await moveWindow(screen)).say },
+  { name:"look_at_camera", description:"Takes ONE picture with the user's webcam right now and lets you see it. Use only when the user asks you to look (\"what am I holding?\", \"what's this?\", \"how do I look?\", \"read this\"). Describe what matters for their question, briefly. Never use it on your own initiative.",
+    inputSchema:{type:"object",properties:{question:{type:"string",description:"What the user wants to know about the picture"}}},
+    execute: input => lookAtCamera(input) },
   { name:"get_time", description:"Returns the user's current local date and time.",
     execute: () => new Date().toString() },
   { name:"set_timer", description:"Starts a countdown timer on the dashboard. Returns confirmation.",
@@ -2422,6 +2426,36 @@ function resizeWindow(to){
   return { ok:true, size:t, say:`Done: ${name}.` };
 }
 
+/* ---------- looking through the camera (only when asked) ---------- */
+// One still picture, taken only when the user asks Jarvis to look. It goes to Claude with that question and isn't stored.
+async function cameraPicture(){
+  let stream = gest.stream, temp = null;
+  const v = stream ? $("gestVideo") : document.createElement("video");
+  if(!stream){
+    if(!navigator.mediaDevices?.getUserMedia) throw new Error("This browser can't use the camera here. Tell the user to use the website in Chrome.");
+    try{ temp = await navigator.mediaDevices.getUserMedia({ video:{ width:1280, height:720, facingMode:"user" }, audio:false }); }
+    catch(e){ throw new Error(/Permission|NotAllowed/i.test(e?.name + e?.message) ? "Camera access is blocked. Tell the user to click the camera icon in Chrome's address bar and allow it." : /NotFound/i.test(e?.name) ? "No camera found on this computer." : "Couldn't open the camera: " + (e?.message || e)); }
+    v.muted = true; v.playsInline = true; v.srcObject = temp; await v.play();
+    await new Promise(r => setTimeout(r, 400));   // let the camera adjust its exposure
+  }
+  try{
+    const w = v.videoWidth || 640, h = v.videoHeight || 480, k = Math.min(1, 1024 / Math.max(w, h));
+    const c = document.createElement("canvas"); c.width = Math.round(w * k); c.height = Math.round(h * k);
+    c.getContext("2d").drawImage(v, 0, 0, c.width, c.height);
+    return c.toDataURL("image/jpeg", .8).split(",")[1];
+  }finally{ temp?.getTracks().forEach(t => t.stop()); if(temp) v.srcObject = null; }
+}
+async function lookAtCamera({ question = "" } = {}){
+  const data = await cameraPicture();
+  toast("📷 LOOKING"); logDiag("camera", "one picture for a question");
+  const note = `This is what the user's webcam sees right now (the user is usually facing it, mirrored like a selfie). ${question ? "They want to know: " + question : ""}`.trim();
+  if(sample){   // claude.ai version: ask about the picture directly
+    try{ const { text } = await sample([{ role:"user", content:[{ type:"image", source:{ type:"base64", media_type:"image/jpeg", data } }, { type:"text", text:note + " Describe what matters for that, briefly." }] }], { modelTier:"quick" }); return "What the camera shows: " + text; }
+    catch{ return "Looking through the camera doesn't work in the claude.ai version yet. Tell the user it works on the website."; }
+  }
+  return { blocks:[{ type:"image", source:{ type:"base64", media_type:"image/jpeg", data } }, { type:"text", text:note }] };
+}
+
 /* ---------- hand gestures (webcam, processed on this computer only) ---------- */
 // Google's MediaPipe gesture recognizer runs in the page. Nothing is uploaded or recorded.
 const MP = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35";
@@ -2922,7 +2956,7 @@ async function askApi(text, signal, onText){
       for(const u of uses){
         const t = tools.find(x => x.name === u.name);
         if(!t){ logDiag("tool", `Claude asked for unknown tool ${u.name}`); results.push({type:"tool_result", tool_use_id:u.id, content:"Error: no such tool", is_error:true}); continue; }
-        try{ const out = await t.execute(u.input || {}); logDiag("toolres", `${u.name}: ${(typeof out === "string" ? out : JSON.stringify(out)).replace(/https?:\/\/\S+/g, "[link]").slice(0, 120)}`); results.push({type:"tool_result", tool_use_id:u.id, content: typeof out === "string" ? out : JSON.stringify(out)}); }
+        try{ const out = await t.execute(u.input || {}); logDiag("toolres", `${u.name}: ${(typeof out === "string" ? out : out?.blocks ? "[camera picture]" : JSON.stringify(out)).replace(/https?:\/\/\S+/g, "[link]").slice(0, 120)}`); results.push({type:"tool_result", tool_use_id:u.id, content: typeof out === "string" ? out : out?.blocks || JSON.stringify(out)}); }
         catch(err){ results.push({type:"tool_result", tool_use_id:u.id, content:"Error: " + (err?.message || err), is_error:true}); }
       }
       apiMsgs.push({role:"user", content:results});

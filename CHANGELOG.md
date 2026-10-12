@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.12.5 — Jarvis can see through your camera
+- Ask "Jarvis, what am I holding?", "what's this?", "read this for me" or "how do I look?" and Jarvis takes one picture with your webcam and answers. "📷 LOOKING" shows at the top when it does.
+- It only looks when you ask. It isn't watching all the time, and the picture isn't saved: it goes to Claude with your question and that's it.
+- The first time, Chrome asks to use the camera (if hand gestures are on, it's already allowed).
+
 ## 2026.10.12.4 — Gestures pause for barehands; bigger / smaller with your hand; no extra click after popping out
 - **No more clicks in Jarvis while you use barehands.** barehands and Jarvis watch the same hands through the same camera (one camera is enough), so moving cards on the board also pinched and clicked things inside Jarvis. Now, while barehands is running, Jarvis ignores your hands (the top shows "✋ paused (barehands) · ☝️ to use").
 - **Want Jarvis anyway?** Hold up one pointing finger ☝️ for about a second. Jarvis takes your hand for a few seconds ("☝️ JARVIS HAS YOUR HAND"), so you can pinch and drag it to another screen or click something. Then it goes back to ignoring you. Everything is back to normal when you close barehands. You can switch this off in ⚙ → Hand gestures.
