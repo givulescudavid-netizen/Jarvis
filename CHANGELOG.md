@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026.10.12.2 — "Jarvis, open the board"
+- Once barehands is running on your computer, say "Jarvis, open the board" and its page opens in a new tab. Jarvis can't start barehands itself (websites aren't allowed to start programs), so start it first.
+
 ## 2026.10.12 — Jarvis can put things on your barehands board
 - barehands is a free app that turns your webcam into a hand-tracked glass board: cards float over your camera and you move them with your bare hands. Jarvis can now be its voice: say "Jarvis, put today's plan on the board" and the card flies up centre stage.
 - Switch it on in ⚙ → barehands board and press "Test it": a J.A.R.V.I.S. card should appear. barehands itself has to be running on your computer, with its page open in Chrome. Chrome may ask once whether Jarvis can reach devices on your network; say allow.
