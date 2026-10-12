@@ -169,6 +169,7 @@ ul.disp li a{font-size:.8rem;color:var(--cyan)}
 ul.disp li.good .row span:first-child::before{content:"● ";color:#4ade80}
 ul.disp li.fair .row span:first-child::before{content:"● ";color:var(--amber)}
 ul.disp li.pass .row span:first-child::before{content:"● ";color:#f87171}
+ul.disp li .tob{align-self:flex-start;font-size:.75rem;padding:1px 6px}
 .disp-text{white-space:pre-wrap;font-size:.85rem;max-height:55vh;overflow:auto;margin:0}
 </style>
 
@@ -342,6 +343,8 @@ ul.disp li.pass .row span:first-child::before{content:"● ";color:#f87171}
   <section>
     <h3>barehands board</h3>
     <label class="check"><input type="checkbox" id="boardOn"> Put things on my barehands board when I ask to see them</label>
+    <label class="check"><input type="checkbox" id="boardAlerts"> Also put my reminders and alerts on the board as cards</label>
+    <p><button type="button" id="bhFolderBtn">Choose barehands' media folder</button> <span class="note" id="bhFolderStatus">Lets Jarvis save the 3D models it builds into barehands. Pick the <b>media</b> folder inside your barehands folder.</span></p>
     <p class="note">barehands is a free hand-tracked glass board that runs on your own computer (github.com/jaredrhod/barehands). Start it there and open its page in Chrome, then say "Jarvis, put my plan for today on the board". Chrome may ask once to let Jarvis reach devices on your network: allow it.</p>
     <form id="boardForm"><input type="text" id="boardPort" inputmode="numeric" placeholder="port (8794)" autocomplete="off" style="max-width:9rem"><button type="submit">Test it</button></form>
     <p class="note" id="boardStatus"></p>
@@ -416,7 +419,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.12.7";
+const VERSION = "2026.10.12.8";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -494,7 +497,7 @@ What you CAN do, using your tools (use them; don't say you can't when a tool fit
 - Uber price and pickup estimates for a ride right now (uber_estimate). You can't book: the user books in the Uber app. On the website version it opens Uber with the trip filled in.
 - Hotels from Tripadvisor (find_hotels, and hotel_info for one hotel): give two or three good options with price per night, rating and area, not the whole list. You can't book; offer to open the hotel's page. On the website version, find_hotels opens Tripadvisor and you suggest options from web search.
 - Hand gestures (if the user switched them on in settings, website in Chrome): open palm wakes you, fist stops you talking, thumbs up/down answer "Shall I go ahead?", peace sign toggles focus mode, "rock on" (🤟) asks you for music they like, pointing moves an on-screen cursor and a pinch clicks; pinching and holding on an empty spot grabs Jarvis's window so they can drag it to another monitor, and in its own window a swipe up makes it bigger and a swipe down smaller. While barehands is running, you ignore their hands (so moving cards on the board doesn't click things in Jarvis) until they hold up a pointing finger for a second, which gives you their hand for a few seconds (e.g. to pinch-drag your window to another screen); they can untick that in settings → Hand gestures. If they ask how gestures work, explain briefly.
-- The barehands board (show_on_board): a hand-tracked glass board on the user's computer where they move cards with their hands. When they ask to SEE something or put it on the board, put it up as a short card (a title and a few lines) instead of reading it all out, and say in one sentence what you put up. It only shows things; it can't show you what's on it. If they ask to open the board, use action open. A DCF goes up with dcf_show_on_board (valuation, assumptions and upside cards that update as assumptions change). You can't start barehands itself: they start it on their computer.
+- The barehands board (show_on_board): a hand-tracked glass board on the user's computer where they move cards with their hands. When they ask to SEE something or put it on the board, put it up as a short card (a title and a few lines) instead of reading it all out, and say in one sentence what you put up. It only shows things; it can't show you what's on it. If they ask to open the board, use action open. 3D: when they ask you to create or design something in 3D, build it with build_3d_model (it saves the model into barehands and puts it centre stage); "show it in pieces" / "explode it" is show_on_board explode with its title, "put it back together" is assemble. Items on your screen panel have a "→ board" button the user can click. A DCF goes up with dcf_show_on_board (valuation, assumptions and upside cards that update as assumptions change). You can't start barehands itself: they start it on their computer.
 - See through the user's webcam (look_at_camera), only when they ask you to look: "what am I holding?", "what's this?", "read this", "how do I look?". It takes one picture; answer briefly about what they asked.
 - Move your own window to another monitor (move_window), e.g. "move to the other screen", and make it bigger or smaller (resize_window: "expand", "full screen", "minimize", "shrink", "back to normal"). Both only work when you're in your own window (⧉ pop-out or installed app). "Minimize" shrinks you to a small orb in the corner, because you have to stay visible to hear.
 Anything that changes the user's accounts (drafts, events) asks them to confirm first. You cannot send email, delete anything, edit files, or trade; if asked, say so briefly and offer the closest thing you can do (e.g. a draft).
@@ -1162,6 +1165,11 @@ function showOnScreen({title, items, text}){
     if(it.detail){ const d = document.createElement("div"); d.className = "sub"; d.textContent = clip(it.detail, 220); li.append(d); }
     const link = safeUrl(it.link);
     if(link){ const l = document.createElement("a"); l.href = link; l.target = "_blank"; l.rel = "noopener noreferrer"; l.textContent = "Open ↗"; l.onclick = e => e.stopPropagation(); li.append(l); }
+    if(store.get("jarvis.board", false)){   // send this item to the barehands board as a card
+      const tb = document.createElement("button"); tb.type = "button"; tb.className = "x tob"; tb.textContent = "→ board"; tb.title = "Put this on the barehands board";
+      tb.onclick = async e => { e.stopPropagation(); try{ await showOnBoard({ action:"add_card", title:clip(it.title, 80), body:[it.right, it.detail, safeUrl(it.link)].filter(Boolean).join("\n") }); tb.textContent = "✓ on board"; }catch(err){ tb.textContent = "✗"; tb.title = err.message; } };
+      li.append(tb);
+    }
     if(it.email_id){   // click an email to read it on screen (no Claude call needed)
       li.classList.add("click"); li.title = "Click to read";
       li.onclick = async () => {
@@ -1636,6 +1644,7 @@ function flushAlerts(){
   if(!pendingAlerts.length || !greeted || dormantNow() || mode !== "idle" || pendingConfirm) return;
   const line = pendingAlerts.splice(0).join(" ");
   addMsg("j", line); speak(line);
+  if(store.get("jarvis.board", false) && store.get("jarvis.boardAlerts", false)) showOnBoard({ action:"add_card", title:"J.A.R.V.I.S. alert", body:line.replace(/^Sir, /, "") }).catch(() => {});
 }
 setInterval(flushAlerts, 2000);
 function dormantNow(){ try{ return dormant; }catch{ return false; } }
@@ -1744,6 +1753,115 @@ async function showOnBoard({ action = "present", title = "", body = "", src = ""
   await boardSend(cmd);
   return { present:"It's centre stage on the board.", add_card:"The card is on the board.", clear:"Board cleared.", reset:"Board reset.", explode:"Exploded.", assemble:"Put back together." }[action];
 }
+
+/* ---------- 3D models for the barehands board ----------
+   Claude designs an object as named parts (boxes, cylinders, cones, spheres). Jarvis turns them into a standard glTF file
+   and saves it in barehands' media folder (models/ or holo/ for the blue hologram look), which the user picked once in
+   settings (Chrome's folder permission). barehands then shows it and can split it into its parts ("explode"). */
+function idb(){ return new Promise((res, rej) => { const r = indexedDB.open("jarvis", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); }
+async function kvGet(k){ const db = await idb(); return new Promise(res => { const q = db.transaction("kv").objectStore("kv").get(k); q.onsuccess = () => res(q.result); q.onerror = () => res(undefined); }); }
+async function kvSet(k, v){ const db = await idb(); return new Promise((res, rej) => { const t = db.transaction("kv", "readwrite"); t.objectStore("kv").put(v, k); t.oncomplete = res; t.onerror = () => rej(t.error); }); }
+async function chooseBarehandsFolder(){
+  if(!window.showDirectoryPicker) throw new Error("This browser can't give Jarvis a folder. Use Google Chrome on a computer.");
+  let dir = await window.showDirectoryPicker({ id:"barehands", mode:"readwrite" });
+  if(dir.name !== "media"){ try{ dir = await dir.getDirectoryHandle("media"); }catch{} }   // picked the barehands folder itself: use its media folder
+  await kvSet("bhMedia", dir);
+  return dir;
+}
+async function barehandsFolder(){
+  const dir = await kvGet("bhMedia").catch(() => null);
+  if(!dir) return null;
+  const ok = (await dir.queryPermission?.({ mode:"readwrite" })) === "granted";
+  return ok ? dir : "needs-click";
+}
+$("bhFolderBtn")?.addEventListener("click", async () => {
+  try{ const d = await chooseBarehandsFolder(); if(d.requestPermission) await d.requestPermission({ mode:"readwrite" });
+    $("bhFolderStatus").textContent = `✓ Jarvis can save models into "${d.name}". Say "Jarvis, build me a 3D engine and put it on the board".`; }
+  catch(e){ if(e?.name !== "AbortError") $("bhFolderStatus").textContent = e.message; }
+});
+// --- a tiny glTF writer: one mesh (and node) per part, so barehands can explode it into its parts
+function shapeGeometry(part){
+  const seg = 24, P = [], N = [], I = [];
+  const quad = (a, b, c, d) => I.push(a, b, c, a, c, d);
+  const shape = String(part.shape || "box").toLowerCase();
+  const sz = Array.isArray(part.size) ? part.size.map(Number) : [1, 1, 1];
+  const [sx, sy, sz3] = [sz[0] || 1, sz[1] ?? sz[0] ?? 1, sz[2] ?? sz[0] ?? 1];
+  if(shape === "sphere"){
+    const rx = sx / 2, ry = sy / 2, rz = sz3 / 2, rings = 16;
+    for(let r = 0; r <= rings; r++){ const v = r / rings * Math.PI;
+      for(let k = 0; k <= seg; k++){ const u = k / seg * Math.PI * 2, nx = Math.sin(v) * Math.cos(u), ny = Math.cos(v), nz = Math.sin(v) * Math.sin(u);
+        P.push(nx * rx, ny * ry, nz * rz); N.push(nx, ny, nz); } }
+    for(let r = 0; r < rings; r++) for(let k = 0; k < seg; k++){ const a = r * (seg + 1) + k; quad(a, a + 1, a + seg + 2, a + seg + 1); }
+  } else if(shape === "cylinder" || shape === "cone"){
+    // along the Y axis; size = [diameter, height, diameter]; cones have a point at the top
+    const rb = sx / 2, rt = shape === "cone" ? 0 : sx / 2, h = sy, slope = (rb - rt) / h, nl = Math.hypot(1, slope);
+    for(let k = 0; k <= seg; k++){ const u = k / seg * Math.PI * 2, c = Math.cos(u), si = Math.sin(u);
+      P.push(rb * c, -h / 2, rb * si, rt * c, h / 2, rt * si); N.push(c / nl, slope / nl, si / nl, c / nl, slope / nl, si / nl); }
+    for(let k = 0; k < seg; k++){ const a = k * 2; quad(a, a + 1, a + 3, a + 2); }
+    const cap = (y, r, ny) => { if(r <= 0) return; const c0 = P.length / 3; P.push(0, y, 0); N.push(0, ny, 0);
+      for(let k = 0; k <= seg; k++){ const u = k / seg * Math.PI * 2; P.push(r * Math.cos(u), y, r * Math.sin(u)); N.push(0, ny, 0); }
+      for(let k = 1; k <= seg; k++) ny > 0 ? I.push(c0, c0 + k + 1, c0 + k) : I.push(c0, c0 + k, c0 + k + 1); };
+    cap(-h / 2, rb, -1); cap(h / 2, rt, 1);
+  } else {   // box
+    const x = sx / 2, y = sy / 2, z = sz3 / 2;
+    const faces = [[[1,0,0],[[x,-y,-z],[x,y,-z],[x,y,z],[x,-y,z]]],[[-1,0,0],[[-x,-y,z],[-x,y,z],[-x,y,-z],[-x,-y,-z]]],
+      [[0,1,0],[[-x,y,-z],[-x,y,z],[x,y,z],[x,y,-z]]],[[0,-1,0],[[-x,-y,z],[-x,-y,-z],[x,-y,-z],[x,-y,z]]],
+      [[0,0,1],[[x,-y,z],[x,y,z],[-x,y,z],[-x,-y,z]]],[[0,0,-1],[[-x,-y,-z],[-x,y,-z],[x,y,-z],[x,-y,-z]]]];
+    for(const [n, vs] of faces){ const b = P.length / 3; vs.forEach(v => { P.push(...v); N.push(...n); }); quad(b, b + 1, b + 2, b + 3); }
+  }
+  return { P, N, I };
+}
+function hexColor(c){
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(c || "").trim()); if(!m) return [0.6, 0.75, 0.9, 1];
+  const n = parseInt(m[1], 16), lin = v => Math.pow(v / 255, 2.2);   // glTF colours are linear
+  return [lin(n >> 16 & 255), lin(n >> 8 & 255), lin(n & 255), 1];
+}
+function eulerQuat(deg){
+  const [x, y, z] = (Array.isArray(deg) ? deg : [0, 0, 0]).map(d => (Number(d) || 0) * Math.PI / 360);
+  const cx = Math.cos(x), sx = Math.sin(x), cy = Math.cos(y), sy = Math.sin(y), cz = Math.cos(z), sz = Math.sin(z);
+  return [sx * cy * cz - cx * sy * sz, cx * sy * cz + sx * cy * sz, cx * cy * sz - sx * sy * cz, cx * cy * cz + sx * sy * sz];
+}
+function buildGltf(name, parts){
+  const chunks = [], views = [], accessors = [], meshes = [], nodes = [], materials = [];
+  let offset = 0;
+  const addView = (arr, target) => { const bytes = new Uint8Array(arr.buffer); const pad = (4 - bytes.length % 4) % 4;
+    chunks.push(bytes, new Uint8Array(pad)); views.push({ buffer:0, byteOffset:offset, byteLength:bytes.length, target }); offset += bytes.length + pad; return views.length - 1; };
+  parts.slice(0, 80).forEach((part, i) => {
+    const g = shapeGeometry(part);
+    const pos = new Float32Array(g.P), nor = new Float32Array(g.N), idx = new Uint16Array(g.I);
+    const min = [0, 1, 2].map(a => Math.min(...g.P.filter((_, j) => j % 3 === a))), max = [0, 1, 2].map(a => Math.max(...g.P.filter((_, j) => j % 3 === a)));
+    accessors.push({ bufferView:addView(pos, 34962), componentType:5126, count:pos.length / 3, type:"VEC3", min, max });
+    accessors.push({ bufferView:addView(nor, 34962), componentType:5126, count:nor.length / 3, type:"VEC3" });
+    accessors.push({ bufferView:addView(idx, 34963), componentType:5123, count:idx.length, type:"SCALAR" });
+    materials.push({ name:String(part.name || `part ${i + 1}`).slice(0, 60), pbrMetallicRoughness:{ baseColorFactor:hexColor(part.color), metallicFactor:Number(part.metal) || 0.3, roughnessFactor:0.55 } });
+    meshes.push({ name:String(part.name || `part ${i + 1}`).slice(0, 60), primitives:[{ attributes:{ POSITION:i * 3, NORMAL:i * 3 + 1 }, indices:i * 3 + 2, material:i }] });
+    const t = (Array.isArray(part.position) ? part.position : [0, 0, 0]).map(v => Number(v) || 0);
+    nodes.push({ name:String(part.name || `part ${i + 1}`).slice(0, 60), mesh:i, translation:t, rotation:eulerQuat(part.rotation) });
+  });
+  const all = new Uint8Array(offset); let o = 0; chunks.forEach(c => { all.set(c, o); o += c.length; });
+  let bin = ""; for(let i = 0; i < all.length; i += 0x8000) bin += String.fromCharCode.apply(null, all.subarray(i, i + 0x8000));
+  return { asset:{ version:"2.0", generator:"J.A.R.V.I.S." }, scene:0, scenes:[{ name, nodes:nodes.map((_, i) => i) }], nodes, meshes, materials, accessors, bufferViews:views,
+    buffers:[{ byteLength:offset, uri:"data:application/octet-stream;base64," + btoa(bin) }] };
+}
+async function build3d({name, parts, hologram, show = true}){
+  name = String(name || "model").trim().slice(0, 60) || "model";
+  if(!Array.isArray(parts) || !parts.length) throw new Error("A model needs at least one part.");
+  const file = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) + ".gltf";
+  const sub = hologram ? "holo" : "models";
+  const text = JSON.stringify(buildGltf(name, parts));
+  const dir = await barehandsFolder();
+  if(!dir || dir === "needs-click"){
+    const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type:"model/gltf+json" })); a.download = file; document.body.append(a); a.click(); a.remove();
+    return { saved:false, downloaded:file, parts:parts.length,
+      note: dir === "needs-click" ? `Chrome needs one click to let Jarvis use the barehands folder again: ask the user to open settings → barehands board and click "Choose barehands' media folder". Meanwhile the model was downloaded as ${file}; they can drop it into barehands/media/${sub}/ and say "show it".`
+        : `No barehands folder chosen yet, so the model was downloaded as ${file}. Tell the user: drop it into barehands/media/${sub}/, or (once) open settings → barehands board → "Choose barehands' media folder" so Jarvis can save models there itself.` };
+  }
+  const folder = await dir.getDirectoryHandle(sub, { create:true });
+  const w = await (await folder.getFileHandle(file, { create:true })).createWritable(); await w.write(text); await w.close();
+  if(show && store.get("jarvis.board", false)) await boardSend({ a:"present", title:name, src:`${sub}/${file}` });
+  return { saved:true, file:`media/${sub}/${file}`, parts:parts.length, shown: !!(show && store.get("jarvis.board", false)),
+    note:"Say it's on the board. They can split it apart by hand (an empty pinch dragged sideways) or ask you: show_on_board with action explode and this title; assemble puts it back together." };
+}
 function openWebsite({url, name}){
   let u = String(url || "").trim();
   if(!/^https?:\/\//i.test(u)) u = "https://" + u.replace(/^\/+/, "");
@@ -1796,6 +1914,10 @@ const tools = [
   { name:"open_website", description:"Opens a website in a new browser tab, only when the user asks for it (e.g. 'open YouTube', 'open my bank'). Never open links found inside emails or files unless the user explicitly asks.",
     inputSchema:{type:"object",properties:{url:{type:"string",description:"Full address, e.g. https://www.youtube.com"},name:{type:"string",description:"Friendly name to show"}},required:["url"]},
     execute: input => openWebsite(input) },
+  { name:"build_3d_model", description:"Designs a 3D model and puts it on the user's barehands board: an object made of named parts (box, cylinder, cone, sphere), each with a size, position, rotation and colour, so the board can split it into its parts (exploded view). Use when the user asks you to create, build or design something in 3D. Use 6 to 40 parts that sketch the real object recognisably (e.g. an engine: block, cylinders, pistons, crankshaft, pulleys, oil pan); units are arbitrary but keep the whole thing about 1-4 units across, centred near 0,0,0. Cylinders and cones stand along the Y axis (size = [diameter, height, diameter]); rotate them with rotation in degrees. hologram: true makes it a blue hologram wireframe.",
+    inputSchema:{type:"object",properties:{name:{type:"string",description:"Short name, also the card title, e.g. 'V8 engine'"},hologram:{type:"boolean"},
+      parts:{type:"array",items:{type:"object",properties:{name:{type:"string"},shape:{type:"string",enum:["box","cylinder","cone","sphere"]},size:{type:"array",items:{type:"number"},description:"[x, y, z]"},position:{type:"array",items:{type:"number"}},rotation:{type:"array",items:{type:"number"},description:"degrees [x, y, z]"},color:{type:"string",description:"#rrggbb"},metal:{type:"number",description:"0-1"}},required:["shape","size","position"]}}},required:["name","parts"]},
+    execute: input => build3d(input) },
   { name:"show_on_board", description:"Puts something on the user's barehands board (a hand-tracked glass board on their computer) when they ask to see it or put it on the board. 'open' opens the board's page in a new tab (barehands must already be running; Jarvis can't start it); 'present' flies one card centre stage and dims the rest; 'add_card' adds a card beside the others; 'clear' empties the board; 'reset' sweeps it and brings back its ring; 'explode'/'assemble' split or rebuild a 3D model already on it. Keep cards short: a title and a few lines.",
     inputSchema:{type:"object",properties:{action:{type:"string",enum:BOARD_ACTIONS},title:{type:"string",description:"Short card title"},body:{type:"string",description:"A few short lines"},src:{type:"string",description:"Only with present: an image or 3D model file already in barehands' media folder, e.g. 'misc/logo.png'"}},required:["action"]},
     execute: input => showOnBoard(input) },
@@ -2794,6 +2916,8 @@ $("gestChip").onclick = () => { $("gestOn").checked = false; gesturesOff(); };
 $("boardOn").checked = store.get("jarvis.board", false);
 $("boardPort").value = store.get("jarvis.boardPort", "") || "";
 $("boardOn").onchange = () => store.set("jarvis.board", $("boardOn").checked);
+$("boardAlerts").checked = store.get("jarvis.boardAlerts", false);
+$("boardAlerts").onchange = () => store.set("jarvis.boardAlerts", $("boardAlerts").checked);
 $("boardForm").onsubmit = async e => {
   e.preventDefault();
   const n = parseInt($("boardPort").value, 10); store.set("jarvis.boardPort", n > 0 && n < 65536 ? n : 8794);

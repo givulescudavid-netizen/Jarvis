@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.10.12.8 — 3D models and notifications on the barehands board
+- **Build in 3D:** "Jarvis, build me a V8 engine in 3D and put it on the board." Jarvis designs the object from named parts (block, cylinders, pulleys…), saves it as a 3D file in barehands, and puts it centre stage.
+- **In pieces:** "Show it in pieces" splits it into its parts on the board (exploded view); "put it back together" reassembles it. You can also pull it apart by hand in barehands.
+- **Holograms:** "Make it a hologram" shows it as barehands' blue wireframe.
+- **One-time setup:** ⚙ → barehands board → "Choose barehands' media folder", then pick the media folder inside barehands. Until then, Jarvis downloads the model and tells you where to drop it.
+- **Notifications to the board:** each item on Jarvis's screen panel (emails, Centris listings…) has a "→ board" button that puts it on the board as a card. Tick "Also put my reminders and alerts on the board" and every reminder, meeting alert and price alert lands there too.
+
 ## 2026.10.12.7 — Centris deal finder and emails on screen
 - **Centris deals:** "Jarvis, any good deals on Centris?" Jarvis reads your Centris alert emails, pulls out every property and runs the investor numbers: price per door, gross rent multiplier, cap rate, mortgage payment (Canadian semi-annual compounding), monthly cash flow, cash-on-cash return and debt coverage. Then it ranks them and tells you which one or two look best and why.
 - **Your criteria:** the first time, Jarvis asks what you look for (areas, number of units, max price, minimum cap rate or cash flow, down payment and rate) and remembers it. Change it any time: "Jarvis, only Montreal and Laval, at least a 6% cap rate."
