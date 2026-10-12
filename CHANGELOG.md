@@ -1,5 +1,18 @@
 # Changelog
 
+## 2026.10.12.5 — Jarvis can see through your camera
+- Ask "Jarvis, what am I holding?", "what's this?", "read this for me" or "how do I look?" and Jarvis takes one picture with your webcam and answers. "📷 LOOKING" shows at the top when it does.
+- It only looks when you ask. It isn't watching all the time, and the picture isn't saved: it goes to Claude with your question and that's it.
+- The first time, Chrome asks to use the camera (if hand gestures are on, it's already allowed).
+
+## 2026.10.12.4 — Gestures pause for barehands; bigger / smaller with your hand; no extra click after popping out
+- **No more clicks in Jarvis while you use barehands.** barehands and Jarvis watch the same hands through the same camera (one camera is enough), so moving cards on the board also pinched and clicked things inside Jarvis. Now, while barehands is running, Jarvis ignores your hands (the top shows "✋ paused (barehands) · ☝️ to use").
+- **Want Jarvis anyway?** Hold up one pointing finger ☝️ for about a second. Jarvis takes your hand for a few seconds ("☝️ JARVIS HAS YOUR HAND"), so you can pinch and drag it to another screen or click something. Then it goes back to ignoring you. Everything is back to normal when you close barehands. You can switch this off in ⚙ → Hand gestures.
+- **Pop-out starts listening straight away.** After you tap ⧉, the new window starts on its own: no more "Initialize" click before you can talk. If Chrome still insists on one click before Jarvis can speak out loud, the click screen comes back, and a click anywhere on it is enough.
+- **Swipe up / down to resize** (hand gestures, in the pop-out or installed app): swipe up to make Jarvis bigger (from the small orb to the normal window, then full screen with the whole dashboard), swipe down to make it smaller (back to the normal window, then a small orb in the bottom right corner). Sideways swipes still close what's open.
+- **By voice:** "Jarvis, go full screen", "expand", "minimize", "shrink", "back to normal".
+- A web page can't truly minimize its own window to the taskbar, and Jarvis has to stay visible to hear you, so "minimize" shrinks it to a small orb instead.
+
 ## 2026.10.12.3 — Your DCF on the board
 - Say "Jarvis, put the Nvidia DCF on the board" and three cards appear on your barehands board: the valuation (enterprise value, equity value, implied share price and the other outputs from your template) centre stage, the key assumptions (growth, margins, WACC, terminal value; not the historicals) and the upside against today's live price.
 - To change an assumption, say it: "bump growth to 12%". Jarvis writes it into your DCF copy and the cards update by themselves with the new value and upside. (barehands can't tell Jarvis what you touch on the board, so pinching a card can't change a number.)

@@ -22,8 +22,10 @@ let failed = 0, passed = 0;
 function check(name, ok, info = ""){ if(ok){ passed++; console.log("  ✓", name); } else { failed++; console.log("  ✗", name, info); } }
 
 // Fakes injected before the page loads. `script` is the list of replies the fake Claude gives, in order.
-function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, events = [], unread = 0, googleBefore = false, noSR = false, micBusy = false, ls = {} } = {}){
-  return [({ mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy, ls }) => {
+function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, events = [], unread = 0, googleBefore = false, noSR = false, micBusy = false, ls = {}, fakeHand = false, voiceNeedsClick = false } = {}){
+  return [({ mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy, ls, fakeHand, voiceNeedsClick }) => {
+    // a pretend camera hand, ready before Jarvis starts (for pages that start by themselves)
+    if(fakeHand){ window.__gr = { gestures:[], landmarks:[] }; window.__fakeGR = { recognizeForVideo: () => window.__gr }; }
     // the automatic morning briefing would otherwise make the results depend on the time of day
     Object.entries({ "jarvis.autoBrief": false, ...ls }).forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v)));
     if(micBusy) navigator.mediaDevices.getUserMedia = () => Promise.reject(Object.assign(new Error("Could not start audio source"), { name:"NotReadableError" }));
@@ -35,7 +37,10 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
     let current = null; window.__cancels = 0;
     const synth = { speaking:false, pending:false, resume(){}, getVoices(){ return [{ name:"Daniel", lang:"en-GB" }]; },
       cancel(){ window.__cancels++; if(current){ clearInterval(current.tick); const u = current.u; current = null; u.onerror && u.onerror({ error:"interrupted" }); } },
-      speak(u){ window.__spoken.push(u.text); (window.__spokenAt ||= []).push(Date.now());
+      speak(u){
+        // like Chrome: no talking until someone has clicked in this window
+        if(voiceNeedsClick && !navigator.userActivation.hasBeenActive){ setTimeout(() => u.onerror && u.onerror({ error:"not-allowed" }), 5); return; }
+        window.__spoken.push(u.text); (window.__spokenAt ||= []).push(Date.now());
         if(!slowVoice){ setTimeout(() => { u.onstart && u.onstart(); setTimeout(() => u.onend && u.onend(), 20); }, 5); return; }
         setTimeout(() => { u.onstart && u.onstart();
           let i = 0, at = 0; const words = u.text.split(" ");
@@ -126,7 +131,7 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
     window.__opened = [];
     window.open = url => { window.__opened.push(String(url)); return window.__blockPopups ? null : {}; };
     if(noSR){ window.SpeechRecognition = undefined; window.webkitSpeechRecognition = undefined; }
-  }, { mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy, ls }];
+  }, { mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy, ls, fakeHand, voiceNeedsClick }];
 }
 async function open(opts, viewport = { width:1440, height:900 }, url = PAGE){
   const p = await browser.newPage({ viewport }); const errs = [];
@@ -647,6 +652,8 @@ console.log("Finance: DCF co-pilot, markets, comps, price alerts");
   await say(p, "watch nvidia and tell me if it drops below 110", 1500);
   await p.waitForTimeout(800);
   check("markets: watchlist shows on the dashboard with the price", await p.locator("#marketsBox").isVisible() && /NVDA/.test(await p.locator("#marketsList").textContent()) && /108\.50/.test(await p.locator("#marketsList").textContent()));
+  // the alert waits until Jarvis has finished its sentence, so give a busy machine a few seconds
+  await p.waitForFunction(() => window.__spoken.some(t => /NVDA has dropped below 110/.test(t)), null, { timeout:5000 }).catch(() => {});
   check("markets: speaks a price alert when it drops below your level", (await p.evaluate(() => window.__spoken)).some(t => /NVDA has dropped below 110: now 108\.50/.test(t)), (await p.evaluate(() => window.__spoken)).slice(-3).join(" | "));
   await say(p, "build comps for nvidia and amd", 700);
   check("comps: asks before creating a sheet", await p.locator("#confirmBox").isVisible());
@@ -779,7 +786,7 @@ console.log("Hand gestures (pretend camera hand)");
   await show(null, 600, gx, gy, { pinch:true });
   check("🤏 a pinch clicks it (settings open)", await p.locator("#drawer").isVisible());
   await show(null, 200, gx, gy);
-  for(const w of [.15, .25, .35, .45, .55, .65]) await show(null, 50, gx, gy, { wrist:w });
+  for(const w of [.1, .25, .4, .55, .7, .85]) await show(null, 60, gx, gy, { wrist:w });   // a big, quick sweep, so even a busy machine sees it
   await p.waitForTimeout(400);
   check("👋 a swipe closes what's open (settings) and leaves focus mode", !(await p.locator("#drawer").isVisible()) && !(await p.evaluate(() => document.documentElement.classList.contains("focus"))));
   await away(); await settle(p);
@@ -807,26 +814,26 @@ console.log("Moving Jarvis between screens (pinch-drag and voice)");
   };
   const lastResult = async p => JSON.stringify((await log(p)).filter(x => x.last).at(-1).last.content);
   // in a normal tab: Jarvis explains it needs its own window
-  const t = await open({ script:[{ tool:"move_window", input:{ screen:"next" } }, { text:"I need my own window for that, sir." }] }, undefined, HTTP_PAGE);
+  const t = await open({ script:[{ tool:"move_window", input:{ screen:"next" } }, { text:"I need my own window for that, sir." }, { tool:"resize_window", input:{ size:"big" } }, { text:"Same there, sir." }] }, undefined, HTTP_PAGE);
   await t.evaluate(screensFake, true);
   await t.click("#bootBtn"); await settle(t);
   await say(t, "jarvis move to the other screen", 1200);
   check("in a normal tab, moving says to pop out with ⧉ first (Chrome can't move tabs)", /pop me out/.test(await lastResult(t)) && (await t.evaluate(() => window.__moves.length)) === 0, await lastResult(t));
   check("Jarvis knows it can move its window", (await log(t))[0].tools.includes("move_window") && /move_window/.test((await log(t))[0].system));
+  await say(t, "jarvis go full screen", 1200);
+  check("in a normal tab, resizing also says to pop out first", /pop me out/.test(await lastResult(t)) && (await log(t))[0].tools.includes("resize_window") && /resize_window/.test((await log(t))[0].system), await lastResult(t));
   await t.close();
   // in the pop-out, without Chrome's OK yet
   const n = await open({ script:[{ tool:"move_window", input:{} }, { text:"Chrome needs your OK, sir." }] }, { width:440, height:600 }, HTTP_PAGE + "?mini=1");
   await n.evaluate(screensFake, false);
-  await n.click("#bootBtn"); await settle(n);
+  await settle(n);
   await say(n, "jarvis move to the other screen", 1200);
   check("without Chrome's permission, Jarvis says where to allow it", /Allow moving between screens/.test(await lastResult(n)), await lastResult(n));
   await n.close();
   // in the pop-out, allowed: voice and pinch-drag
-  const p = await open({ ls:{ "jarvis.gestures": true }, script:[{ tool:"move_window", input:{ screen:"next" } }, { text:"Done, sir." }] }, { width:440, height:600 }, HTTP_PAGE + "?mini=1");
+  const p = await open({ fakeHand:true, ls:{ "jarvis.gestures": true }, script:[{ tool:"move_window", input:{ screen:"next" } }, { text:"Done, sir." }, { tool:"resize_window", input:{ size:"small" } }, { text:"Minimised, sir." }] }, { width:440, height:600 }, HTTP_PAGE + "?mini=1");
   await p.evaluate(screensFake, true);
   await p.evaluate(() => {
-    window.__gr = { gestures:[], landmarks:[] };
-    window.__fakeGR = { recognizeForVideo: () => window.__gr };
     window.__hand = (sx, sy, pinch) => {
       const x = 1 - sx / innerWidth, y = sy / innerHeight;
       const lm = Array.from({ length:21 }, () => ({ x, y, z:0 }));
@@ -835,7 +842,7 @@ console.log("Moving Jarvis between screens (pinch-drag and voice)");
       window.__gr = { landmarks:[lm], gestures:[[{ categoryName:"None", score:.9 }]] };
     };
   });
-  await p.click("#bootBtn"); await settle(p); await p.waitForTimeout(800);
+  await settle(p); await p.waitForTimeout(800);
   check("(hand gestures are on in the pop-out)", await p.locator("#gestChip").isVisible());
   await say(p, "jarvis move to the other screen", 1200);
   check("🗣 'move to the other screen' moves the pop-out to screen 2", /Moved to screen 2 of 2/.test(await lastResult(p)) && (await p.evaluate(() => window.__moves.at(-1)?.[0])) >= 1920, await lastResult(p));
@@ -855,6 +862,28 @@ console.log("Moving Jarvis between screens (pinch-drag and voice)");
   const before = await p.evaluate(() => window.__moves.length);
   await hand(ex, ey, true, 200); await hand(ex, ey, false, 300);
   check("a quick pinch (not held) doesn't grab or move anything", (await p.evaluate(() => window.__moves.length)) === before);
+  // bigger / smaller: resizeTo records the size, and the window reports it back
+  await p.evaluate(() => { Object.entries({ availWidth:1920, availHeight:1040, availLeft:0, availTop:0 }).forEach(([k, v]) => Object.defineProperty(screen, k, { configurable:true, get:() => v })); });   // a 1920×1080 monitor
+  await p.evaluate(() => { window.__sizes = []; window.resizeTo = (w, h) => { window.__sizes.push([w, h]); Object.defineProperty(window, "outerWidth", { configurable:true, get:() => w }); }; });
+  await hand(200, 450, false, 1300);   // hand still, in the middle
+  for(const sy of [450, 390, 330, 270, 210, 150]) await hand(200, sy, false, 50);
+  await hand(200, 150, false, 300);
+  const full = await p.evaluate(() => [window.__sizes.at(-1), screen.availWidth, screen.availHeight]);
+  check("👆 swipe up makes the pop-out full screen", full[0] && full[0][0] === full[1] && full[0][1] === full[2] && /FULL SCREEN/.test(await p.locator("#gestToast").textContent()), JSON.stringify(full));
+  await p.setViewportSize({ width:1400, height:850 }); await p.waitForTimeout(200);
+  check("…and full screen shows the whole dashboard, not just the reactor", !(await p.evaluate(() => document.documentElement.classList.contains("mini"))) && await p.locator(".side.left").isVisible());
+  await p.setViewportSize({ width:440, height:600 });
+  await hand(200, 90, false, 1300);
+  for(const sy of [90, 150, 210, 270, 330, 380]) await hand(200, sy, false, 50);
+  await hand(200, 380, false, 600);
+  check("👇 swipe down (hand stays in view) makes it the normal pop-out again", JSON.stringify(await p.evaluate(() => window.__sizes.at(-1))) === "[440,600]" && /SMALLER/.test(await p.locator("#gestToast").textContent()), JSON.stringify(await p.evaluate(() => window.__sizes)));
+  await hand(200, 150, false, 1300);
+  const n0 = await p.evaluate(() => window.__sizes.length);
+  for(const sy of [150, 210, 270, 330, 390, 450, 510, 570, 600]) await hand(200, sy, false, 50);   // the hand keeps going down and out of view
+  await p.evaluate(() => { window.__gr = { gestures:[], landmarks:[] }; }); await p.waitForTimeout(600);
+  check("…but just dropping your hand out of view doesn't shrink it", (await p.evaluate(() => window.__sizes.length)) === n0);
+  await say(p, "jarvis minimize", 1200);
+  check("🗣 'minimize' shrinks Jarvis to a small orb in the corner", JSON.stringify(await p.evaluate(() => window.__sizes.at(-1))) === "[300,340]" && /small/.test(await lastResult(p)), await lastResult(p));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
@@ -958,6 +987,64 @@ console.log("Browsers without voice listening");
   await p.close();
 }
 
+console.log("Looking through the camera (only when asked)");
+{
+  const p = await open({ script:[{ tool:"look_at_camera", input:{ question:"what am I holding?" } }, { text:"A coffee mug, sir." }] }, undefined, HTTP_PAGE);
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis what am i holding", 2500);
+  const L = await log(p), first = L.find(x => x.tools), res = L.filter(x => x.last).at(-1).last.content[0];
+  const img = Array.isArray(res.content) && res.content.find(b => b.type === "image");
+  check("'what am I holding?': Jarvis takes one camera picture and Claude sees it", img && img.source.media_type === "image/jpeg" && img.source.data.length > 1000 && /what am I holding/.test(JSON.stringify(res.content)), JSON.stringify(res).slice(0, 300));
+  check("…and says what it sees", (await p.evaluate(() => window.__spoken)).some(t => /coffee mug/.test(t)) && /LOOKING/.test(await p.locator("#gestToast").textContent()));
+  check("Claude is told it can look, but only when asked", first.tools.includes("look_at_camera") && /look_at_camera\), only when they ask/.test(first.system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Hand gestures pause while barehands is running");
+{
+  const p = await open({ fakeHand:true, ls:{ "jarvis.gestures": true, "jarvis.board": true } }, undefined, HTTP_PAGE);
+  await p.evaluate(() => {
+    window.__bh = false;   // is barehands running?
+    window.__extraFetch = async u => { if(!/127\.0\.0\.1:8794\//.test(u)) return null; if(!window.__bh) throw new TypeError("Failed to fetch"); return new Response("", { status:200 }); };
+    window.__hand = (sx, sy, pinch, gesture = "None") => {
+      const x = 1 - sx / innerWidth, y = sy / innerHeight;
+      const lm = Array.from({ length:21 }, () => ({ x, y, z:0 }));
+      lm[0] = { x, y: Math.min(1, y + .2), z:0 };
+      lm[4] = pinch ? { x, y, z:0 } : { x: x + .15, y: y + .1, z:0 };
+      window.__gr = { landmarks:[lm], gestures:[[{ categoryName:gesture, score:.9 }]] };
+    };
+  });
+  await p.click("#bootBtn"); await settle(p); await p.waitForTimeout(600);
+  const g = await p.locator("#gearBtn").boundingBox(), gx = g.x + g.width / 2, gy = g.y + g.height / 2;
+  check("(gestures on, barehands not running: not paused)", /gestures on/.test(await p.locator("#gestChip").textContent()));
+  await p.evaluate(() => { window.__bh = true; }); await p.waitForTimeout(4600);
+  check("barehands running: Jarvis's gestures pause by themselves and say so", /paused \(barehands\)/.test(await p.locator("#gestChip").textContent()) && /ignores your hands/.test(await p.locator("#gestStatus").textContent()));
+  await p.evaluate(([x, y]) => window.__hand(x, y, false), [gx, gy]); await p.waitForTimeout(1200);
+  await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.waitForTimeout(600);
+  check("…so a pinch on the board doesn't click anything in Jarvis", await p.locator("#drawer").isHidden() && await p.locator("#airCursor").isHidden());
+  await p.evaluate(([x, y]) => window.__hand(x, y, false), [gx, gy]); await p.waitForTimeout(300);
+  await p.evaluate(([x, y]) => window.__hand(x, y, false, "Pointing_Up"), [gx, gy]); await p.waitForTimeout(1400);
+  check("☝️ holding up a pointing finger gives Jarvis your hand for a moment", /JARVIS HAS YOUR HAND/.test(await p.locator("#gestToast").textContent()) && await p.locator("#airCursor").isVisible());
+  await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.waitForTimeout(600);
+  check("…then a pinch works in Jarvis (settings open)", await p.locator("#drawer").isVisible());
+  await p.click("#closeBtn");
+  await p.evaluate(([x, y]) => window.__hand(x, y, false), [gx, gy]); await p.waitForTimeout(6800);
+  await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.waitForTimeout(600);
+  check("…and a few seconds later Jarvis ignores your hand again", await p.locator("#drawer").isHidden() && await p.locator("#airCursor").isHidden());
+  await p.evaluate(() => window.__hand(10, 10, false)); await p.waitForTimeout(200);
+  await p.evaluate(() => { window.__bh = false; }); await p.waitForTimeout(4600);
+  check("barehands closed: gestures come back by themselves", /gestures on/.test(await p.locator("#gestChip").textContent()));
+  await p.evaluate(([x, y]) => window.__hand(x, y, false), [gx, gy]); await p.waitForTimeout(1200);
+  await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.waitForTimeout(600);
+  check("…and a pinch clicks again (settings open)", await p.locator("#drawer").isVisible());
+  await p.click("#closeBtn");
+  await p.evaluate(() => { localStorage.setItem("jarvis.gestBoardPause", "false"); window.__bh = true; }); await p.waitForTimeout(4600);
+  check("with the setting off, gestures stay on even while barehands runs", /gestures on/.test(await p.locator("#gestChip").textContent()));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("barehands board");
 {
   const capture = () => { window.__board = []; window.__extraFetch = async (u, o) => {
@@ -1055,12 +1142,24 @@ console.log("Its own window (pop out / app)");
   await p.close();
   const m = await open({}, { width:440, height:600 }, HTTP_PAGE + "?mini=1");
   check("the pop-out window shows just the reactor (compact layout)", await m.evaluate(() => document.documentElement.classList.contains("mini")) && await m.locator(".side.left").isHidden() && await m.locator("#reactor").isVisible());
-  await m.click("#bootBtn"); await settle(m);
+  await settle(m);
+  check("…it starts by itself: no 'Initialize' click needed after ⧉", await m.locator("#boot").isHidden());
   check("…and works normally", (await m.evaluate(() => window.__spoken.length)) === 1 && /Say "Jarvis"|Go ahead|Yes, sir/.test(await m.locator("#mode").textContent()));
   check("…no sideways scrolling", (await m.evaluate(() => document.documentElement.scrollWidth)) <= 440);
   await m.screenshot({ path: path.join(shots, "popout.png") });
   check("no page errors", m.errs.length === 0, m.errs.join(" | "));
   await m.close();
+}
+
+{
+  // Chrome sometimes still wants one click in the new window before Jarvis can speak
+  const b = await open({ voiceNeedsClick:true }, { width:440, height:600 }, HTTP_PAGE + "?mini=1");
+  await settle(b, 800);
+  check("pop-out: if Chrome blocks the voice, the click screen comes back and says why", await b.locator("#boot").isVisible() && /Click anywhere/.test(await b.locator("#bootNote").textContent()));
+  await b.mouse.click(20, 580); await settle(b, 800);
+  check("…a click anywhere on it is enough, and Jarvis talks", await b.locator("#boot").isHidden() && (await b.evaluate(() => window.__spoken.length)) >= 1);
+  check("no page errors", b.errs.length === 0, b.errs.join(" | "));
+  await b.close();
 }
 
 console.log("Only one Jarvis at a time");
