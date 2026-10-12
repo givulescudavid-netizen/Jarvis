@@ -1,10 +1,40 @@
 # Changelog
 
-## 2026.10.11.27 — Bigger / smaller with your hand, and no extra click after popping out
+## 2026.10.12.4 — Gestures pause for barehands; bigger / smaller with your hand; no extra click after popping out
+- **No more clicks in Jarvis while you use barehands.** barehands and Jarvis watch the same hands through the same camera, so moving cards on the board also pinched and clicked things inside Jarvis. Now Jarvis's own hand gestures pause by themselves while barehands is running (the top shows "✋ paused (barehands)") and come back when you close it. You can switch this off in ⚙ → Hand gestures.
 - **Pop-out starts listening straight away.** After you tap ⧉, the new window starts on its own: no more "Initialize" click before you can talk. If Chrome still insists on one click before Jarvis can speak out loud, the click screen comes back, and a click anywhere on it is enough.
 - **Swipe up / down to resize** (hand gestures, in the pop-out or installed app): swipe up to make Jarvis bigger (from the small orb to the normal window, then full screen with the whole dashboard), swipe down to make it smaller (back to the normal window, then a small orb in the bottom right corner). Sideways swipes still close what's open.
 - **By voice:** "Jarvis, go full screen", "expand", "minimize", "shrink", "back to normal".
 - A web page can't truly minimize its own window to the taskbar, and Jarvis has to stay visible to hear you, so "minimize" shrinks it to a small orb instead.
+
+## 2026.10.12.3 — Your DCF on the board
+- Say "Jarvis, put the Nvidia DCF on the board" and three cards appear on your barehands board: the valuation (enterprise value, equity value, implied share price and the other outputs from your template) centre stage, the key assumptions (growth, margins, WACC, terminal value; not the historicals) and the upside against today's live price.
+- To change an assumption, say it: "bump growth to 12%". Jarvis writes it into your DCF copy and the cards update by themselves with the new value and upside. (barehands can't tell Jarvis what you touch on the board, so pinching a card can't change a number.)
+- It only works on DCFs Jarvis made for you, never your template. The live price needs your market data key; without it the upside card shows your template's own upside figure if it has one.
+
+## 2026.10.12.2 — "Jarvis, open the board"
+- Once barehands is running on your computer, say "Jarvis, open the board" and its page opens in a new tab. Jarvis can't start barehands itself (websites aren't allowed to start programs), so start it first.
+
+## 2026.10.12 — Jarvis can put things on your barehands board
+- barehands is a free app that turns your webcam into a hand-tracked glass board: cards float over your camera and you move them with your bare hands. Jarvis can now be its voice: say "Jarvis, put today's plan on the board" and the card flies up centre stage.
+- Switch it on in ⚙ → barehands board and press "Test it": a J.A.R.V.I.S. card should appear. barehands itself has to be running on your computer, with its page open in Chrome. Chrome may ask once whether Jarvis can reach devices on your network; say allow.
+- Jarvis can also add cards next to each other, clear the board, or reset it. It can only show things; it can't see what you've moved around.
+- Jarvis's own hand gestures (palm, fist, pinch to move between screens) are unchanged and separate from barehands.
+
+## 2026.10.11.29 — Jarvis learns from your corrections
+- When you correct Jarvis ("no, I meant Pepper Potts", "not dollars, euros", "I told you, I use 5.5%"), it fixes the answer and, if the correction is something lasting, saves it to memory so it doesn't make the same mistake again. It says briefly that it'll remember.
+- One-off slips aren't saved. You can see and delete what it remembers in ⚙ → memory, or say "forget that".
+
+## 2026.10.11.28 — Smart speed: quicker small talk, deeper analysis
+- Quick questions like the time, the weather, a timer, "thanks" or "how are you" now go to Claude Haiku, which answers faster and costs a small fraction of what Opus does.
+- Analysis questions (DCFs, valuations, comparisons, "why…", "should I…", plans, summaries) get more thinking from Opus, so the answers go deeper. Say "think hard about…" for the most thorough answer.
+- Anything involving your email, calendar, files or spreadsheets always stays on Opus.
+- You can switch it off in ⚙ → "Smart speed".
+
+## 2026.10.11.27 — Jarvis starts talking sooner
+- Jarvis used to wait until Claude had written the whole answer before saying a word. Now it starts speaking the first sentence as soon as it's written, while the rest is still coming in. Longer answers should feel a few seconds quicker.
+- Saying "stop" while it's talking still works, and the rest of that answer isn't spoken (it still appears on screen).
+- Works with both the computer voice and ElevenLabs. No change in cost.
 
 ## 2026.10.11.26 — Excel DCF templates
 - Your DCF template can now be an Excel file. The first time, Jarvis asks "Make a Google Sheets copy so I can read it?" and, once you say yes, uses that copy as your template. Your Excel file is never changed.

@@ -40,7 +40,7 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
       speak(u){
         // like Chrome: no talking until someone has clicked in this window
         if(voiceNeedsClick && !navigator.userActivation.hasBeenActive){ setTimeout(() => u.onerror && u.onerror({ error:"not-allowed" }), 5); return; }
-        window.__spoken.push(u.text);
+        window.__spoken.push(u.text); (window.__spokenAt ||= []).push(Date.now());
         if(!slowVoice){ setTimeout(() => { u.onstart && u.onstart(); setTimeout(() => u.onend && u.onend(), 20); }, 5); return; }
         setTimeout(() => { u.onstart && u.onstart();
           let i = 0, at = 0; const words = u.text.split(" ");
@@ -71,11 +71,36 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
       u = String(u); const J = (x, st = 200) => new Response(JSON.stringify(x), { status: st });
       if(window.__extraFetch){ const r = await window.__extraFetch(u, o, J); if(r) return r; }
       if(u.includes("api.anthropic.com")){
-        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1), msgs: body.messages, system: body.system, cache: body.cache_control, toolCache: body.tools.filter(t => t.cache_control).map(t => t.name) });
+        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1), msgs: body.messages, system: body.system, cache: body.cache_control, toolCache: body.tools.filter(t => t.cache_control).map(t => t.name), stream: body.stream, model: body.model, beta: o.headers["anthropic-beta"] || "" });
         const st = script[call++] || { text: "Done." };
         if(st.delay) await new Promise(r => setTimeout(r, st.delay));
         if(st.err) return J({ error:{ message: st.err } }, st.status || 400);
         if(st.raw) return J(st.raw);
+        // A streamed reply (server-sent events), sent piece by piece `gap` ms apart. Pieces: "words" or { tool, input }.
+        if(st.sse) return new Response(new ReadableStream({ async start(c){
+          const enc = new TextEncoder(), send = d => c.enqueue(enc.encode(`event: ${d.type}\ndata: ${JSON.stringify(d)}\n\n`));
+          const wait = () => new Promise(r => setTimeout(r, st.gap || 0));
+          send({ type:"message_start", message:{ id:"m" + call, model:"claude-opus-5-5", content:[], usage:{ input_tokens:100, output_tokens:1 } } });
+          let idx = -1, open = null;
+          for(const part of st.sse){
+            if(window.__streamCut) break;
+            if(typeof part === "string"){
+              if(open !== "text"){ if(open) send({ type:"content_block_stop", index:idx }); send({ type:"content_block_start", index:++idx, content_block:{ type:"text", text:"" } }); open = "text"; }
+              send({ type:"content_block_delta", index:idx, delta:{ type:"text_delta", text:part } });
+            } else {
+              if(open) send({ type:"content_block_stop", index:idx });
+              send({ type:"content_block_start", index:++idx, content_block:{ type:"tool_use", id:"t" + call, name:part.tool, input:{} } });
+              const js = JSON.stringify(part.input); send({ type:"content_block_delta", index:idx, delta:{ type:"input_json_delta", partial_json:js.slice(0, 5) } });
+              send({ type:"content_block_delta", index:idx, delta:{ type:"input_json_delta", partial_json:js.slice(5) } });
+              send({ type:"content_block_stop", index:idx }); open = null;
+            }
+            await wait();
+          }
+          if(open) send({ type:"content_block_stop", index:idx });
+          send({ type:"message_delta", delta:{ stop_reason: st.sse.some(x => x.tool) ? "tool_use" : "end_turn" }, usage:{ output_tokens:40 } });
+          send({ type:"message_stop" });
+          (window.__streamEnds ||= []).push(Date.now()); c.close();
+        } }), { status:200, headers:{ "content-type":"text/event-stream" } });
         if(st.tool) return J({ stop_reason:"tool_use", content:[{ type:"tool_use", id:"t" + call, name: st.tool, input: st.input }] });
         return J({ stop_reason:"end_turn", content:[{ type:"text", text: st.text }], ...(st.usage ? { model:"claude-opus-5-5", usage: st.usage } : {}) });
       }
@@ -328,6 +353,112 @@ console.log("Interrupting Jarvis (barge-in)");
   await sayNow(p, "stop"); await p.waitForTimeout(900);
   check("'stop' just stops: no new reply", (await log(p)).length === n);
   check("…and the conversation stays open", /Go ahead|Yes, sir/.test(await p.locator("#mode").textContent()));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Talking while the answer is still coming in (streaming)");
+{
+  const parts = ["Good evening, sir. ", "Your board meeting ", "is at nine. ", "Lunch with Happy ", "is at one. ", "Anything else?"];
+  const p = await open({ script:[
+    { sse: parts, gap: 350 },
+    { sse: [{ tool:"set_timer", input:{ seconds:300, label:"Tea" } }] }, { sse: ["Tea timer set ", "for five minutes, sir."] },
+  ] });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis what's on today", 2500);
+  const r = await p.evaluate(() => ({ spoken: window.__spoken, at: window.__spokenAt, ends: window.__streamEnds, body: window.__log.at(-1) }));
+  const i = r.spoken.findIndex(x => /^Good evening, sir/.test(x) && !/systems/.test(x));
+  check("starts speaking the first sentence before the answer has finished arriving", i >= 0 && r.at[i] < r.ends[0] - 700, `${r.at[i]} vs ${r.ends[0]}`);
+  const said = r.spoken.slice(i).join(" ");
+  check("the whole answer is spoken, each part once", said.replace(/\s+/g, " ") === parts.join("").trim() && r.spoken.filter(x => /Good evening/.test(x) && !/systems/.test(x)).length === 1, JSON.stringify(r.spoken));
+  check("the whole answer is shown", (await p.locator("#capJ").textContent()).includes("Lunch with Happy is at one. Anything else?"));
+  check("asks for a streamed reply", r.body.stream === true);
+  await say(p, "set a tea timer for five minutes", 900);
+  const L = await log(p), sp = await p.evaluate(() => window.__spoken);
+  check("streamed tool calls still work (timer set, result sent back)", JSON.stringify(L.at(-1).last.content).includes("Timer set for 300 seconds") && /Tea/.test(await p.locator("#timers").textContent()));
+  check("…and the reply after the tool is spoken once", sp.filter(x => /Tea timer set for five minutes, sir\./.test(x)).length === 1, JSON.stringify(sp.slice(-3)));
+  check("conversation history keeps the streamed tool call", JSON.stringify(L.at(-1).msgs).includes('"name":"set_timer"'));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+{
+  const parts = ["Your day looks busy, sir. ", "At nine you have the board meeting. ", "At one, lunch with Happy. ", "Then three calls about the Expo. ", "And the reactor review at five."];
+  const p = await open({ slowVoice:true, script:[ { sse: parts, gap: 500 } ] });
+  await p.click("#bootBtn"); await p.waitForTimeout(2500);
+  await sayNow(p, "jarvis what does my day look like"); await p.waitForTimeout(1200);
+  await sayNow(p, "stop"); await p.waitForTimeout(3500);
+  const sp = await p.evaluate(() => window.__spoken);
+  check("'stop' while the answer is still coming in: the rest isn't spoken", sp.some(x => /looks busy/.test(x)) && !sp.some(x => /reactor review/.test(x)), JSON.stringify(sp));
+  check("…but it is still shown on screen", (await p.locator("#capJ").textContent()).includes("reactor review"));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+{
+  // ElevenLabs fetches the next sentence early; if it isn't written yet, Jarvis must keep "speaking" (and listening for interruptions) until the current one ends
+  const p = await browser.newPage({ viewport:{ width:1440, height:900 } }); const errs = [];
+  p.on("pageerror", e => errs.push(e.message));
+  await fakeEleven(p, "ok");
+  await p.addInitScript(...fakes({ eleven:true, script:[ { sse:["Good evening, sir, your board meeting with Pepper is at nine. ", "And lunch is at one."], gap: 4000 } ] }));
+  await p.goto(PAGE); await p.waitForTimeout(800);
+  await p.click("#bootBtn"); await settle(p, 300);
+  await sayNow(p, "jarvis what's my day");
+  for(let i = 0; i < 40 && !/Speaking/.test(await p.locator("#mode").textContent()); i++) await p.waitForTimeout(100);
+  await p.waitForTimeout(600);
+  check("ElevenLabs + streaming: still 'speaking' while a sentence plays and the next one is being written", /Speaking/.test(await p.locator("#mode").textContent()), await p.locator("#mode").textContent());
+  await p.waitForTimeout(3000);
+  check("…then shows it's working while it waits for the next sentence", /Processing/.test(await p.locator("#mode").textContent()), await p.locator("#mode").textContent());
+  check("no page errors", errs.length === 0, errs.join(" | "));
+  await p.close();
+}
+
+console.log("Smart speed: Haiku for quick questions, more thinking for analysis");
+{
+  const p = await open({ script:[
+    { text:"It's ten past ten, sir." }, { text:"Apple looks pricier, sir." },
+    { err:"output_config.effort requires a model that supports per-turn effort; this model does not" }, { text:"Here's the comparison, sir." },
+    { text:"Your inbox is quiet, sir." }, { err:"messages.3.content.1: unknown content block type" }, { text:"Hello again, sir." }, { text:"Noon, sir." } ] });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis what time is it", 600);
+  let L = await log(p);
+  check("a quick question goes to fast Haiku", L.at(-1).model === "claude-haiku-5-5", L.at(-1).model);
+  await say(p, "compare apple and microsoft valuations", 600);
+  L = await log(p);
+  const deep = L.at(-1), sys = deep.msgs.at(-2);
+  check("an analysis question stays on Opus", deep.model === "claude-opus-5-5", deep.model);
+  check("…with more thinking, without breaking the cached conversation", sys.role === "system" && sys.output_config?.effort === "medium" && /mid-conversation-output-config/.test(deep.beta) && deep.msgs.length > 2, JSON.stringify(sys) + " " + deep.beta);
+  await say(p, "why did apple's margins shrink", 800);
+  L = await log(p);
+  check("if the account can't change thinking per question, it retries without it and still answers", !L.at(-1).msgs.some(x => x.output_config) && /Here's the comparison/.test(await p.locator("#capJ").textContent()), JSON.stringify(L.at(-1).msgs.map(x => x.role)));
+  await say(p, "any new email", 600);
+  L = await log(p);
+  check("anything touching email stays on Opus", L.at(-1).model === "claude-opus-5-5");
+  await say(p, "thanks", 600);
+  L = await log(p);
+  check("if Haiku can't read the conversation, the same question goes to Opus instead", L.at(-2).model === "claude-haiku-5-5" && L.at(-1).model === "claude-opus-5-5" && /Hello again/.test(await p.locator("#capJ").textContent()), L.slice(-2).map(x => x.model).join(" "));
+  await p.click("#gearBtn"); await p.uncheck("#smartOn"); await p.click("#closeBtn");
+  await say(p, "what time is it", 600);
+  L = await log(p);
+  check("with smart speed off, everything uses the chosen model", L.at(-1).model === "claude-opus-5-5");
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Learning from corrections");
+{
+  const p = await open({ script:[ { text:"That's 1,200 dollars, sir." }, { tool:"remember", input:{ fact:"Prefers amounts in euros, not dollars" } }, { text:"Euros it is, sir. I'll remember that." }, { text:"Noon, sir." } ] });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis how much was the hotel", 600);
+  await say(p, "no, I meant in euros not dollars", 900);
+  const L = await log(p), corr = L.find(x => typeof x.last?.content === "string" && /in euros/.test(x.last.content));
+  check("Claude is told how to learn from corrections", /Learning from corrections/.test(JSON.stringify(L[0].system)));
+  check("a correction carries a reminder to save what it reveals", corr && /sounds like a correction/.test(corr.last.content), corr?.last?.content);
+  check("…and the lasting fact is saved to memory", (await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.memory") || "[]"))).some(m => /euros/.test(m.text)));
+  await say(p, "what time is it", 600);
+  const CORRECTION = eval(fs.readFileSync(path.join(root, "index.html"), "utf8").match(/const CORRECTION = (\/.*\/i);/)[1]);   // the page's own pattern
+  const det = ["no thanks", "no problem", "no worries, sir", "not dollars, euros", "not Mark, Marc with a c", "no, I meant Friday", "I told you I use 5.5%"].map(t => CORRECTION.test(t));
+  check("spots corrections ('not dollars, euros') but not 'no thanks' or 'no problem'", det.join() === "false,false,false,true,true,true,true", det.join());
+  check("normal questions don't get the reminder", !/sounds like a correction/.test((await log(p)).at(-1).last.content));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
@@ -850,6 +981,121 @@ console.log("Browsers without voice listening");
 {
   const p = await open({ noSR:true });
   check("explains which browser it's in and to use Chrome, with the link", /Listening doesn't work in/.test(await p.locator("#capJ").textContent()) && /Google Chrome/.test(await p.locator("#capJ").textContent()) && /github\.io\/Jarvis/.test(await p.locator("#capJ").textContent()));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Hand gestures pause while barehands is running");
+{
+  const p = await open({ fakeHand:true, ls:{ "jarvis.gestures": true, "jarvis.board": true } }, undefined, HTTP_PAGE);
+  await p.evaluate(() => {
+    window.__bh = false;   // is barehands running?
+    window.__extraFetch = async u => { if(!/127\.0\.0\.1:8794\//.test(u)) return null; if(!window.__bh) throw new TypeError("Failed to fetch"); return new Response("", { status:200 }); };
+    window.__hand = (sx, sy, pinch) => {
+      const x = 1 - sx / innerWidth, y = sy / innerHeight;
+      const lm = Array.from({ length:21 }, () => ({ x, y, z:0 }));
+      lm[0] = { x, y: Math.min(1, y + .2), z:0 };
+      lm[4] = pinch ? { x, y, z:0 } : { x: x + .15, y: y + .1, z:0 };
+      window.__gr = { landmarks:[lm], gestures:[[{ categoryName:"None", score:.9 }]] };
+    };
+  });
+  await p.click("#bootBtn"); await settle(p); await p.waitForTimeout(600);
+  const g = await p.locator("#gearBtn").boundingBox(), gx = g.x + g.width / 2, gy = g.y + g.height / 2;
+  check("(gestures on, barehands not running: not paused)", /gestures on/.test(await p.locator("#gestChip").textContent()));
+  await p.evaluate(() => { window.__bh = true; }); await p.waitForTimeout(4600);
+  check("barehands running: Jarvis's gestures pause by themselves and say so", /paused \(barehands\)/.test(await p.locator("#gestChip").textContent()) && /Paused while barehands/.test(await p.locator("#gestStatus").textContent()));
+  await p.evaluate(([x, y]) => window.__hand(x, y, false), [gx, gy]); await p.waitForTimeout(1200);
+  await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.waitForTimeout(600);
+  check("…so a pinch on the board doesn't click anything in Jarvis", await p.locator("#drawer").isHidden() && await p.locator("#airCursor").isHidden());
+  await p.evaluate(() => window.__hand(10, 10, false)); await p.waitForTimeout(200);
+  await p.evaluate(() => { window.__bh = false; }); await p.waitForTimeout(4600);
+  check("barehands closed: gestures come back by themselves", /gestures on/.test(await p.locator("#gestChip").textContent()));
+  await p.evaluate(([x, y]) => window.__hand(x, y, false), [gx, gy]); await p.waitForTimeout(1200);
+  await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.waitForTimeout(600);
+  check("…and a pinch clicks again (settings open)", await p.locator("#drawer").isVisible());
+  await p.click("#closeBtn");
+  await p.evaluate(() => { localStorage.setItem("jarvis.gestBoardPause", "false"); window.__bh = true; }); await p.waitForTimeout(4600);
+  check("with the setting off, gestures stay on even while barehands runs", /gestures on/.test(await p.locator("#gestChip").textContent()));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("barehands board");
+{
+  const capture = () => { window.__board = []; window.__extraFetch = async (u, o) => {
+    if(!/127\.0\.0\.1:\d+\/cmd/.test(u)) return null;
+    if(window.__boardDown) throw new TypeError("Failed to fetch");
+    window.__board.push({ u, mode:o.mode, cmd:JSON.parse(o.body) }); return new Response(null, { status:204 }); }; };
+  const lastResult = async p => JSON.stringify((await log(p)).filter(x => x.last).at(-1).last.content);
+  // switched off: nothing is sent, Jarvis says where to switch it on
+  const off = await open({ script:[{ tool:"show_on_board", input:{ action:"present", title:"Plan" } }, { text:"It's off, sir." }] });
+  await off.evaluate(capture);
+  await off.click("#bootBtn"); await settle(off);
+  await say(off, "jarvis put my plan on the board", 900);
+  check("board switched off: nothing sent, says where to switch it on", (await off.evaluate(() => window.__board.length)) === 0 && /settings → barehands board/.test(await lastResult(off)), await lastResult(off));
+  check("Jarvis knows it can use the board", (await log(off))[0].tools.includes("show_on_board") && /show_on_board/.test((await log(off))[0].system));
+  await off.close();
+  // switched on: the card goes to barehands' local command channel
+  const p = await open({ ls:{ "jarvis.board": true }, script:[
+    { tool:"show_on_board", input:{ action:"present", title:"Today", body:"9:00 standup\n14:00 Board meeting" } }, { text:"It's up, sir." },
+    { tool:"show_on_board", input:{ action:"add_card", title:"Later" } }, { text:"The board isn't answering, sir." },
+    { tool:"show_on_board", input:{ action:"open" } }, { text:"It's open, sir." } ] });
+  await p.evaluate(capture);
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis put today's plan on the board", 900);
+  const b = await p.evaluate(() => window.__board);
+  check("'put it on the board' sends a present card to barehands on this computer", b.length === 1 && b[0].u === "http://127.0.0.1:8794/cmd" && b[0].mode === "no-cors" && b[0].cmd.a === "present" && b[0].cmd.title === "Today" && /Board meeting/.test(b[0].cmd.body), JSON.stringify(b));
+  check("…and tells Jarvis it worked", /centre stage/.test(await lastResult(p)), await lastResult(p));
+  await p.evaluate(() => { window.__boardDown = true; });
+  await say(p, "jarvis add a card for later", 900);
+  check("barehands not running: Jarvis is told to start it", /Couldn't reach the barehands board/.test(await lastResult(p)), await lastResult(p));
+  await say(p, "jarvis open the board", 900);
+  check("'open the board' opens barehands' page in a new tab", (await p.evaluate(() => window.__opened)).includes("http://127.0.0.1:8794/stage.html"), (await p.evaluate(() => window.__opened)).join(" "));
+  // settings: a different port, and the Test button
+  await p.evaluate(() => { window.__boardDown = false; window.__board = []; });
+  await p.evaluate(() => { document.getElementById("boardPort").value = "9000"; document.getElementById("boardForm").requestSubmit(); });
+  await p.waitForTimeout(300);
+  const t = await p.evaluate(() => window.__board);
+  check("settings 'Test it' sends a card to the chosen port", t.length === 1 && t[0].u === "http://127.0.0.1:9000/cmd" && t[0].cmd.a === "add_card" && /Sent ✓/.test(await p.locator("#boardStatus").textContent()), JSON.stringify(t));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("DCF on the board");
+{
+  const tpl = { file_id:"TEMPLATE1", title:"My DCF", inputs:[{ name:"Revenue FY2024 (historical)", cell:"Inputs!C4" }, { name:"Revenue growth Y1", cell:"Inputs!C8" }, { name:"WACC", cell:"Inputs!C20" }],
+    outputs:[{ name:"Enterprise value", cell:"DCF!H38" }, { name:"Implied share price", cell:"DCF!H40" }] };
+  const p = await open({ googleBefore:true, ls:{ "jarvis.board":true, "jarvis.fhKey":"fh-test", "jarvis.dcfTemplate":tpl, "jarvis.myFiles":[{ id:"COPY1", name:"DCF: Nvidia", kind:"dcf", company:"Nvidia", ticker:"NVDA" }] }, script:[
+    { tool:"dcf_show_on_board", input:{ file_id:"COPY1" } }, { text:"It's on the board, sir." },
+    { tool:"dcf_set_inputs", input:{ file_id:"COPY1", values:[{ cell:"Inputs!C8", value:"12%" }] } }, { text:"Implied price is now $150." },
+    { tool:"dcf_show_on_board", input:{ file_id:"TEMPLATE1" } }, { text:"I can only show DCFs I made." } ] }, undefined, HTTP_PAGE);
+  await p.evaluate(() => {
+    window.__board = []; window.__price = "$128.40"; window.__growth = "30%";
+    window.__extraFetch = async (u, o, J) => {
+      if(/127\.0\.0\.1:\d+\/cmd/.test(u)){ window.__board.push(JSON.parse(o.body)); return new Response(null, { status:204 }); }
+      if(u.endsWith("/values:batchUpdate")){ window.__price = "$150.00"; window.__growth = "12%"; return J({ totalUpdatedCells:1 }); }
+      if(u.includes("values:batchGet")){ const rs = [...new URL(u).searchParams.getAll("ranges")];
+        const v = { "DCF!H38":"$3,100bn", "DCF!H40":window.__price, "Inputs!C8":window.__growth, "Inputs!C20":"9.5%", "Inputs!C4":"$61bn" };
+        return J({ valueRanges: rs.map(r => ({ values:[[v[r] ?? ""]] })) }); }
+      if(u.includes("finnhub.io") && u.includes("/quote")) return J({ c:120, d:1, dp:0.8, pc:119 });
+      return null;
+    };
+  });
+  await p.click("#bootBtn"); await settle(p, 1000);
+  await say(p, "jarvis put the nvidia dcf on the board", 1200);
+  let b = await p.evaluate(() => window.__board);
+  const card = (b, t) => b.find(c => c.title && c.title.startsWith(t));
+  check("DCF board: clears, then the valuation goes centre stage", b[0]?.a === "clear" && b.at(-1)?.a === "present" && b.at(-1).title === "DCF · NVDA" && /Implied share price: \$128\.40/.test(b.at(-1).body) && /Enterprise value/.test(b.at(-1).body), JSON.stringify(b));
+  check("DCF board: assumptions card shows growth and WACC, not historicals", /Revenue growth Y1: 30%/.test(card(b, "Assumptions")?.body) && /WACC: 9\.5%/.test(card(b, "Assumptions")?.body) && !/FY2024/.test(card(b, "Assumptions")?.body), JSON.stringify(card(b, "Assumptions")));
+  check("DCF board: upside card compares implied and live price", /Current price: 120\.00/.test(card(b, "Upside")?.body) && /Upside: 7\.0%/.test(card(b, "Upside")?.body) && /not advice/.test(card(b, "Upside")?.body), JSON.stringify(card(b, "Upside")));
+  await p.evaluate(() => { window.__board = []; });
+  await say(p, "bump growth to 12 percent", 1200);
+  b = await p.evaluate(() => window.__board);
+  check("DCF board: a spoken assumption change refreshes the cards", /Revenue growth Y1: 12%/.test(card(b, "Assumptions")?.body) && /\$150\.00/.test(card(b, "DCF")?.body) && /Upside: 25\.0%/.test(card(b, "Upside")?.body) && /board are updated/.test(JSON.stringify((await log(p)).at(-1).last.content)), JSON.stringify(b));
+  await p.evaluate(() => { window.__board = []; });
+  await say(p, "put my template on the board", 900);
+  check("DCF board: only DCFs Jarvis made", (await p.evaluate(() => window.__board.length)) === 0 && /isn't a DCF Jarvis made/.test(JSON.stringify((await log(p)).at(-1).last.content)));
+  check("Jarvis knows how to put a DCF on the board", (await log(p))[0].tools.includes("dcf_show_on_board") && /dcf_show_on_board/.test((await log(p))[0].system));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }

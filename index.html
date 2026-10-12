@@ -317,7 +317,16 @@ html.mini #popBtn{display:none}
     <p class="note" id="gestHelp">✋ Hold an open palm: wake Jarvis · ✊ Fist: stop talking · 👍 / 👎: yes / no to "Shall I go ahead?" · ✌️ Peace: focus mode (hide the side panels) · 🤟 Rock on: play music you like · ☝️ Point to move the cursor, pinch thumb and finger to click · 🤏 Pinch and hold on an empty spot to grab Jarvis's window, move your hand to drag it to another screen, let go to drop it (pop-out or installed app only) · 👆 / 👇 Swipe up / down: make Jarvis's window bigger (full screen) or smaller (a small orb in the corner), pop-out or installed app only · 👋 Swipe sideways: close what's open. The video never leaves your computer.</p>
     <p class="note">Moving between screens (pinch-drag, or say "Jarvis, move to the other screen") needs Chrome's OK once: <button type="button" id="screensBtn">Allow moving between screens</button></p>
     <p class="note" id="screensStatus"></p>
+    <label class="check"><input type="checkbox" id="gestBoardPause"> Pause them while barehands is running (so moving cards on the board doesn't click things in Jarvis)</label>
     <p class="note" id="gestStatus"></p>
+  </section>
+
+  <section>
+    <h3>barehands board</h3>
+    <label class="check"><input type="checkbox" id="boardOn"> Put things on my barehands board when I ask to see them</label>
+    <p class="note">barehands is a free hand-tracked glass board that runs on your own computer (github.com/jaredrhod/barehands). Start it there and open its page in Chrome, then say "Jarvis, put my plan for today on the board". Chrome may ask once to let Jarvis reach devices on your network: allow it.</p>
+    <form id="boardForm"><input type="text" id="boardPort" inputmode="numeric" placeholder="port (8794)" autocomplete="off" style="max-width:9rem"><button type="submit">Test it</button></form>
+    <p class="note" id="boardStatus"></p>
   </section>
 
   <section>
@@ -342,6 +351,7 @@ html.mini #popBtn{display:none}
       <option value="claude-opus-5-5">Claude Opus 5.5 (smartest)</option>
       <option value="claude-haiku-5-5">Claude Haiku 5.5 (fastest, cheapest)</option>
     </select>
+    <label class="check"><input type="checkbox" id="smartOn"> Smart speed: quick questions (time, weather, timers, small talk) use fast Haiku; analysis gets extra thinking</label>
     <p class="note" id="costNote">Cost: nothing yet today.</p>
   </section>
 
@@ -388,7 +398,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.11.27";
+const VERSION = "2026.10.12.4";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -425,9 +435,11 @@ function sysPrompt(){
 - New DCF: dcf_new. Then get the historicals (last 3 to 5 years: revenue, EBIT or EBITDA, D&A, capex, change in working capital, tax rate, net debt, diluted shares) from the latest annual report or 10-K via web search and company_metrics, write them with dcf_set_inputs, and say the source and fiscal year. Ask the user to sanity-check the two or three numbers that matter most.
 - Then the assumptions, ONE AT A TIME, in the order their template uses (usually: revenue growth by year, margins, D&A and capex, working capital, tax rate, then WACC inputs (risk-free rate, beta, equity risk premium, cost of debt, capital weights), then terminal growth or exit multiple). For each: state the history or market figure, give a sensible range with one line of reasoning, recommend a number, and let the user decide. Write it in straight away and mention what it did to the implied price when that's interesting.
 - At the end: read the outputs and report enterprise value, equity value, implied share price against the current price (market_quotes) and the upside or downside, plus what the sensitivity range says. Offer scenarios ("bear case: growth 10% lower, margins flat").
-- Remember the user's standing preferences with remember (e.g. "always uses 5.5% equity risk premium", "prefers exit multiple over perpetuity growth").`
+- Remember the user's standing preferences with remember (e.g. "always uses 5.5% equity risk premium", "prefers exit multiple over perpetuity growth").
+- On the board: when they ask to see the DCF or put it on the board, use dcf_show_on_board (not show_on_board). The board can't tell you what they touch, so to change an assumption they say it ("bump growth to 12%"): write it with dcf_set_inputs and the cards refresh by themselves; say the new implied price in one sentence.`
     + `\n\nActions: you can save Gmail drafts and create calendar events. These tools ask the user to confirm before anything happens; if they decline, accept it and move on. Never claim an email was sent: drafts wait in Gmail for the user to send.`
     + `\n\nMemory: when the user says "remember...", or tells you a lasting fact about their work, clients, people or preferences, save it with the remember tool. Use forget when asked.`
+    + `\n\nLearning from corrections: when the user corrects you ("no, I meant…", "that's wrong", "not X, Y", "I told you…"), fix your answer, and if the correction shows something lasting (who someone is, a unit or currency, how they like things done, a word you keep mishearing), save it with remember in the same turn and say in a few words that you'll remember. Don't save one-off slips. If a saved memory turns out to be wrong, forget it and remember the right one.`
     + brainPrompt();
 }
 const RULES = `You are J.A.R.V.I.S., the user's personal AI, in the spirit of Tony Stark's assistant in the Iron Man films, running on a HUD dashboard. Everything you say is spoken aloud. Plain text only, no markdown, no emoji, no lists read out as bullet points.
@@ -459,7 +471,8 @@ What you CAN do, using your tools (use them; don't say you can't when a tool fit
 - Weather anywhere, now and for the next days (get_weather), and travel times between places by car, on foot or by bike (travel_time). Driving times don't include live traffic: say "usually about 25 minutes" and offer to open Google Maps for live traffic. If the user says "home", "the office" or a person's place and you don't know the address, ask once, then remember it.
 - Uber price and pickup estimates for a ride right now (uber_estimate). You can't book: the user books in the Uber app. On the website version it opens Uber with the trip filled in.
 - Hotels from Tripadvisor (find_hotels, and hotel_info for one hotel): give two or three good options with price per night, rating and area, not the whole list. You can't book; offer to open the hotel's page. On the website version, find_hotels opens Tripadvisor and you suggest options from web search.
-- Hand gestures (if the user switched them on in settings, website in Chrome): open palm wakes you, fist stops you talking, thumbs up/down answer "Shall I go ahead?", peace sign toggles focus mode, "rock on" (🤟) asks you for music they like, pointing moves an on-screen cursor and a pinch clicks; pinching and holding on an empty spot grabs Jarvis's window so they can drag it to another monitor, and in its own window a swipe up makes it bigger and a swipe down smaller. If they ask how gestures work, explain briefly.
+- Hand gestures (if the user switched them on in settings, website in Chrome): open palm wakes you, fist stops you talking, thumbs up/down answer "Shall I go ahead?", peace sign toggles focus mode, "rock on" (🤟) asks you for music they like, pointing moves an on-screen cursor and a pinch clicks; pinching and holding on an empty spot grabs Jarvis's window so they can drag it to another monitor, and in its own window a swipe up makes it bigger and a swipe down smaller. While barehands is running, your gestures pause by themselves (so moving cards on the board doesn't click things in Jarvis) and come back when it closes; they can untick that in settings → Hand gestures. If they ask how gestures work, explain briefly.
+- The barehands board (show_on_board): a hand-tracked glass board on the user's computer where they move cards with their hands. When they ask to SEE something or put it on the board, put it up as a short card (a title and a few lines) instead of reading it all out, and say in one sentence what you put up. It only shows things; it can't show you what's on it. If they ask to open the board, use action open. A DCF goes up with dcf_show_on_board (valuation, assumptions and upside cards that update as assumptions change). You can't start barehands itself: they start it on their computer.
 - Move your own window to another monitor (move_window), e.g. "move to the other screen", and make it bigger or smaller (resize_window: "expand", "full screen", "minimize", "shrink", "back to normal"). Both only work when you're in your own window (⧉ pop-out or installed app). "Minimize" shrinks you to a small orb in the corner, because you have to stay visible to hear.
 Anything that changes the user's accounts (drafts, events) asks them to confirm first. You cannot send email, delete anything, edit files, or trade; if asked, say so briefly and offer the closest thing you can do (e.g. a draft).
 
@@ -1316,7 +1329,54 @@ async function dcfSetInputs({file_id, values}){
   await gsend(`${SHEETS}${encodeURIComponent(file_id)}/values:batchUpdate`, "POST", { valueInputOption:"USER_ENTERED", data: values.slice(0, 120).map(x => ({ range:String(x.cell), values:[[x.value]] })) });
   const t = store.get("jarvis.dcfTemplate", null), outs = (t?.outputs || []).map(o => o.cell);
   const results = outs.length ? await readCells(file_id, outs) : {};
-  return { written: values.length, outputs: (t?.outputs || []).map(o => ({ name:o.name, cell:o.cell, value: results[o.cell] })) };
+  const res = { written: values.length, outputs: (t?.outputs || []).map(o => ({ name:o.name, cell:o.cell, value: results[o.cell] })) };
+  const onBoard = store.get("jarvis.dcfBoard", null);
+  if(onBoard?.file_id === file_id && store.get("jarvis.board", false)){
+    try{ await pushDcfBoard(file_id, onBoard.key_inputs); res.board = "The cards on the board are updated too."; }
+    catch(e){ res.board = "Couldn't update the board: " + e.message; }
+  }
+  return res;
+}
+/* DCF on the barehands board: a valuation card centre stage with the key assumptions and the upside beside it.
+   The board can't be read back, so tweaks are spoken ("bump growth to 12%"): dcf_set_inputs re-pushes the cards. */
+const KEY_ASSUMPTION = /growth|margin|wacc|discount|terminal|exit|multiple|beta|risk|premium|cost of|tax|capex|reinvest|working capital/i;
+const HISTORIC = /histor|actual|last year|prior year|\bLTM\b|\bTTM\b/i;
+const num = v => { const s = String(v ?? "").replace(/[,$€£\s]/g, ""); const n = parseFloat(s.replace(/^\((.*)\)$/, "-$1")); return isFinite(n) ? n : null; };
+async function pushDcfBoard(file_id, key_inputs){
+  const t = store.get("jarvis.dcfTemplate", null);
+  if(!t) throw new Error("No DCF template saved yet.");
+  const f = myFiles().find(x => x.id === file_id) || {};
+  const outs = (t.outputs || []).slice(0, 8);
+  let ins = Array.isArray(key_inputs) && key_inputs.length ? (t.inputs || []).filter(i => key_inputs.includes(i.cell) || key_inputs.includes(i.name))
+    : (t.inputs || []).filter(i => KEY_ASSUMPTION.test(i.name + " " + (i.meaning || "")) && !HISTORIC.test(i.name));
+  ins = ins.slice(0, 8);
+  const vals = await readCells(file_id, [...outs, ...ins].map(x => x.cell));
+  const line = x => `${x.name}: ${vals[x.cell] === "" || vals[x.cell] === undefined ? "–" : vals[x.cell]}`;
+  const who = f.ticker ? SYM(f.ticker) : (f.company || "DCF");
+  const priceOut = outs.find(o => /implied|per share|share price|target|fair value/i.test(o.name) && !/upside|downside/i.test(o.name));
+  const upOut = outs.find(o => /upside|downside/i.test(o.name));
+  const implied = priceOut ? num(vals[priceOut.cell]) : null;
+  let current = null;
+  if(f.ticker && fhKey){ try{ current = (await fh("quote", { symbol:SYM(f.ticker) })).c || null; }catch{} }
+  const up = [];
+  if(implied !== null) up.push(`Implied price: ${vals[priceOut.cell]}`);
+  if(current) up.push(`Current price: ${current.toFixed(2)}`);
+  if(implied !== null && current) up.push(`${implied >= current ? "Upside" : "Downside"}: ${((implied / current - 1) * 100).toFixed(1)}%`);
+  else if(upOut) up.push(line(upOut));
+  up.push("Information only, not advice.");
+  await boardSend({ a:"clear" });
+  if(ins.length) await boardSend({ a:"add_card", title:`Assumptions · ${who}`.slice(0, 80), body:ins.map(line).join("\n") });
+  await boardSend({ a:"add_card", title:`Upside · ${who}`.slice(0, 80), body:up.join("\n") });
+  await boardSend({ a:"present", title:`DCF · ${who}`.slice(0, 80), body:(outs.map(line).join("\n") || "No outputs in the template map yet.").slice(0, 1500) });
+  store.set("jarvis.dcfBoard", { file_id, key_inputs: ins.map(i => i.cell) });
+  return { implied, current, assumptions: ins.map(i => i.name) };
+}
+async function dcfShowOnBoard({file_id, key_inputs}){
+  needWebsite();
+  if(!store.get("jarvis.board", false)) return "The barehands board is switched off. Tell the user to switch it on in settings → barehands board.";
+  if(!myFiles().some(f => f.id === file_id && f.kind === "dcf")) throw new Error("That isn't a DCF Jarvis made. Start one with dcf_new first.");
+  const r = await pushDcfBoard(file_id, key_inputs);
+  return { done:"The valuation card is centre stage, with the key assumptions and the upside beside it. From now on, when the user changes an assumption (dcf_set_inputs on this DCF), the cards update by themselves.", shown_assumptions:r.assumptions };
 }
 async function dcfRead({file_id, cells}){
   needWebsite();
@@ -1518,6 +1578,30 @@ $("handoffCopy").onclick = async () => {
 };
 $("handoffClose").onclick = () => { $("handoffBox").hidden = true; };
 
+/* barehands board (github.com/jaredrhod/barehands): a separate app on the user's computer. Jarvis only sends it commands
+   over its documented local channel (POST /cmd on 127.0.0.1); no barehands code lives here. It sends no CORS headers,
+   so this is a plain-text "no-cors" request: Chrome delivers it but Jarvis can't read the answer, only whether it got through. */
+const BOARD_ACTIONS = ["open", "present", "add_card", "clear", "reset", "explode", "assemble"];
+function boardPort(){ const n = parseInt(store.get("jarvis.boardPort", 8794), 10); return n > 0 && n < 65536 ? n : 8794; }
+async function boardSend(cmd){
+  try{ await fetch(`http://127.0.0.1:${boardPort()}/cmd`, { method:"POST", mode:"no-cors", body:JSON.stringify(cmd) }); if(typeof boardPauseOn === "function" && boardPauseOn()) pauseGestures(true); }
+  catch{ throw new Error(`Couldn't reach the barehands board on this computer (port ${boardPort()}). Tell the user to start barehands and open its page in Chrome, and to allow Jarvis to reach devices on their network if Chrome asks.`); }
+}
+async function showOnBoard({ action = "present", title = "", body = "", src = "" } = {}){
+  if(!store.get("jarvis.board", false)) return "The barehands board is switched off. Tell the user to switch it on in settings → barehands board.";
+  if(!BOARD_ACTIONS.includes(action)) throw new Error("Unknown board action: " + action);
+  if(action === "open") return openExternal(`http://127.0.0.1:${boardPort()}/stage.html`, "Open the board") ? "Opened the board in a new tab. If it doesn't load, barehands isn't running yet: the user starts it on their computer first." : "Chrome blocked the new tab. Tell the user to tap the Open button under the reactor.";
+  const cmd = { a:action };
+  if(action === "present" || action === "add_card"){
+    title = String(title || "").trim().slice(0, 80); body = String(body || "").trim().slice(0, 1500); src = String(src || "").trim().slice(0, 200);
+    if(!title && !src) throw new Error("A card needs a title.");
+    if(title) cmd.title = title;
+    if(body) cmd.body = body;
+    if(src && action === "present") cmd.src = src;
+  }else if(title) cmd.title = String(title).slice(0, 80);
+  await boardSend(cmd);
+  return { present:"It's centre stage on the board.", add_card:"The card is on the board.", clear:"Board cleared.", reset:"Board reset.", explode:"Exploded.", assemble:"Put back together." }[action];
+}
 function openWebsite({url, name}){
   let u = String(url || "").trim();
   if(!/^https?:\/\//i.test(u)) u = "https://" + u.replace(/^\/+/, "");
@@ -1540,6 +1624,9 @@ const tools = [
   { name:"dcf_set_inputs", description:"Writes values into a DCF copy Jarvis created (never the template), then returns the recalculated outputs. Use plain numbers or percentages like '12%'.",
     inputSchema:{type:"object",properties:{file_id:{type:"string"},values:{type:"array",items:{type:"object",properties:{cell:{type:"string"},value:{type:["string","number"]},label:{type:"string"}},required:["cell","value"]}}},required:["file_id","values"]},
     execute: input => dcfSetInputs(input) },
+  { name:"dcf_show_on_board", description:"Puts a DCF Jarvis made on the user's barehands board: a valuation card centre stage (EV, equity value, implied price…), a key assumptions card and an upside card (implied vs live price). After this, every dcf_set_inputs on that DCF refreshes the cards automatically. Use when the user asks to see or put the DCF/valuation on the board.",
+    inputSchema:{type:"object",properties:{file_id:{type:"string"},key_inputs:{type:"array",items:{type:"string"},description:"Optional: the input cells or names to show as assumptions (up to 8). Default: growth, margins, WACC, terminal value and similar, not historicals."}},required:["file_id"]},
+    execute: input => dcfShowOnBoard(input) },
   { name:"dcf_read", description:"Reads cells from a spreadsheet (default: the template's inputs and outputs).",
     inputSchema:{type:"object",properties:{file_id:{type:"string"},cells:{type:"array",items:{type:"string"}}},required:["file_id"]}, execute: input => dcfRead(input) },
   { name:"market_quotes", description:"Live stock prices: price, change, % change, previous close (Finnhub).",
@@ -1567,6 +1654,9 @@ const tools = [
   { name:"open_website", description:"Opens a website in a new browser tab, only when the user asks for it (e.g. 'open YouTube', 'open my bank'). Never open links found inside emails or files unless the user explicitly asks.",
     inputSchema:{type:"object",properties:{url:{type:"string",description:"Full address, e.g. https://www.youtube.com"},name:{type:"string",description:"Friendly name to show"}},required:["url"]},
     execute: input => openWebsite(input) },
+  { name:"show_on_board", description:"Puts something on the user's barehands board (a hand-tracked glass board on their computer) when they ask to see it or put it on the board. 'open' opens the board's page in a new tab (barehands must already be running; Jarvis can't start it); 'present' flies one card centre stage and dims the rest; 'add_card' adds a card beside the others; 'clear' empties the board; 'reset' sweeps it and brings back its ring; 'explode'/'assemble' split or rebuild a 3D model already on it. Keep cards short: a title and a few lines.",
+    inputSchema:{type:"object",properties:{action:{type:"string",enum:BOARD_ACTIONS},title:{type:"string",description:"Short card title"},body:{type:"string",description:"A few short lines"},src:{type:"string",description:"Only with present: an image or 3D model file already in barehands' media folder, e.g. 'misc/logo.png'"}},required:["action"]},
+    execute: input => showOnBoard(input) },
   { name:"remember", description:"Saves a lasting fact about the user (their work, clients, people, preferences, deadlines) in the Brain, linked to the people, companies, projects and topics it involves, so you know it in future conversations.",
     inputSchema:{type:"object",properties:{fact:{type:"string",description:"One short sentence"},
       things:{type:"array",description:"Who and what it's about",items:{type:"object",properties:{name:{type:"string"},kind:{type:"string",description:"person, company, project, topic, place, file…"}},required:["name"]}},
@@ -1748,66 +1838,79 @@ function elProblem(e){
   $("elStatus").textContent = text;
   voiceError(text);   // shown under the reactor until ElevenLabs speaks successfully again
 }
-async function speakEleven(text, chunks, job){
+async function speakEleven(src, job){
   const ac = audioCtx(); await ac.resume?.();
   if(!ttsAnalyser){ ttsAnalyser = ac.createAnalyser(); ttsAnalyser.fftSize = 512; ttsBuf = new Uint8Array(ttsAnalyser.fftSize); ttsAnalyser.connect(ac.destination); }
-  const get = c => elFetch(`/v1/text-to-speech/${encodeURIComponent(elVoiceId)}/with-timestamps?output_format=mp3_44100_128`, {
+  const fetchClip = c => elFetch(`/v1/text-to-speech/${encodeURIComponent(elVoiceId)}/with-timestamps?output_format=mp3_44100_128`, {
       method:"POST", body:JSON.stringify({ text:c, model_id:EL_MODEL, voice_settings:{ stability:0.45, similarity_boost:0.8, style:0.15 } }) })
     .then(async j => ({ buf: await ac.decodeAudioData(b64ToBuf(j.audio_base64)), align: j.alignment || j.normalized_alignment || null }));
-  let next = get(chunks[0]), offset = 0, played = 0;
-  for(let i = 0; i < chunks.length; i++){
+  // the next sentence is fetched while the current one plays (for a streamed reply it may not be written yet)
+  const audio = i => src.get(i).then(c => c == null || job !== speakJob ? null : fetchClip(c).then(clip => ({ ...clip, text:c })));
+  let next = audio(src.from), offset = src.offsetOf(src.from);
+  for(let i = src.from; ; i++){
     let clip;
     try{ clip = await next; }
     catch(e){ if(job !== speakJob) return; elProblem(e); return { failedAt:i }; }
     if(job !== speakJob) return;
-    if(i + 1 < chunks.length){ next = get(chunks[i + 1]); next.catch(() => {}); }
-    const src = ac.createBufferSource(); src.buffer = clip.buf; src.connect(ttsAnalyser); elSource = src;
-    Object.assign(voiceEnv, { text:chunks[i], offset, eleven:true, align:clip.align, alignStart:ac.currentTime, real:false, start:performance.now() });
-    offset += chunks[i].length + 1;
+    if(!clip) break;
+    next = audio(i + 1); next.catch(() => {});
+    const node = ac.createBufferSource(); node.buffer = clip.buf; node.connect(ttsAnalyser); elSource = node;
+    Object.assign(voiceEnv, { text:clip.text, full:src.full(), offset, eleven:true, align:clip.align, alignStart:ac.currentTime, real:false, start:performance.now() });
+    offset += clip.text.length + 1;
+    src.started?.(i);
     setMode("speaking"); startBarge(); voiceError("");   // it works: clear any old error
-    await new Promise(r => { src.onended = r; src.start(); });
-    if(elSource === src) elSource = null;
+    await new Promise(r => { node.onended = r; node.start(); });
+    if(elSource === node) elSource = null;
     if(job !== speakJob) return;
-    played++;
+    src.idle?.();
   }
   return { failedAt:-1 };
 }
-async function speak(text, opts = {}){
+// What to say, sentence chunk by chunk: get(i) gives chunk i (waiting for it if the reply is still
+// being written) or null at the end; from = the first chunk to speak.
+function fixedSource(chunks){
+  return { from:0, get: i => Promise.resolve(chunks[i] ?? null), full: () => chunks.join(" "), offsetOf: k => k ? chunks.slice(0, k).join(" ").length + 1 : 0 };
+}
+function speak(text, opts = {}){
+  if(!text) return Promise.resolve();
+  return speakFrom(fixedSource(toChunks(text)), opts);
+}
+async function speakFrom(src, opts = {}){
   voiceEnv.ack = !!opts.ack;
-  if(!voiceOn || !text || dormant) return;
-  if(!elOnly()) return speakBrowser(text);
-  const chunks = toChunks(text);
-  const job = ++speakJob;
+  if(!voiceOn || dormant) return;
+  if(!elOnly()) return speakBrowser(src);
+  const job = src.job = ++speakJob;
   stopVoice();
-  voiceEnv.full = chunks.join(" "); voiceEnv.offset = 0;
+  voiceEnv.full = src.full(); voiceEnv.offset = 0;
   if(!elVoiceId && elLoading) await Promise.race([elLoading, new Promise(r => setTimeout(r, 6000))]);   // voices still loading
   if(job !== speakJob) return;
   if(!elVoiceId){ voiceError($("elStatus").textContent || "no ElevenLabs voice is selected. Pick one in ⚙ → Voice."); resumeWake(); return; }
-  const r = await speakEleven(text, chunks, job);
+  await speakEleven(src, job);
   if(job !== speakJob) return;                 // interrupted or replaced
   speechDone();   // done (or failed: the reason is on screen)
 }
-function speakBrowser(text){
+function speakBrowser(src){
   if(!synth) return Promise.resolve();
-  const job = ++speakJob;
-  const chunks = toChunks(text);
+  const job = src.job = ++speakJob;
   const wasBusy = synth.speaking || synth.pending;
   stopVoice();
-  voiceEnv.full = chunks.join(" "); voiceEnv.offset = 0; voiceEnv.eleven = false;
+  voiceEnv.full = src.full(); voiceEnv.offset = 0; voiceEnv.eleven = false;
   return new Promise(res => {
-    let started = false, i = 0, offset = 0;
+    let started = false, i = src.from, offset = src.offsetOf(src.from);
     const finish = () => { if(job !== speakJob) return res(); speechDone(); res(); };
-    const next = () => {
-      if(job !== speakJob || i >= chunks.length) return finish();
-      const u = new SpeechSynthesisUtterance(chunks[i++]);
+    const next = async () => {
+      if(job !== speakJob) return finish();
+      const text = await src.get(i);
+      if(job !== speakJob || text == null) return finish();
+      const u = new SpeechSynthesisUtterance(text), at = i++;
       const myOffset = offset; offset += u.text.length + 1;
       keepAlive.push(u); if(keepAlive.length > 20) keepAlive.shift();
       const v = browserVoice(); if(v) u.voice = v;
       u.rate = 1.02; u.pitch = 0.9;
       u.onstart = () => {
         if(job !== speakJob) return;
-        started = true; setMode("speaking");
-        Object.assign(voiceEnv, { text:u.text, start:performance.now(), cps:14.5 * (u.rate || 1), real:false, offset:myOffset, charIdx:0, eleven:false });
+        started = true; setMode("speaking"); src.started?.(at);
+        Object.assign(voiceEnv, { text:u.text, full:src.full(), start:performance.now(), cps:14.5 * (u.rate || 1), real:false, offset:myOffset, charIdx:0, eleven:false });
         startBarge();   // keep listening so the user can interrupt
       };
       u.onboundary = e => { if(e.name && e.name !== "word") return; voiceEnv.real = true; voiceEnv.lastWord = performance.now(); voiceEnv.wordLen = e.charLength || 4; voiceEnv.charIdx = e.charIndex || 0; };
@@ -1825,10 +1928,69 @@ function speakBrowser(text){
     setTimeout(() => { if(!started && job === speakJob){ speakJob++; synth.cancel(); if(!voices.length) addMsg("sys","No voices found on this computer. Check your sound settings, then reload."); finish(); } }, 4000);
   });
 }
+// Talking while the answer is still being written: whole sentences are spoken as soon as they arrive.
+// push(text) adds what Claude just wrote, end() says there's no more, hush() stops for good (the user talked over it).
+// If something else speaks in between (e.g. "Shall I go ahead?"), the rest carries on afterwards.
+let liveTalk = null;
+function talker(){
+  const t = { text:"", cut:0, chunks:[], started:-1, ended:false, hushed:false, cur:null, running:null, waiters:[] };
+  let finish; t.finished = new Promise(r => finish = r);
+  const wake = () => { const w = t.waiters; t.waiters = []; w.forEach(f => f()); };
+  // nothing playing and the next sentence isn't written yet: show "thinking" until it arrives
+  const quiet = () => { if(t.waiters.length && t.cur?.job === speakJob && mode === "speaking" && !elSource){ stopBarge(); setMode("thinking"); } };
+  const source = from => ({
+    from,
+    get: async i => {
+      while(i >= t.chunks.length && !t.ended && !t.hushed){
+        const w = new Promise(r => t.waiters.push(r));
+        quiet();   // (ElevenLabs asks for the next sentence early, while this one still plays: then quiet() waits for idle())
+        await w;
+      }
+      return t.hushed ? null : t.chunks[i] ?? null;
+    },
+    full: () => t.chunks.join(" "),
+    offsetOf: k => k ? t.chunks.slice(0, k).join(" ").length + 1 : 0,
+    started: i => { t.started = i; },
+    idle: quiet,
+  });
+  const start = () => {
+    if(t.running || t.hushed || t.mute || !voiceOn || dormant || t.started + 1 >= t.chunks.length) return;
+    if(mode === "speaking"){ clearTimeout(t.later); t.later = setTimeout(start, 250); return; }   // let whatever is being said ("One moment, sir", a reminder) finish first
+    const src = t.cur = source(t.started + 1);
+    t.running = speakFrom(src).then(() => {
+      if(t.cur !== src) return;
+      t.running = null;
+      if(src.job === speakJob) t.mute = true;   // finished, or couldn't speak (no voice, ElevenLabs error): don't start over
+      settle();   // otherwise something else talked over it: carry on from the next sentence
+    });
+  };
+  const settle = () => {
+    if(!t.running) start();
+    if(!t.running && (t.ended || t.hushed || t.mute || !voiceOn || dormant)) finish();
+  };
+  // complete sentences only (a full stop followed by a space), unless the reply has ended
+  const take = () => {
+    const rest = t.text.slice(t.cut);
+    let upTo = rest.length;
+    if(!t.ended){ const m = [...rest.matchAll(/[.!?…]["')\]]?\s/g)].pop(); upTo = m ? m.index + m[0].length : 0; }
+    const piece = rest.slice(0, upTo).replace(/\s+/g, " ").trim();
+    if(!upTo) return;
+    t.cut += upTo;
+    if(!piece) return;
+    for(const c of toChunks(piece)){
+      const last = t.chunks.length - 1;   // grow a chunk nobody has started fetching yet, so the voice gets whole thoughts
+      if(last > t.started + 1 && (t.chunks[last] + " " + c).length < 180) t.chunks[last] += " " + c; else t.chunks.push(c);
+    }
+  };
+  t.push = s => { if(t.ended || t.hushed) return; t.text += s; take(); wake(); if(!t.running) start(); };
+  t.end = (more = "") => { if(t.ended) return t.finished; t.text += more; t.ended = true; take(); wake(); settle(); return t.finished; };
+  t.hush = () => { if(t.hushed) return; t.hushed = true; clearTimeout(t.later); wake(); settle(); };
+  return t;
+}
 function paintVoiceBtn(){ $("voiceBtn").textContent = "Voice out: " + (voiceOn ? "on" : "off"); $("voiceBtn").classList.toggle("on", voiceOn); }
 paintVoiceBtn();
 $("voiceBtn").onclick = () => { voiceOn = !voiceOn; store.set("jarvis.voiceOn", voiceOn); if(!voiceOn){ speakJob++; stopVoice(); } paintVoiceBtn(); };
-function stopTalking(){ ctl?.abort(); speakJob++; stopVoice(); stopBarge(); setMode("idle"); resumeWake(); }
+function stopTalking(){ liveTalk?.hush(); ctl?.abort(); speakJob++; stopVoice(); stopBarge(); setMode("idle"); resumeWake(); }
 
 /* ElevenLabs settings */
 function renderVoiceList(){
@@ -2024,6 +2186,7 @@ function startBarge(){
       if(!barged){
         if(!final && said.split(/\s+/).length < 2 && !STOPWORD.test(said)) continue;   // wait for a little more
         barged = { heard: spokenSoFar(), text: said, ack: voiceEnv.ack };
+        if(!voiceEnv.ack) liveTalk?.hush();      // and don't carry on with the rest of a reply still coming in
         speakJob++; stopVoice();                // stop talking right away
         setMode("listening", "Go ahead, sir");
       }
@@ -2264,7 +2427,7 @@ function resizeWindow(to){
 const MP = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35";
 const GMODEL = "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task";
 const HAND_LINKS = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
-const gest = { on:false, rec:null, stream:null, timer:null, held:null, since:0, fired:false, pinch:false, pinchAt:0, grab:null, downAt:0, downY:0, cur:null, trail:[], lastSwipe:0, lastFire:0 };
+const gest = { on:false, rec:null, stream:null, timer:null, held:null, since:0, fired:false, pinch:false, pinchAt:0, grab:null, downAt:0, downY:0, paused:false, cur:null, trail:[], lastSwipe:0, lastFire:0 };
 const GEST_HOLD = { Open_Palm:700, Closed_Fist:350, Thumb_Up:600, Thumb_Down:600, Victory:600, ILoveYou:700 };
 function toast(text){ const t = $("gestToast"); t.textContent = text; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 1300); }
 async function loadRecognizer(){
@@ -2287,7 +2450,7 @@ async function gesturesOn(){
     $("gestChip").hidden = false; $("handHud").hidden = false;
     $("gestStatus").textContent = "On. Show your hand to the camera.";
     logDiag("gestures", "on");
-    gestLoop();
+    gestLoop(); checkBoard();
   }catch(e){
     gesturesOff(false);
     const msg = /Permission|NotAllowed/i.test(e?.name + e?.message) ? "Camera access was blocked. Click the camera icon in Chrome's address bar, allow it, then try again."
@@ -2296,7 +2459,7 @@ async function gesturesOn(){
   }
 }
 function gesturesOff(save = true){
-  gest.on = false; clearTimeout(gest.timer); gest.grab = null; gest.downAt = 0; $("airCursor").classList.remove("grab");
+  gest.on = false; clearTimeout(gest.timer); gest.grab = null; gest.downAt = 0; pauseGestures(false); $("airCursor").classList.remove("grab");
   gest.stream?.getTracks().forEach(t => t.stop()); gest.stream = null;
   $("gestChip").hidden = true; $("handHud").hidden = true; $("airCursor").hidden = true;
   if(save){ store.set("jarvis.gestures", false); $("gestStatus").textContent = "Off. The camera is closed."; }
@@ -2304,11 +2467,29 @@ function gesturesOff(save = true){
 function gestLoop(){
   if(!gest.on) return;
   gest.timer = setTimeout(gestLoop, 80);   // ~12 checks a second is plenty and keeps the fan quiet
-  if(document.hidden || dormantNow()) return;
+  if(document.hidden || dormantNow() || gest.paused) return;
   const v = $("gestVideo"); if(!window.__fakeGR && v.readyState < 2) return;
   let r; try{ r = gest.rec.recognizeForVideo(v, performance.now()); }catch(e){ logDiag("gestures", e.message); return; }
   onHand(r);
 }
+// barehands (the hand-tracked board) watches the same hands through the same camera. While it's running, Jarvis's own
+// gestures pause, or every move on the board would also point, pinch and click inside Jarvis.
+// Jarvis can't read barehands' state, only whether its page answers on this computer, so it checks every few seconds.
+function pauseGestures(on){
+  if(gest.paused === on) return;
+  gest.paused = on; logDiag("gestures", on ? "paused: barehands is running" : "resumed");
+  if(on){ $("airCursor").hidden = true; drawHand(null); gest.held = null; gest.trail = []; gest.pinch = false; gest.downAt = 0; if(gest.grab) grabEnd(); }
+  $("gestChip").textContent = on ? "✋ paused (barehands)" : "✋ gestures on";
+  if(gest.on) $("gestStatus").textContent = on ? "Paused while barehands is running, so your moves there don't click things here. They come back by themselves when you close barehands." : "On. Show your hand to the camera.";
+}
+const boardPauseOn = () => gest.on && store.get("jarvis.board", false) && store.get("jarvis.gestBoardPause", true);
+async function checkBoard(){
+  if(!boardPauseOn()){ pauseGestures(false); return; }
+  let up = false;
+  try{ await fetch(`http://127.0.0.1:${boardPort()}/stage.html`, { mode:"no-cors", cache:"no-store", signal:AbortSignal.timeout(2000) }); up = true; }catch{}
+  if(boardPauseOn()) pauseGestures(up);
+}
+setInterval(checkBoard, 4000);
 function onHand(r){
   const lm = r?.landmarks?.[0], g = r?.gestures?.[0]?.[0];
   drawHand(lm);
@@ -2403,8 +2584,20 @@ function drawHand(lm){
   x.shadowBlur = 0;
 }
 $("gestOn").checked = store.get("jarvis.gestures", false);
+$("gestBoardPause").checked = store.get("jarvis.gestBoardPause", true);
+$("gestBoardPause").onchange = () => { store.set("jarvis.gestBoardPause", $("gestBoardPause").checked); checkBoard(); };
 $("gestOn").onchange = () => { if($("gestOn").checked) gesturesOn(); else gesturesOff(); };
 $("gestChip").onclick = () => { $("gestOn").checked = false; gesturesOff(); };
+$("boardOn").checked = store.get("jarvis.board", false);
+$("boardPort").value = store.get("jarvis.boardPort", "") || "";
+$("boardOn").onchange = () => store.set("jarvis.board", $("boardOn").checked);
+$("boardForm").onsubmit = async e => {
+  e.preventDefault();
+  const n = parseInt($("boardPort").value, 10); store.set("jarvis.boardPort", n > 0 && n < 65536 ? n : 8794);
+  store.set("jarvis.board", true); $("boardOn").checked = true;
+  try{ await boardSend({ a:"add_card", title:"J.A.R.V.I.S.", body:"Connected. Ask me to put things up here." }); $("boardStatus").textContent = "Sent ✓ A J.A.R.V.I.S. card should have appeared on the board. If not, check barehands is running and its page is open."; }
+  catch(err){ $("boardStatus").textContent = err.message; }
+};
 
 /* about you, memory, briefing */
 $("aboutMe").value = store.get("jarvis.about", "");
@@ -2509,7 +2702,7 @@ let dormant = false, tabs = null;
 function goDormant(){
   if(dormant) return;
   dormant = true; wakeOn = false; convoOpen = false; awaiting = false; micState("paused", "paused: Jarvis is open in another tab");
-  ctl?.abort(); speakJob++; stopVoice(); stopRec(); bargeOn = false; setMode("idle", "Paused");
+  liveTalk?.hush(); ctl?.abort(); speakJob++; stopVoice(); stopRec(); bargeOn = false; setMode("idle", "Paused");
   $("bootBtn").textContent = "Use Jarvis in this tab";
   $("bootNote").textContent = "Jarvis was opened in another tab, so this one is paused (otherwise both would answer you).";
   $("boot").hidden = false;
@@ -2554,6 +2747,9 @@ let apiKey = store.get("jarvis.key", "");
 let model = store.get("jarvis.model", "claude-opus-5-5");
 let apiMsgs = [];   // full API history, appended only (keeps thinking blocks valid)
 $("modelSel").value = model;
+let smartOn = store.get("jarvis.smart", true);
+$("smartOn").checked = smartOn;
+$("smartOn").onchange = e => { smartOn = e.target.checked; store.set("jarvis.smart", smartOn); };
 $("modelSel").onchange = e => { model = e.target.value; store.set("jarvis.model", model); apiMsgs = []; addMsg("sys","Brain switched. Starting a fresh conversation."); };
 $("keyForm").onsubmit = e => {
   e.preventDefault();
@@ -2596,37 +2792,115 @@ function renderCost(){
   el.textContent = !t && !m.cost ? "Cost: nothing yet today." :
     `Cost today ${$$(t?.cost || 0)} (${t?.calls || 0} request${t?.calls === 1 ? "" : "s"}), this month ${$$(m.cost)}. Caching saved ${$$(Math.max(0, m.saved))} this month. Estimate; exact figures at console.anthropic.com → Usage.`;
 }
-let apiSystem = null, webOn = true;
-async function askApi(text, signal){
+// Reads a streamed reply (server-sent events) and rebuilds the same message the non-streamed API returns,
+// calling onText(words, blockIndex) as the words arrive.
+async function readStream(res, onText){
+  const msg = { content:[], usage:{} }, json = {};
+  const handle = d => {
+    if(d.type === "message_start"){ Object.assign(msg, d.message, { content: msg.content, usage: { ...(d.message?.usage || {}) } }); }
+    else if(d.type === "content_block_start"){
+      msg.content[d.index] = { ...d.content_block };
+      if(/tool_use$/.test(d.content_block.type)) json[d.index] = "";
+    }
+    else if(d.type === "content_block_delta"){
+      const b = msg.content[d.index], x = d.delta; if(!b) return;
+      if(x.type === "text_delta"){ b.text = (b.text || "") + x.text; try{ onText?.(x.text, d.index); }catch{} }
+      else if(x.type === "input_json_delta") json[d.index] = (json[d.index] || "") + x.partial_json;
+      else if(x.type === "citations_delta") (b.citations ||= []).push(x.citation);
+      else if(x.type === "thinking_delta") b.thinking = (b.thinking || "") + x.thinking;
+      else if(x.type === "signature_delta") b.signature = x.signature;
+    }
+    else if(d.type === "content_block_stop" && d.index in json){
+      try{ msg.content[d.index].input = json[d.index] ? JSON.parse(json[d.index]) : {}; }catch{ msg.content[d.index].input = {}; }
+      delete json[d.index];
+    }
+    else if(d.type === "message_delta"){ Object.assign(msg, d.delta || {}); Object.assign(msg.usage, d.usage || {}); }
+    else if(d.type === "error"){
+      const e = new Error(d.error?.message || "the reply stream broke off");
+      e.status = /overloaded/.test(d.error?.type) ? 529 : /rate_limit/.test(d.error?.type) ? 429 : 500; throw e;
+    }
+  };
+  const reader = res.body.getReader(), dec = new TextDecoder(); let buf = "";
+  for(;;){
+    const { value, done } = await reader.read();
+    buf += dec.decode(value || new Uint8Array(), { stream: !done }).replace(/\r/g, "");
+    let i;
+    while((i = buf.indexOf("\n\n")) >= 0 || (done && buf.trim() && (i = buf.length) >= 0)){
+      const ev = buf.slice(0, i); buf = buf.slice(i + 2);
+      const data = ev.split("\n").filter(l => l.startsWith("data:")).map(l => l.slice(5).trim()).join("\n");
+      let d; try{ d = data && JSON.parse(data); }catch{ d = null; }
+      if(d) handle(d);
+    }
+    if(done) break;
+  }
+  msg.content = msg.content.filter(Boolean);
+  return msg;
+}
+// Smart speed: pick how hard Claude thinks, and which model answers, from what was asked.
+// quick: small talk, the time, weather, a timer → fast, cheap Haiku. deep: analysis, comparisons, plans → more thinking.
+// Anything that touches email, calendar, files or sheets always stays on the main model.
+const QUICK_Q = /^(?:(?:hi|hello|hey|yo|good (?:morning|afternoon|evening|night)|thanks?|thank you|cheers|how are you|how'?s it going|what'?s up)\b|what(?:'s| is) the (?:time|date|day)\b|what time is it|what day is it|what'?s today'?s date|(?:set|start) an? .{0,25}timer|tell me a joke|(?:what'?s|how'?s|what is) the weather|(?:will|is) it (?:going to )?(?:rain|snow|be (?:sunny|cold|hot|warm))|do i need an? (?:umbrella|jacket|coat))/i;
+const NOT_QUICK = /mail|calendar|meeting|schedule|draft|drive|sheet|dcf|comps|remind|book|file|doc|portfolio|stock|and then|after that|also\b/i;
+const DEEP_Q = /\b(?:dcf|valuation|valu(?:e|ing) |comps\b|compar|analy[sz]|assess|evaluat|pros and cons|trade-?offs?|strateg|forecast|projection|explain why|why (?:is|are|did|does|do|would|should|has|have)\b|should i\b|break (?:it |this )?down|in depth|deep dive|think (?:hard|carefully|it through)|research|summari[sz]e|review|plan (?:for|out|my (?:week|month|trip))|what would happen|how (?:does|do) .{0,30} work)/i;
+function route(text){
+  const t = text.trim().replace(/^jarvis[\s,]*/i, "");
+  if(!smartOn) return { model, effort:"low", lane:"normal" };
+  if(model !== "claude-haiku-5-5" && t.split(/\s+/).length <= 12 && QUICK_Q.test(t) && !NOT_QUICK.test(t)) return { model:"claude-haiku-5-5", effort:"low", lane:"quick" };
+  if(DEEP_Q.test(t)) return { model, effort: /think (?:hard|carefully|it through)|in depth|deep dive/i.test(t) ? "high" : "medium", lane:"deep" };
+  return { model, effort:"low", lane:"normal" };
+}
+// A correction ("no, I meant…") gets a short reminder to Claude to save anything lasting it reveals
+const CORRECTION = /^(?:jarvis[\s,]*)?(?:no[,.!]?\s+(?!(?:thanks?|thank you|problem|worries|rush|need|way|idea|doubt|wonder)\b)\S|nope\b|not (?:that|quite|what i)|not [\w'-]+(?: [\w'-]+)?[,;] |that'?s (?:wrong|not (?:right|it|what))|wrong\b|actually[, ]|i (?:said|meant|told you|asked)\b|you (?:got (?:it|that) wrong|misheard|misunderstood)|i didn'?t (?:say|mean|ask))/i;
+function withCorrectionHint(text){ return CORRECTION.test(text.trim()) ? text + "\n[This sounds like a correction. Fix it, and if it shows a lasting preference or fact, save it with remember.]" : text; }
+let apiSystem = null, webOn = true, apiEffort = "low", effortTurns = true;
+async function askApi(text, signal, onText){
   if(apiMsgs.length > 120) apiMsgs = [];
-  if(!apiMsgs.length) apiSystem = sysPrompt();   // fixed for the whole conversation
+  if(!apiMsgs.length){ apiSystem = sysPrompt(); apiEffort = "low"; }   // fixed for the whole conversation
   let start = apiMsgs.length, recovered = false;
-  const userMsg = {role:"user", content:`[${new Date().toLocaleString()}] ${text}`};
+  const r = route(text); let m = r.model;
+  // Thinking effort changes per question with an effort-only system message, so the cached conversation stays valid
+  if(effortTurns && r.effort !== apiEffort){ apiMsgs.push({ role:"system", content:[], output_config:{ effort:r.effort } }); apiEffort = r.effort; }
+  const userMsg = {role:"user", content:`[${new Date().toLocaleString()}] ${withCorrectionHint(text)}`};
   apiMsgs.push(userMsg);
+  // streamed words go to onText as they arrive, with a space between separate blocks of text
+  let said = "", block = null;
   try{
     for(let round = 0; round < 10; round++){
-      const web = model === "claude-haiku-5-5" ? { type:"web_search_20250305", name:"web_search", max_uses:3 } : { type:"web_search_20260209", name:"web_search", max_uses:3 };
-      const body = { model, max_tokens:8000, system:apiSystem, messages:apiMsgs, tools: webOn ? [...apiTools, web] : apiTools, output_config:{effort:"low"}, cache_control:{ type:"ephemeral" } };   // also cache the conversation so far
+      const feed = (w, i) => { if(block !== round + ":" + i){ block = round + ":" + i; if(said && !/\s$/.test(said) && /^[\w"'(]/.test(w)) w = " " + w; } said += w; onText?.(w); };
+      const web = m === "claude-haiku-5-5" ? { type:"web_search_20250305", name:"web_search", max_uses:3 } : { type:"web_search_20260209", name:"web_search", max_uses:3 };
+      const body = { model:m, max_tokens:8000, system:apiSystem, messages:apiMsgs, tools: webOn ? [...apiTools, web] : apiTools, output_config:{effort:"low"}, cache_control:{ type:"ephemeral" }, stream:true };   // also cache the conversation so far; stream so Jarvis can start talking early
       const headers = { "content-type":"application/json", "x-api-key":apiKey, "anthropic-version":"2023-06-01", "anthropic-dangerous-direct-browser-access":"true" };
-      if(model !== "claude-haiku-5-5"){ body.fallbacks = "default"; headers["anthropic-beta"] = "server-side-fallback-2026-07-01"; }
-      if(round === 0) logDiag("ask", `api ${model}, ${body.tools.length} tools offered (${body.tools.map(t => t.name).filter(n => /open_website|play_music|web_search/.test(n)).join(", ") || "no open/music tools!"})`);
+      const betas = [];
+      if(m !== "claude-haiku-5-5"){ body.fallbacks = "default"; betas.push("server-side-fallback-2026-07-01"); }
+      if(apiMsgs.some(x => x.output_config)) betas.push("mid-conversation-output-config-2026-07-01");
+      if(betas.length) headers["anthropic-beta"] = betas.join(",");
+      if(round === 0) logDiag("ask", `api ${m} (${r.lane}, effort ${apiEffort}), ${body.tools.length} tools offered (${body.tools.map(t => t.name).filter(n => /open_website|play_music|web_search/.test(n)).join(", ") || "no open/music tools!"})`);
       const res = await fetch("https://api.anthropic.com/v1/messages", { method:"POST", headers, body:JSON.stringify(body), signal });
-      const data = await res.json().catch(() => ({}));
+      const data = res.ok && /event-stream/.test(res.headers.get("content-type") || "") ? await readStream(res, feed) : await res.json().catch(() => ({}));
       if(!res.ok){
         const msg = data?.error?.message || ("HTTP " + res.status);
+        if(m !== model && [400, 404].includes(res.status)){   // the fast model couldn't take this conversation (e.g. a web search step only Opus understands): ask the main model instead
+          logDiag("api", `${m} declined (${res.status}), using ${model}: ` + msg.slice(0, 120));
+          m = model; round--; continue;
+        }
         if(res.status === 400 && webOn && /web.?search/i.test(msg)){ webOn = false; round--; continue; }   // web search not enabled on this account
+        if(res.status === 400 && effortTurns && /output_config|per-turn effort|effort|role.{0,20}system/i.test(msg)){   // per-question thinking effort not available: carry on without it
+          logDiag("api", "per-question effort rejected, turning it off: " + msg.slice(0, 160));
+          effortTurns = false; apiEffort = "low"; apiMsgs = apiMsgs.filter(x => !x.output_config); start = apiMsgs.indexOf(userMsg); round--; continue;
+        }
         if(res.status === 400 && !recovered && /without a corresponding|tool_use_id|tool_result/i.test(msg)){   // a broken turn in the history: start the conversation afresh instead of failing forever
           logDiag("api", "conversation history rejected, starting fresh: " + msg.slice(0, 160));
-          recovered = true; apiMsgs = [userMsg]; apiSystem = sysPrompt(); start = 0; round--; continue;
+          recovered = true; apiMsgs = [userMsg]; apiSystem = sysPrompt(); apiEffort = "low"; start = 0; round--; continue;
         }
         const err = new Error(msg); err.status = res.status; throw err;
       }
       addCost(data);
-      apiMsgs.push({role:"assistant", content:tidyTurn(data)});
+      const turn = tidyTurn(data);
+      apiMsgs.push({role:"assistant", content:turn});
       logDiag("turn", `stop=${data.stop_reason}, model=${data.model || "?"}, used: ${data.content.filter(b => /tool_use/.test(b.type)).map(b => b.name).join(", ") || "no tools"}, reply ${data.content.filter(b => b.type === "text").map(b => b.text).join(" ").length} chars`);
       if(data.stop_reason === "refusal") return "I'm afraid I can't help with that one, sir.";
       if(data.stop_reason === "pause_turn") continue;   // long web search: let it carry on
-      const uses = data.content.filter(b => b.type === "tool_use");
+      const uses = turn.filter(b => b.type === "tool_use");
       if(data.stop_reason !== "tool_use" || !uses.length){
         return data.content.filter(b => b.type === "text").map(b => b.text).join(" ").trim() || "Done, sir.";
       }
@@ -2640,16 +2914,20 @@ async function askApi(text, signal){
       apiMsgs.push({role:"user", content:results});
     }
     return "That took more steps than I'd like, sir. Could you rephrase?";
-  }catch(e){ apiMsgs.length = start; throw e; }
+  }catch(e){ apiMsgs.length = start; apiEffort = apiMsgs.findLast(x => x.output_config)?.output_config.effort || "low"; throw e; }
 }
 
 // A reply can stop part-way through a server-side step (web search runs code behind the scenes), e.g. when it runs
 // out of room or is declined. Saving that half-finished step makes every later question fail
 // ("…without a corresponding …_result block"), so in that case keep only the words (and, mid tool loop, our own tool calls).
 function tidyTurn(data){
-  const c = data.content || [];
-  if(data.stop_reason === "pause_turn") return c;   // the API resumes these itself
+  let c = data.content || [];
   const answered = new Set(c.filter(b => b.tool_use_id).map(b => b.tool_use_id));
+  // A streamed reply that switched model part-way (refusal fallback) keeps the first model's partial reply: only its words
+  // and finished searches may be sent back, not its thinking or tool calls.
+  const fb = c.map(b => b.type).lastIndexOf("fallback");
+  if(fb > 0) c = c.filter((b, i) => i >= fb || !(/^(thinking|redacted_thinking|tool_use)$/.test(b.type) || (b.type === "server_tool_use" && !answered.has(b.id))));
+  if(data.stop_reason === "pause_turn") return c;   // the API resumes these itself
   const dangling = c.some(b => b.type === "server_tool_use" && !answered.has(b.id));
   if(!dangling && ["end_turn", "tool_use", "stop_sequence"].includes(data.stop_reason)) return c;
   logDiag("turn", `kept only the text of an unfinished reply (stop=${data.stop_reason}${dangling ? ", unfinished search step" : ""})`);
@@ -2687,16 +2965,18 @@ async function ask(text, shown, interruptedHeard){
   const myAsk = busyAsk = ++askSeq;
   const out = addMsg("j","…");
   ctl = new AbortController();
+  liveTalk?.hush();
+  const talk = sample ? null : (liveTalk = talker());
   // Like JARVIS: if the answer takes more than a moment, acknowledge out loud while working
   // …but only for genuinely slow answers, and not every time (at most once every 2 minutes)
   setTimeout(() => {
-    if(busyAsk !== myAsk || mode !== "thinking" || pendingConfirm || Date.now() - lastThinkAck < 120000) return;
+    if(busyAsk !== myAsk || mode !== "thinking" || pendingConfirm || talk?.chunks.length || Date.now() - lastThinkAck < 120000) return;
     lastThinkAck = Date.now(); speak(pick(THINK_ACKS), { ack:true });
   }, 4000);
   try{
     let reply;
     if(sample){
-      turns.push({role:"user",content:text});
+      turns.push({role:"user",content:withCorrectionHint(text)});
       if(turns.length > 20) turns = turns.slice(-20);
       if(turns[0].role !== "user") turns.shift();
       try{
@@ -2707,17 +2987,29 @@ async function ask(text, shown, interruptedHeard){
         }));
       }catch(e){ turns.pop(); throw e; }
     } else {
-      reply = await askApi(text, ctl.signal);
+      reply = await askApi(text, ctl.signal, w => { talk.push(w); out.textContent = talk.text.replace(/\s+/g, " ").trim(); showCaps(); });
     }
     const clean = reply.replace(/\s*\n\s*\n\s*/g," ").trim();
-    out.textContent = clean; showCaps();
-    if(sample) turns.push({role:"assistant",content:clean});
-    if(busyAsk === myAsk) busyAsk = 0;
-    setMode("idle");
-    await speak(clean);
+    if(talk){
+      // usually already spoken as it streamed in; add anything that wasn't (e.g. "Done, sir.", or no streaming)
+      const flat = x => x.replace(/\s+/g, " ").trim(), bare = x => x.replace(/\s+/g, "");
+      const more = bare(talk.text).includes(bare(clean)) ? "" : (talk.text.trim() ? " " : "") + clean;
+      out.textContent = flat(talk.text + more); showCaps();
+      if(busyAsk === myAsk) busyAsk = 0;
+      if(mode === "thinking") setMode("idle");
+      await talk.end(more);
+      if(liveTalk === talk) liveTalk = null;
+    } else {
+      out.textContent = clean; showCaps();
+      turns.push({role:"assistant",content:clean});
+      if(busyAsk === myAsk) busyAsk = 0;
+      setMode("idle");
+      await speak(clean);
+    }
     if(convo && mode === "idle") startListening(); else resumeWake();
   }catch(e){
-    if(e?.code === "cancelled" || e?.name === "AbortError"){ out.textContent = e.text || "(stopped)"; }
+    talk?.hush(); if(liveTalk === talk) liveTalk = null;
+    if(e?.code === "cancelled" || e?.name === "AbortError"){ out.textContent = e.text || (talk?.text.trim() ? talk.text.replace(/\s+/g, " ").trim() + " (stopped)" : "(stopped)"); }
     else {
       const shownErr = e?.code ? (errCopy[e.code] || "Uplink interrupted. Try again.") : apiErr(e);
       addMsg("sys", shownErr); logDiag("error shown", shownErr);
