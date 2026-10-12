@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.10.12 — Jarvis can put things on your barehands board
+- barehands is a free app that turns your webcam into a hand-tracked glass board: cards float over your camera and you move them with your bare hands. Jarvis can now be its voice: say "Jarvis, put today's plan on the board" and the card flies up centre stage.
+- Switch it on in ⚙ → barehands board and press "Test it": a J.A.R.V.I.S. card should appear. barehands itself has to be running on your computer, with its page open in Chrome. Chrome may ask once whether Jarvis can reach devices on your network; say allow.
+- Jarvis can also add cards next to each other, clear the board, or reset it. It can only show things; it can't see what you've moved around.
+- Jarvis's own hand gestures (palm, fist, pinch to move between screens) are unchanged and separate from barehands.
+
 ## 2026.10.11.29 — Jarvis learns from your corrections
 - When you correct Jarvis ("no, I meant Pepper Potts", "not dollars, euros", "I told you, I use 5.5%"), it fixes the answer and, if the correction is something lasting, saves it to memory so it doesn't make the same mistake again. It says briefly that it'll remember.
 - One-off slips aren't saved. You can see and delete what it remembers in ⚙ → memory, or say "forget that".
