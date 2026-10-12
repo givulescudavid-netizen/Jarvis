@@ -397,7 +397,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.12.2";
+const VERSION = "2026.10.12.3";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -434,7 +434,8 @@ function sysPrompt(){
 - New DCF: dcf_new. Then get the historicals (last 3 to 5 years: revenue, EBIT or EBITDA, D&A, capex, change in working capital, tax rate, net debt, diluted shares) from the latest annual report or 10-K via web search and company_metrics, write them with dcf_set_inputs, and say the source and fiscal year. Ask the user to sanity-check the two or three numbers that matter most.
 - Then the assumptions, ONE AT A TIME, in the order their template uses (usually: revenue growth by year, margins, D&A and capex, working capital, tax rate, then WACC inputs (risk-free rate, beta, equity risk premium, cost of debt, capital weights), then terminal growth or exit multiple). For each: state the history or market figure, give a sensible range with one line of reasoning, recommend a number, and let the user decide. Write it in straight away and mention what it did to the implied price when that's interesting.
 - At the end: read the outputs and report enterprise value, equity value, implied share price against the current price (market_quotes) and the upside or downside, plus what the sensitivity range says. Offer scenarios ("bear case: growth 10% lower, margins flat").
-- Remember the user's standing preferences with remember (e.g. "always uses 5.5% equity risk premium", "prefers exit multiple over perpetuity growth").`
+- Remember the user's standing preferences with remember (e.g. "always uses 5.5% equity risk premium", "prefers exit multiple over perpetuity growth").
+- On the board: when they ask to see the DCF or put it on the board, use dcf_show_on_board (not show_on_board). The board can't tell you what they touch, so to change an assumption they say it ("bump growth to 12%"): write it with dcf_set_inputs and the cards refresh by themselves; say the new implied price in one sentence.`
     + `\n\nActions: you can save Gmail drafts and create calendar events. These tools ask the user to confirm before anything happens; if they decline, accept it and move on. Never claim an email was sent: drafts wait in Gmail for the user to send.`
     + `\n\nMemory: when the user says "remember...", or tells you a lasting fact about their work, clients, people or preferences, save it with the remember tool. Use forget when asked.`
     + `\n\nLearning from corrections: when the user corrects you ("no, I meant…", "that's wrong", "not X, Y", "I told you…"), fix your answer, and if the correction shows something lasting (who someone is, a unit or currency, how they like things done, a word you keep mishearing), save it with remember in the same turn and say in a few words that you'll remember. Don't save one-off slips. If a saved memory turns out to be wrong, forget it and remember the right one.`
@@ -470,7 +471,7 @@ What you CAN do, using your tools (use them; don't say you can't when a tool fit
 - Uber price and pickup estimates for a ride right now (uber_estimate). You can't book: the user books in the Uber app. On the website version it opens Uber with the trip filled in.
 - Hotels from Tripadvisor (find_hotels, and hotel_info for one hotel): give two or three good options with price per night, rating and area, not the whole list. You can't book; offer to open the hotel's page. On the website version, find_hotels opens Tripadvisor and you suggest options from web search.
 - Hand gestures (if the user switched them on in settings, website in Chrome): open palm wakes you, fist stops you talking, thumbs up/down answer "Shall I go ahead?", peace sign toggles focus mode, "rock on" (🤟) asks you for music they like, pointing moves an on-screen cursor and a pinch clicks; pinching and holding on an empty spot grabs Jarvis's window so they can drag it to another monitor. If they ask how gestures work, explain briefly.
-- The barehands board (show_on_board): a hand-tracked glass board on the user's computer where they move cards with their hands. When they ask to SEE something or put it on the board, put it up as a short card (a title and a few lines) instead of reading it all out, and say in one sentence what you put up. It only shows things; it can't show you what's on it. If they ask to open the board, use action open. You can't start barehands itself: they start it on their computer.
+- The barehands board (show_on_board): a hand-tracked glass board on the user's computer where they move cards with their hands. When they ask to SEE something or put it on the board, put it up as a short card (a title and a few lines) instead of reading it all out, and say in one sentence what you put up. It only shows things; it can't show you what's on it. If they ask to open the board, use action open. A DCF goes up with dcf_show_on_board (valuation, assumptions and upside cards that update as assumptions change). You can't start barehands itself: they start it on their computer.
 - Move your own window to another monitor (move_window), e.g. "move to the other screen". It only works when you're in your own window (⧉ pop-out or installed app).
 Anything that changes the user's accounts (drafts, events) asks them to confirm first. You cannot send email, delete anything, edit files, or trade; if asked, say so briefly and offer the closest thing you can do (e.g. a draft).
 
@@ -1327,7 +1328,54 @@ async function dcfSetInputs({file_id, values}){
   await gsend(`${SHEETS}${encodeURIComponent(file_id)}/values:batchUpdate`, "POST", { valueInputOption:"USER_ENTERED", data: values.slice(0, 120).map(x => ({ range:String(x.cell), values:[[x.value]] })) });
   const t = store.get("jarvis.dcfTemplate", null), outs = (t?.outputs || []).map(o => o.cell);
   const results = outs.length ? await readCells(file_id, outs) : {};
-  return { written: values.length, outputs: (t?.outputs || []).map(o => ({ name:o.name, cell:o.cell, value: results[o.cell] })) };
+  const res = { written: values.length, outputs: (t?.outputs || []).map(o => ({ name:o.name, cell:o.cell, value: results[o.cell] })) };
+  const onBoard = store.get("jarvis.dcfBoard", null);
+  if(onBoard?.file_id === file_id && store.get("jarvis.board", false)){
+    try{ await pushDcfBoard(file_id, onBoard.key_inputs); res.board = "The cards on the board are updated too."; }
+    catch(e){ res.board = "Couldn't update the board: " + e.message; }
+  }
+  return res;
+}
+/* DCF on the barehands board: a valuation card centre stage with the key assumptions and the upside beside it.
+   The board can't be read back, so tweaks are spoken ("bump growth to 12%"): dcf_set_inputs re-pushes the cards. */
+const KEY_ASSUMPTION = /growth|margin|wacc|discount|terminal|exit|multiple|beta|risk|premium|cost of|tax|capex|reinvest|working capital/i;
+const HISTORIC = /histor|actual|last year|prior year|\bLTM\b|\bTTM\b/i;
+const num = v => { const s = String(v ?? "").replace(/[,$€£\s]/g, ""); const n = parseFloat(s.replace(/^\((.*)\)$/, "-$1")); return isFinite(n) ? n : null; };
+async function pushDcfBoard(file_id, key_inputs){
+  const t = store.get("jarvis.dcfTemplate", null);
+  if(!t) throw new Error("No DCF template saved yet.");
+  const f = myFiles().find(x => x.id === file_id) || {};
+  const outs = (t.outputs || []).slice(0, 8);
+  let ins = Array.isArray(key_inputs) && key_inputs.length ? (t.inputs || []).filter(i => key_inputs.includes(i.cell) || key_inputs.includes(i.name))
+    : (t.inputs || []).filter(i => KEY_ASSUMPTION.test(i.name + " " + (i.meaning || "")) && !HISTORIC.test(i.name));
+  ins = ins.slice(0, 8);
+  const vals = await readCells(file_id, [...outs, ...ins].map(x => x.cell));
+  const line = x => `${x.name}: ${vals[x.cell] === "" || vals[x.cell] === undefined ? "–" : vals[x.cell]}`;
+  const who = f.ticker ? SYM(f.ticker) : (f.company || "DCF");
+  const priceOut = outs.find(o => /implied|per share|share price|target|fair value/i.test(o.name) && !/upside|downside/i.test(o.name));
+  const upOut = outs.find(o => /upside|downside/i.test(o.name));
+  const implied = priceOut ? num(vals[priceOut.cell]) : null;
+  let current = null;
+  if(f.ticker && fhKey){ try{ current = (await fh("quote", { symbol:SYM(f.ticker) })).c || null; }catch{} }
+  const up = [];
+  if(implied !== null) up.push(`Implied price: ${vals[priceOut.cell]}`);
+  if(current) up.push(`Current price: ${current.toFixed(2)}`);
+  if(implied !== null && current) up.push(`${implied >= current ? "Upside" : "Downside"}: ${((implied / current - 1) * 100).toFixed(1)}%`);
+  else if(upOut) up.push(line(upOut));
+  up.push("Information only, not advice.");
+  await boardSend({ a:"clear" });
+  if(ins.length) await boardSend({ a:"add_card", title:`Assumptions · ${who}`.slice(0, 80), body:ins.map(line).join("\n") });
+  await boardSend({ a:"add_card", title:`Upside · ${who}`.slice(0, 80), body:up.join("\n") });
+  await boardSend({ a:"present", title:`DCF · ${who}`.slice(0, 80), body:(outs.map(line).join("\n") || "No outputs in the template map yet.").slice(0, 1500) });
+  store.set("jarvis.dcfBoard", { file_id, key_inputs: ins.map(i => i.cell) });
+  return { implied, current, assumptions: ins.map(i => i.name) };
+}
+async function dcfShowOnBoard({file_id, key_inputs}){
+  needWebsite();
+  if(!store.get("jarvis.board", false)) return "The barehands board is switched off. Tell the user to switch it on in settings → barehands board.";
+  if(!myFiles().some(f => f.id === file_id && f.kind === "dcf")) throw new Error("That isn't a DCF Jarvis made. Start one with dcf_new first.");
+  const r = await pushDcfBoard(file_id, key_inputs);
+  return { done:"The valuation card is centre stage, with the key assumptions and the upside beside it. From now on, when the user changes an assumption (dcf_set_inputs on this DCF), the cards update by themselves.", shown_assumptions:r.assumptions };
 }
 async function dcfRead({file_id, cells}){
   needWebsite();
@@ -1575,6 +1623,9 @@ const tools = [
   { name:"dcf_set_inputs", description:"Writes values into a DCF copy Jarvis created (never the template), then returns the recalculated outputs. Use plain numbers or percentages like '12%'.",
     inputSchema:{type:"object",properties:{file_id:{type:"string"},values:{type:"array",items:{type:"object",properties:{cell:{type:"string"},value:{type:["string","number"]},label:{type:"string"}},required:["cell","value"]}}},required:["file_id","values"]},
     execute: input => dcfSetInputs(input) },
+  { name:"dcf_show_on_board", description:"Puts a DCF Jarvis made on the user's barehands board: a valuation card centre stage (EV, equity value, implied price…), a key assumptions card and an upside card (implied vs live price). After this, every dcf_set_inputs on that DCF refreshes the cards automatically. Use when the user asks to see or put the DCF/valuation on the board.",
+    inputSchema:{type:"object",properties:{file_id:{type:"string"},key_inputs:{type:"array",items:{type:"string"},description:"Optional: the input cells or names to show as assumptions (up to 8). Default: growth, margins, WACC, terminal value and similar, not historicals."}},required:["file_id"]},
+    execute: input => dcfShowOnBoard(input) },
   { name:"dcf_read", description:"Reads cells from a spreadsheet (default: the template's inputs and outputs).",
     inputSchema:{type:"object",properties:{file_id:{type:"string"},cells:{type:"array",items:{type:"string"}}},required:["file_id"]}, execute: input => dcfRead(input) },
   { name:"market_quotes", description:"Live stock prices: price, change, % change, previous close (Finnhub).",

@@ -999,6 +999,45 @@ console.log("barehands board");
   await p.close();
 }
 
+console.log("DCF on the board");
+{
+  const tpl = { file_id:"TEMPLATE1", title:"My DCF", inputs:[{ name:"Revenue FY2024 (historical)", cell:"Inputs!C4" }, { name:"Revenue growth Y1", cell:"Inputs!C8" }, { name:"WACC", cell:"Inputs!C20" }],
+    outputs:[{ name:"Enterprise value", cell:"DCF!H38" }, { name:"Implied share price", cell:"DCF!H40" }] };
+  const p = await open({ googleBefore:true, ls:{ "jarvis.board":true, "jarvis.fhKey":"fh-test", "jarvis.dcfTemplate":tpl, "jarvis.myFiles":[{ id:"COPY1", name:"DCF: Nvidia", kind:"dcf", company:"Nvidia", ticker:"NVDA" }] }, script:[
+    { tool:"dcf_show_on_board", input:{ file_id:"COPY1" } }, { text:"It's on the board, sir." },
+    { tool:"dcf_set_inputs", input:{ file_id:"COPY1", values:[{ cell:"Inputs!C8", value:"12%" }] } }, { text:"Implied price is now $150." },
+    { tool:"dcf_show_on_board", input:{ file_id:"TEMPLATE1" } }, { text:"I can only show DCFs I made." } ] }, undefined, HTTP_PAGE);
+  await p.evaluate(() => {
+    window.__board = []; window.__price = "$128.40"; window.__growth = "30%";
+    window.__extraFetch = async (u, o, J) => {
+      if(/127\.0\.0\.1:\d+\/cmd/.test(u)){ window.__board.push(JSON.parse(o.body)); return new Response(null, { status:204 }); }
+      if(u.endsWith("/values:batchUpdate")){ window.__price = "$150.00"; window.__growth = "12%"; return J({ totalUpdatedCells:1 }); }
+      if(u.includes("values:batchGet")){ const rs = [...new URL(u).searchParams.getAll("ranges")];
+        const v = { "DCF!H38":"$3,100bn", "DCF!H40":window.__price, "Inputs!C8":window.__growth, "Inputs!C20":"9.5%", "Inputs!C4":"$61bn" };
+        return J({ valueRanges: rs.map(r => ({ values:[[v[r] ?? ""]] })) }); }
+      if(u.includes("finnhub.io") && u.includes("/quote")) return J({ c:120, d:1, dp:0.8, pc:119 });
+      return null;
+    };
+  });
+  await p.click("#bootBtn"); await settle(p, 1000);
+  await say(p, "jarvis put the nvidia dcf on the board", 1200);
+  let b = await p.evaluate(() => window.__board);
+  const card = (b, t) => b.find(c => c.title && c.title.startsWith(t));
+  check("DCF board: clears, then the valuation goes centre stage", b[0]?.a === "clear" && b.at(-1)?.a === "present" && b.at(-1).title === "DCF · NVDA" && /Implied share price: \$128\.40/.test(b.at(-1).body) && /Enterprise value/.test(b.at(-1).body), JSON.stringify(b));
+  check("DCF board: assumptions card shows growth and WACC, not historicals", /Revenue growth Y1: 30%/.test(card(b, "Assumptions")?.body) && /WACC: 9\.5%/.test(card(b, "Assumptions")?.body) && !/FY2024/.test(card(b, "Assumptions")?.body), JSON.stringify(card(b, "Assumptions")));
+  check("DCF board: upside card compares implied and live price", /Current price: 120\.00/.test(card(b, "Upside")?.body) && /Upside: 7\.0%/.test(card(b, "Upside")?.body) && /not advice/.test(card(b, "Upside")?.body), JSON.stringify(card(b, "Upside")));
+  await p.evaluate(() => { window.__board = []; });
+  await say(p, "bump growth to 12 percent", 1200);
+  b = await p.evaluate(() => window.__board);
+  check("DCF board: a spoken assumption change refreshes the cards", /Revenue growth Y1: 12%/.test(card(b, "Assumptions")?.body) && /\$150\.00/.test(card(b, "DCF")?.body) && /Upside: 25\.0%/.test(card(b, "Upside")?.body) && /board are updated/.test(JSON.stringify((await log(p)).at(-1).last.content)), JSON.stringify(b));
+  await p.evaluate(() => { window.__board = []; });
+  await say(p, "put my template on the board", 900);
+  check("DCF board: only DCFs Jarvis made", (await p.evaluate(() => window.__board.length)) === 0 && /isn't a DCF Jarvis made/.test(JSON.stringify((await log(p)).at(-1).last.content)));
+  check("Jarvis knows how to put a DCF on the board", (await log(p))[0].tools.includes("dcf_show_on_board") && /dcf_show_on_board/.test((await log(p))[0].system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("Its own window (pop out / app)");
 {
   const p = await open({}, undefined, HTTP_PAGE);
