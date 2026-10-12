@@ -1229,6 +1229,52 @@ console.log("Reminders, weather, travel times, Uber and hotels (website version)
   await p.close();
 }
 
+console.log("Centris deals and the on-screen panel");
+{
+  const html = `<html><body><h1>3 new properties match your search</h1>
+    <div>4-plex · 123 Rue Fake, Montréal (Rosemont) · $899,000 · Potential gross revenue $72,000 · Municipal taxes $9,000</div>
+    <a href="https://www.centris.ca/en/4plex~for-sale~montreal-rosemont/12345678">View listing</a>
+    <a href="https://evil.example/track">Unsubscribe</a></body></html>`;
+  const b64 = t => Buffer.from(t).toString("base64").replace(/\+/g, "-").replace(/\//g, "_");
+  const p = await open({ ls:{ "jarvis.dealCriteria":{ min_units:3, max_price:1500000, min_cap_rate:5 } }, script:[
+    { tool:"centris_listings", input:{} },
+    { tool:"analyze_property", input:{ address:"123 Rue Fake, Montréal", price:899000, units:4, gross_revenue:72000, taxes:9000 } },
+    { tool:"show_on_screen", input:{ title:"Centris deals", items:[
+      { title:"123 Rue Fake · 4-plex", right:"$899,000", detail:"4 units · $224,750/door · cap 5.6% · +$216/mo", link:"https://www.centris.ca/en/4plex~for-sale~montreal-rosemont/12345678", verdict:"good" },
+      { title:"Sketchy one", right:"$1", link:"javascript:alert(1)", verdict:"pass" } ] } },
+    { text:"The Rosemont fourplex looks best, sir." },
+    { tool:"show_on_screen", input:{ title:"Inbox", items:[ { title:"Board meeting", right:"Pepper", email_id:"m1" } ] } },
+    { text:"Your inbox is on the screen, sir." },
+    { tool:"deal_criteria", input:{ areas:"Montreal, Laval", min_cap_rate:"6", bogus:1 } }, { text:"Noted, sir." } ]});
+  await p.evaluate(({ html, mail }) => { window.__gq = []; window.__extraFetch = async (u, o, J) => {
+    if(!u.includes("gmail.googleapis.com")) return;
+    if(/messages\?/.test(u)){ window.__gq.push(decodeURIComponent(u.split("q=")[1])); return J({ messages:[{ id:"c1" }], resultSizeEstimate:1 }); }
+    if(u.includes("/messages/c1")) return J({ snippet:"3 new properties", payload:{ headers:[{ name:"From", value:"Centris <alertes@centris.ca>" }, { name:"Subject", value:"3 new properties" }, { name:"Date", value:"Mon, 12 Oct 2026" }],
+      mimeType:"multipart/alternative", parts:[{ mimeType:"text/html", body:{ data: html } }] } });
+    if(u.includes("/messages/m1")) return J({ snippet:"See you", payload:{ headers:[{ name:"From", value:"Pepper <pepper@example.com>" }, { name:"Subject", value:"Board meeting" }], mimeType:"text/plain", body:{ data: mail } } });
+  }; }, { html: b64(html), mail: b64("See you at 9 for the board meeting.") });
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(400); await p.click("#closeBtn");
+  await say(p, "jarvis any good deals on centris", 1500);
+  const L = await log(p), sent = JSON.stringify(L.filter(x => x.last).map(x => x.last));
+  check("Centris tools are offered and explained to Claude", ["centris_listings", "analyze_property", "deal_criteria", "show_on_screen"].every(n => L[0].tools.includes(n) && L[0].system.includes(n)));
+  check("Centris: searches the Centris alert emails", (await p.evaluate(() => window.__gq)).some(q => /^from:centris newer_than:14d/.test(q)), (await p.evaluate(() => window.__gq)).join(" | "));
+  check("…reads the whole email with the listing link (and drops other links) plus the saved criteria", /Potential gross revenue \$72,000/.test(sent) && /centris\.ca\/en\/4plex~for-sale~montreal-rosemont\/12345678/.test(sent) && !/evil\.example/.test(sent) && /min_cap_rate/.test(sent), sent.slice(0, 600));
+  check("deal numbers: cap rate, Canadian mortgage payment, cash flow, verdict", /\\"cap_rate_pct\\":5\.6/.test(sent) && /\\"mortgage_monthly\\":3981/.test(sent) && /\\"cash_flow_monthly\\":216/.test(sent) && /\\"price_per_door\\":224750/.test(sent) && /\\"verdict\\":\\"good\\"/.test(sent), sent.slice(-900));
+  check("listings go up on Jarvis's screen with a green 'good' marker", await p.locator("#dispBox").isVisible() && (await p.locator("#dispTitle").textContent()) === "Centris deals" && await p.locator("#dispList li.good").count() === 1);
+  check("…with a working Centris link, and unsafe links are left out", (await p.locator("#dispList li.good a").getAttribute("href")) === "https://www.centris.ca/en/4plex~for-sale~montreal-rosemont/12345678" && await p.locator("#dispList li.pass a").count() === 0);
+  await say(p, "jarvis put my emails up", 900);
+  await p.click("#dispList li.click"); await p.waitForFunction(() => /See you at 9/.test(document.getElementById("dispText").textContent), null, { timeout:3000 }).catch(() => {});
+  check("emails on screen: click one to read it", /See you at 9 for the board meeting/.test(await p.locator("#dispText").textContent()), await p.locator("#dispText").textContent());
+  await say(p, "jarvis only montreal and laval, and at least a 6 percent cap rate", 900);
+  const crit = JSON.parse(await p.evaluate(() => localStorage.getItem("jarvis.dealCriteria")));
+  check("deal criteria can be changed by voice (and the rest is kept)", crit.areas === "Montreal, Laval" && crit.min_cap_rate === 6 && crit.min_units === 3 && !("bogus" in crit), JSON.stringify(crit));
+  await p.click("#dispClose");
+  check("the panel closes", await p.locator("#dispBox").isHidden());
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("Online version (claude.ai connectors)");
 {
   const p = await open({ mcp:true });

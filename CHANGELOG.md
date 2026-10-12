@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.10.12.7 — Centris deal finder and emails on screen
+- **Centris deals:** "Jarvis, any good deals on Centris?" Jarvis reads your Centris alert emails, pulls out every property and runs the investor numbers: price per door, gross rent multiplier, cap rate, mortgage payment (Canadian semi-annual compounding), monthly cash flow, cash-on-cash return and debt coverage. Then it ranks them and tells you which one or two look best and why.
+- **Your criteria:** the first time, Jarvis asks what you look for (areas, number of units, max price, minimum cap rate or cash flow, down payment and rate) and remembers it. Change it any time: "Jarvis, only Montreal and Laval, at least a 6% cap rate."
+- **On screen:** a new panel on the right of the HUD shows the ranked listings (green = matches your criteria, amber = close, red = misses) with an Open button to the Centris page.
+- **Emails on screen:** "Jarvis, put my emails up" or "read me my emails": the list appears in the same panel, and clicking an email shows the whole thing.
+- If a listing doesn't show its revenue, Jarvis says so and asks you (or estimates rents with a web search and says it's an estimate). Expenses are estimated unless the listing gives them. These are quick screening numbers to decide what to visit, not advice.
+
 ## 2026.10.12.6 — Trips and packages from your email
 - **Trips:** "Jarvis, what trips do I have coming up?" or "add my flights to the calendar". Jarvis finds flight, train, hotel and rental-car confirmations in your Gmail and tells you what's coming. It offers to put them on your calendar (asking "Shall I go ahead?" for each one), plus a reminder to check in 24 hours before and a "time to leave for the airport" reminder.
 - **Packages:** "Where's my Amazon order?" or "what's arriving this week?" Jarvis reads your shipping emails and tells you what's coming, from whom, and when, including anything delayed or needing action.
