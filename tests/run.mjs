@@ -958,6 +958,44 @@ console.log("Browsers without voice listening");
   await p.close();
 }
 
+console.log("barehands board");
+{
+  const capture = () => { window.__board = []; window.__extraFetch = async (u, o) => {
+    if(!/127\.0\.0\.1:\d+\/cmd/.test(u)) return null;
+    if(window.__boardDown) throw new TypeError("Failed to fetch");
+    window.__board.push({ u, mode:o.mode, cmd:JSON.parse(o.body) }); return new Response(null, { status:204 }); }; };
+  const lastResult = async p => JSON.stringify((await log(p)).filter(x => x.last).at(-1).last.content);
+  // switched off: nothing is sent, Jarvis says where to switch it on
+  const off = await open({ script:[{ tool:"show_on_board", input:{ action:"present", title:"Plan" } }, { text:"It's off, sir." }] });
+  await off.evaluate(capture);
+  await off.click("#bootBtn"); await settle(off);
+  await say(off, "jarvis put my plan on the board", 900);
+  check("board switched off: nothing sent, says where to switch it on", (await off.evaluate(() => window.__board.length)) === 0 && /settings → barehands board/.test(await lastResult(off)), await lastResult(off));
+  check("Jarvis knows it can use the board", (await log(off))[0].tools.includes("show_on_board") && /show_on_board/.test((await log(off))[0].system));
+  await off.close();
+  // switched on: the card goes to barehands' local command channel
+  const p = await open({ ls:{ "jarvis.board": true }, script:[
+    { tool:"show_on_board", input:{ action:"present", title:"Today", body:"9:00 standup\n14:00 Board meeting" } }, { text:"It's up, sir." },
+    { tool:"show_on_board", input:{ action:"add_card", title:"Later" } }, { text:"The board isn't answering, sir." } ] });
+  await p.evaluate(capture);
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis put today's plan on the board", 900);
+  const b = await p.evaluate(() => window.__board);
+  check("'put it on the board' sends a present card to barehands on this computer", b.length === 1 && b[0].u === "http://127.0.0.1:8794/cmd" && b[0].mode === "no-cors" && b[0].cmd.a === "present" && b[0].cmd.title === "Today" && /Board meeting/.test(b[0].cmd.body), JSON.stringify(b));
+  check("…and tells Jarvis it worked", /centre stage/.test(await lastResult(p)), await lastResult(p));
+  await p.evaluate(() => { window.__boardDown = true; });
+  await say(p, "jarvis add a card for later", 900);
+  check("barehands not running: Jarvis is told to start it", /Couldn't reach the barehands board/.test(await lastResult(p)), await lastResult(p));
+  // settings: a different port, and the Test button
+  await p.evaluate(() => { window.__boardDown = false; window.__board = []; });
+  await p.evaluate(() => { document.getElementById("boardPort").value = "9000"; document.getElementById("boardForm").requestSubmit(); });
+  await p.waitForTimeout(300);
+  const t = await p.evaluate(() => window.__board);
+  check("settings 'Test it' sends a card to the chosen port", t.length === 1 && t[0].u === "http://127.0.0.1:9000/cmd" && t[0].cmd.a === "add_card" && /Sent ✓/.test(await p.locator("#boardStatus").textContent()), JSON.stringify(t));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("Its own window (pop out / app)");
 {
   const p = await open({}, undefined, HTTP_PAGE);
