@@ -652,6 +652,8 @@ console.log("Finance: DCF co-pilot, markets, comps, price alerts");
   await say(p, "watch nvidia and tell me if it drops below 110", 1500);
   await p.waitForTimeout(800);
   check("markets: watchlist shows on the dashboard with the price", await p.locator("#marketsBox").isVisible() && /NVDA/.test(await p.locator("#marketsList").textContent()) && /108\.50/.test(await p.locator("#marketsList").textContent()));
+  // the alert waits until Jarvis has finished its sentence, so give a busy machine a few seconds
+  await p.waitForFunction(() => window.__spoken.some(t => /NVDA has dropped below 110/.test(t)), null, { timeout:5000 }).catch(() => {});
   check("markets: speaks a price alert when it drops below your level", (await p.evaluate(() => window.__spoken)).some(t => /NVDA has dropped below 110: now 108\.50/.test(t)), (await p.evaluate(() => window.__spoken)).slice(-3).join(" | "));
   await say(p, "build comps for nvidia and amd", 700);
   check("comps: asks before creating a sheet", await p.locator("#confirmBox").isVisible());
