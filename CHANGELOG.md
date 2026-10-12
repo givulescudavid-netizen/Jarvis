@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.12.3 — Your DCF on the board
+- Say "Jarvis, put the Nvidia DCF on the board" and three cards appear on your barehands board: the valuation (enterprise value, equity value, implied share price and the other outputs from your template) centre stage, the key assumptions (growth, margins, WACC, terminal value; not the historicals) and the upside against today's live price.
+- To change an assumption, say it: "bump growth to 12%". Jarvis writes it into your DCF copy and the cards update by themselves with the new value and upside. (barehands can't tell Jarvis what you touch on the board, so pinching a card can't change a number.)
+- It only works on DCFs Jarvis made for you, never your template. The live price needs your market data key; without it the upside card shows your template's own upside figure if it has one.
+
 ## 2026.10.12.2 — "Jarvis, open the board"
 - Once barehands is running on your computer, say "Jarvis, open the board" and its page opens in a new tab. Jarvis can't start barehands itself (websites aren't allowed to start programs), so start it first.
 
