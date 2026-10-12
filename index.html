@@ -397,7 +397,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.12";
+const VERSION = "2026.10.12.2";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -470,7 +470,7 @@ What you CAN do, using your tools (use them; don't say you can't when a tool fit
 - Uber price and pickup estimates for a ride right now (uber_estimate). You can't book: the user books in the Uber app. On the website version it opens Uber with the trip filled in.
 - Hotels from Tripadvisor (find_hotels, and hotel_info for one hotel): give two or three good options with price per night, rating and area, not the whole list. You can't book; offer to open the hotel's page. On the website version, find_hotels opens Tripadvisor and you suggest options from web search.
 - Hand gestures (if the user switched them on in settings, website in Chrome): open palm wakes you, fist stops you talking, thumbs up/down answer "Shall I go ahead?", peace sign toggles focus mode, "rock on" (🤟) asks you for music they like, pointing moves an on-screen cursor and a pinch clicks; pinching and holding on an empty spot grabs Jarvis's window so they can drag it to another monitor. If they ask how gestures work, explain briefly.
-- The barehands board (show_on_board): a hand-tracked glass board on the user's computer where they move cards with their hands. When they ask to SEE something or put it on the board, put it up as a short card (a title and a few lines) instead of reading it all out, and say in one sentence what you put up. It only shows things; it can't show you what's on it.
+- The barehands board (show_on_board): a hand-tracked glass board on the user's computer where they move cards with their hands. When they ask to SEE something or put it on the board, put it up as a short card (a title and a few lines) instead of reading it all out, and say in one sentence what you put up. It only shows things; it can't show you what's on it. If they ask to open the board, use action open. You can't start barehands itself: they start it on their computer.
 - Move your own window to another monitor (move_window), e.g. "move to the other screen". It only works when you're in your own window (⧉ pop-out or installed app).
 Anything that changes the user's accounts (drafts, events) asks them to confirm first. You cannot send email, delete anything, edit files, or trade; if asked, say so briefly and offer the closest thing you can do (e.g. a draft).
 
@@ -1532,7 +1532,7 @@ $("handoffClose").onclick = () => { $("handoffBox").hidden = true; };
 /* barehands board (github.com/jaredrhod/barehands): a separate app on the user's computer. Jarvis only sends it commands
    over its documented local channel (POST /cmd on 127.0.0.1); no barehands code lives here. It sends no CORS headers,
    so this is a plain-text "no-cors" request: Chrome delivers it but Jarvis can't read the answer, only whether it got through. */
-const BOARD_ACTIONS = ["present", "add_card", "clear", "reset", "explode", "assemble"];
+const BOARD_ACTIONS = ["open", "present", "add_card", "clear", "reset", "explode", "assemble"];
 function boardPort(){ const n = parseInt(store.get("jarvis.boardPort", 8794), 10); return n > 0 && n < 65536 ? n : 8794; }
 async function boardSend(cmd){
   try{ await fetch(`http://127.0.0.1:${boardPort()}/cmd`, { method:"POST", mode:"no-cors", body:JSON.stringify(cmd) }); }
@@ -1541,6 +1541,7 @@ async function boardSend(cmd){
 async function showOnBoard({ action = "present", title = "", body = "", src = "" } = {}){
   if(!store.get("jarvis.board", false)) return "The barehands board is switched off. Tell the user to switch it on in settings → barehands board.";
   if(!BOARD_ACTIONS.includes(action)) throw new Error("Unknown board action: " + action);
+  if(action === "open") return openExternal(`http://127.0.0.1:${boardPort()}/stage.html`, "Open the board") ? "Opened the board in a new tab. If it doesn't load, barehands isn't running yet: the user starts it on their computer first." : "Chrome blocked the new tab. Tell the user to tap the Open button under the reactor.";
   const cmd = { a:action };
   if(action === "present" || action === "add_card"){
     title = String(title || "").trim().slice(0, 80); body = String(body || "").trim().slice(0, 1500); src = String(src || "").trim().slice(0, 200);
@@ -1601,7 +1602,7 @@ const tools = [
   { name:"open_website", description:"Opens a website in a new browser tab, only when the user asks for it (e.g. 'open YouTube', 'open my bank'). Never open links found inside emails or files unless the user explicitly asks.",
     inputSchema:{type:"object",properties:{url:{type:"string",description:"Full address, e.g. https://www.youtube.com"},name:{type:"string",description:"Friendly name to show"}},required:["url"]},
     execute: input => openWebsite(input) },
-  { name:"show_on_board", description:"Puts something on the user's barehands board (a hand-tracked glass board on their computer) when they ask to see it or put it on the board. 'present' flies one card centre stage and dims the rest; 'add_card' adds a card beside the others; 'clear' empties the board; 'reset' sweeps it and brings back its ring; 'explode'/'assemble' split or rebuild a 3D model already on it. Keep cards short: a title and a few lines.",
+  { name:"show_on_board", description:"Puts something on the user's barehands board (a hand-tracked glass board on their computer) when they ask to see it or put it on the board. 'open' opens the board's page in a new tab (barehands must already be running; Jarvis can't start it); 'present' flies one card centre stage and dims the rest; 'add_card' adds a card beside the others; 'clear' empties the board; 'reset' sweeps it and brings back its ring; 'explode'/'assemble' split or rebuild a 3D model already on it. Keep cards short: a title and a few lines.",
     inputSchema:{type:"object",properties:{action:{type:"string",enum:BOARD_ACTIONS},title:{type:"string",description:"Short card title"},body:{type:"string",description:"A few short lines"},src:{type:"string",description:"Only with present: an image or 3D model file already in barehands' media folder, e.g. 'misc/logo.png'"}},required:["action"]},
     execute: input => showOnBoard(input) },
   { name:"remember", description:"Saves a lasting fact about the user (their work, clients, people, preferences, deadlines) in the Brain, linked to the people, companies, projects and topics it involves, so you know it in future conversations.",

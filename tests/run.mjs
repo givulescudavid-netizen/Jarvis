@@ -976,7 +976,8 @@ console.log("barehands board");
   // switched on: the card goes to barehands' local command channel
   const p = await open({ ls:{ "jarvis.board": true }, script:[
     { tool:"show_on_board", input:{ action:"present", title:"Today", body:"9:00 standup\n14:00 Board meeting" } }, { text:"It's up, sir." },
-    { tool:"show_on_board", input:{ action:"add_card", title:"Later" } }, { text:"The board isn't answering, sir." } ] });
+    { tool:"show_on_board", input:{ action:"add_card", title:"Later" } }, { text:"The board isn't answering, sir." },
+    { tool:"show_on_board", input:{ action:"open" } }, { text:"It's open, sir." } ] });
   await p.evaluate(capture);
   await p.click("#bootBtn"); await settle(p);
   await say(p, "jarvis put today's plan on the board", 900);
@@ -986,6 +987,8 @@ console.log("barehands board");
   await p.evaluate(() => { window.__boardDown = true; });
   await say(p, "jarvis add a card for later", 900);
   check("barehands not running: Jarvis is told to start it", /Couldn't reach the barehands board/.test(await lastResult(p)), await lastResult(p));
+  await say(p, "jarvis open the board", 900);
+  check("'open the board' opens barehands' page in a new tab", (await p.evaluate(() => window.__opened)).includes("http://127.0.0.1:8794/stage.html"), (await p.evaluate(() => window.__opened)).join(" "));
   // settings: a different port, and the Test button
   await p.evaluate(() => { window.__boardDown = false; window.__board = []; });
   await p.evaluate(() => { document.getElementById("boardPort").value = "9000"; document.getElementById("boardForm").requestSubmit(); });
