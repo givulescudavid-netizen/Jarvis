@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026.10.13.4 — Jarvis remembers earlier conversations, moves meetings, keeps you posted while thinking
+- **Picks up where you left off:** after a refresh, an update or a new day, Jarvis now starts knowing your last 20 or so exchanges ("what did I ask you this morning?"). They're kept in this browser only.
+- **Move or change meetings:** "Jarvis, move my 3pm to 4", "push the board meeting to tomorrow at 10", "rename it", "change the place to Stark Tower". Jarvis says exactly what will change and asks "Shall I go ahead?" first. If you only give a new start, the meeting keeps its length.
+  - Guests aren't emailed about the change, but their calendars still show it.
+  - Jarvis still can't delete events.
+  - Only the person who organised a meeting can move it.
+- **"Think harder" keeps you posted:** Jarvis says straight away that it's thinking it through. Then it gives a short "still working on it, sir" about every 25 seconds until it answers, so you're never left in silence.
+
 ## 2026.10.13.3 — Cheaper to talk to Jarvis throughout the day
 - **Longer cache:** Claude now remembers Jarvis's instructions, tools and your conversation for an **hour** instead of 5 minutes. Coming back after a few quiet minutes used to mean paying full price again for everything. Now it costs a small fraction, about $0.003 instead of $0.07 for the fixed part. The first question of each hour costs slightly more (about $0.10 instead of $0.07). If Anthropic ever refuses the 1-hour cache, Jarvis quietly falls back to the 5-minute one.
 - **Clock fix:** Jarvis's instructions used to say the time the page was opened, and it never changed. Every message already carries the real time, so that line is gone (the claude.ai version still gets the live time). That also keeps the instructions identical between conversations, so they stay cached.
