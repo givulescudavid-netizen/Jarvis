@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.10.13.3 — Cheaper to talk to Jarvis throughout the day
+- **Longer cache:** Claude now remembers Jarvis's instructions, tools and your conversation for an **hour** instead of 5 minutes. Coming back after a few quiet minutes used to mean paying full price again for everything. Now it costs a small fraction, about $0.003 instead of $0.07 for the fixed part. The first question of each hour costs slightly more (about $0.10 instead of $0.07). If Anthropic ever refuses the 1-hour cache, Jarvis quietly falls back to the 5-minute one.
+- **Clock fix:** Jarvis's instructions used to say the time the page was opened, and it never changed. Every message already carries the real time, so that line is gone (the claude.ai version still gets the live time). That also keeps the instructions identical between conversations, so they stay cached.
+- **Trimmed instructions:** a few paragraphs (the barehands board, the camera, moving the window, hand gestures) repeated what the tool descriptions already say. They're shorter now, with the same abilities.
+- The cost meter in ⚙ now counts 1-hour cache writes at their real price (2x instead of 1.25x).
+- Jarvis still keeps the whole conversation; nothing it was told earlier is dropped.
+
 ## 2026.10.13.2 — Jarvis learns from your conversations, anticipates, and thinks harder
 - **Jarvis reflects:** each time you open Jarvis, it quietly looks back over the conversations it hasn't reviewed yet (at most every 6 hours, and only once there are a handful of new ones). It keeps three kinds of notes: new lasting facts about you (added to its memory), **habits** it can anticipate ("usually asks for the market around 9"), and **lessons** on doing better ("give prices in euros, not dollars").
 - **Anticipates:** when a habit fits the moment, Jarvis offers the next thing before you ask, once ("Shall I pull up the market, sir? You usually check it about now."). The briefing can end with one such offer too.

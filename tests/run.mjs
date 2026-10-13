@@ -891,20 +891,33 @@ console.log("Moving Jarvis between screens (pinch-drag and voice)");
 console.log("Prompt caching and the cost meter");
 {
   const p = await open({ script:[
-    { text:"Good morning, sir.", usage:{ input_tokens:200, cache_creation_input_tokens:10000, cache_read_input_tokens:0, output_tokens:100 } },
-    { text:"Clear skies, sir.", usage:{ input_tokens:300, cache_creation_input_tokens:500, cache_read_input_tokens:10000, output_tokens:100 } } ] });
+    { text:"Good morning, sir.", usage:{ input_tokens:200, cache_creation_input_tokens:10000, cache_creation:{ ephemeral_1h_input_tokens:10000, ephemeral_5m_input_tokens:0 }, cache_read_input_tokens:0, output_tokens:100 } },
+    { text:"Clear skies, sir.", usage:{ input_tokens:300, cache_creation_input_tokens:500, cache_creation:{ ephemeral_1h_input_tokens:300, ephemeral_5m_input_tokens:200 }, cache_read_input_tokens:30000, output_tokens:100 } } ] });
   await p.click("#bootBtn"); await settle(p);
   await say(p, "jarvis good morning", 700);
   await say(p, "what's the weather", 700);
   const L = (await log(p)).filter(x => x.tools);
-  check("caching: every request asks Claude to cache the conversation so far", L.length === 2 && L.every(x => x.cache?.type === "ephemeral"));
+  check("caching: every request asks Claude to cache the conversation so far", L.length === 2 && L.every(x => x.cache?.type === "ephemeral" && x.cache.ttl === "1h"));
+  check("…for an hour, so coming back after a few quiet minutes is still cheap", L.every(x => x.cache?.ttl === "1h"));
+  check("the instructions carry no clock, so they stay identical (and cached) between conversations", L.every(x => !/Current local time/.test(x.system)) && /^\[/.test(L[0].last.content));
   check("…and the tool list (the same in every conversation)", L.every(x => x.toolCache.length === 1));
-  // 1st: 200*4 + 10000*5 + 100*20 = 52,800 → $0.0528; 2nd: 300*4 + 500*5 + 10000*0.2 + 100*20 = 7,700 → $0.0077; total $0.0605
-  // saved: 1st -10000*1 = -0.01; 2nd 10000*3.8 - 500*1 = 37,500 → +0.0375; total $0.0275
+  // 1-hour cache writes cost 2x input ($8/M), 5-minute ones 1.25x ($5/M), reads $0.20/M
+  // 1st: 200*4 + 10000*8 + 100*20 = 82,800 → $0.0828; 2nd: 300*4 + 300*8 + 200*5 + 30000*0.2 + 100*20 = 12,600 → $0.0126; total $0.0954
+  // saved: 1st -10000*4 = -0.04; 2nd 30000*3.8 - 300*4 - 200*1 = 112,600 → +0.1126; total $0.0726
   await p.click("#gearBtn"); await p.waitForTimeout(200);
   const note = await p.locator("#costNote").textContent();
-  check("cost meter: today's and this month's spend, and what caching saved", /Cost today \$0\.06[01] \(2 requests\), this month \$0\.06[01]\. Caching saved \$0\.02[78]/.test(note), note);
+  check("cost meter: today's and this month's spend, and what caching saved", /Cost today \$0\.09[45] \(2 requests\), this month \$0\.09[45]\. Caching saved \$0\.07[23]/.test(note), note);
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+{
+  // If the 1-hour cache is ever refused, Jarvis carries on with the normal 5-minute one instead of failing
+  const p = await open({ script:[{ err:"cache_control.ttl: invalid TTL ordering" }, { text:"Still here, sir." }] });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis what should I cook tonight", 600);
+  const L = (await log(p)).filter(x => x.tools);
+  check("a refused 1-hour cache falls back to 5 minutes and still answers", L.length === 2 && L[1].cache.ttl === undefined && (await p.evaluate(() => window.__spoken)).some(t => /Still here/.test(t)), JSON.stringify(L.map(x => x.cache)));
   await p.close();
 }
 
