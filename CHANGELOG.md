@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.10.13.1 — Change 3D models live, keep them in Google Drive
+- **Change it live:** with a model up on barehands, just say what to change: "add a turbo", "make the cylinders gold", "remove the mirrors", "make it bigger". Jarvis saves over the **same file** in barehands' media folder and swaps the new version onto the board.
+- **Pick up later:** Jarvis remembers every model it built (the design is stored inside the file too), so "Jarvis, add wheels to the go-kart" works another day.
+- **Google Drive:** "Jarvis, save it to my Drive" puts a copy in a "Jarvis 3D" folder in your Google Drive (Jarvis asks first). After that, every change updates the Drive copy as well.
+- **Fix:** putting something new on a busy barehands board could bring up an old card instead. New cards and models are now added first, then put centre stage.
+
 ## 2026.10.12.8 — 3D models and notifications on the barehands board
 - **Build in 3D:** "Jarvis, build me a V8 engine in 3D and put it on the board." Jarvis designs the object from named parts (block, cylinders, pulleys…), saves it as a 3D file in barehands, and puts it centre stage.
 - **In pieces:** "Show it in pieces" splits it into its parts on the board (exploded view); "put it back together" reassembles it. You can also pull it apart by hand in barehands.
