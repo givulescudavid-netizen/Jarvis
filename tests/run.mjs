@@ -1470,6 +1470,54 @@ console.log("Jarvis Mind: learns from past conversations, anticipates, thinks ha
   await p.close();
 }
 
+console.log("Move a calendar event, remember earlier conversations, keep talking while thinking harder");
+{
+  const at = h => { const d = new Date(); d.setDate(d.getDate() + 3); d.setHours(h, 0, 0, 0); return d; };
+  const p = await open({ script:[
+    { tool:"update_event", input:{ event_id:"ev1", start:"2026-10-16T16:00" } }, { text:"Moved, sir." },
+    { tool:"update_event", input:{ event_id:"ev1", title:"Board meeting (moved)" } }, { text:"Left as it was, sir." },
+    { tool:"update_event", input:{ start:"2026-10-16T16:00" } }, { text:"Which meeting, sir?" } ],
+    ls:{ "jarvis.journal":[{ t:Date.now() - 20 * 3600e3, you:"remind me to call the bank about the mortgage", j:"Reminder set for nine tomorrow, sir." }] } });
+  await p.evaluate(at0 => { window.__patches = []; window.__extraFetch = async (u, o, J) => {
+    if(/calendar\/v3\/calendars\/primary\/events\/ev1/.test(u) && o?.method === "PATCH"){ window.__patches.push({ url:u, body:JSON.parse(o.body) }); return J({ id:"ev1" }); }
+    if(/calendar\/v3\/calendars\/primary\/events\/ev1/.test(u)) return J({ id:"ev1", summary:"Board meeting", start:{ dateTime:at0[0] }, end:{ dateTime:at0[1] }, attendees:[{ email:"pepper@example.com" }, { email:"me@example.com", self:true }] });
+    return null; }; }, [at(15).toISOString(), at(16).toISOString()]);
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(400); await p.click("#closeBtn");
+  await say(p, "jarvis move the board meeting to 4", 800);
+  check("moving an event asks first", await p.locator("#confirmBox").isVisible());
+  const asked = await p.locator("#confirmText").textContent();
+  check("…saying what changes, and that the guest won't be emailed", /Change "Board meeting": move it from .+ to .+(?:16:00|0?4:00 PM)/.test(asked) && /guest won't get an email/.test(asked), asked);
+  await p.click("#confirmYes"); await settle(p, 800);
+  const pt = (await p.evaluate(() => window.__patches))[0];
+  check("…then moves it, keeping its length, without emailing guests", pt && /sendUpdates=none/.test(pt.url) && /^2026-10-16T16:00/.test(pt.body.start.dateTime) && /^2026-10-16T17:00/.test(pt.body.end.dateTime) && !pt.body.summary, JSON.stringify(pt));
+  await say(p, "jarvis rename it", 800); await say(p, "no", 900);
+  check("'no' changes nothing", (await p.evaluate(() => window.__patches)).length === 1);
+  await say(p, "jarvis move my meeting to 4", 900);
+  check("without an event id, Jarvis is told to look it up first", /check_calendar/.test(JSON.stringify((await log(p)).at(-1).last)), JSON.stringify((await log(p)).at(-1).last).slice(0, 300));
+  const L = await log(p);
+  check("Jarvis is told it can move events (and can't delete them)", L[0].tools.includes("update_event") && /move or change an existing event's time/.test(L[0].system));
+  check("earlier conversations reach a new conversation", /most recent exchanges with the user before this conversation/.test(L[0].system) && /User: remind me to call the bank about the mortgage \| You: Reminder set for nine tomorrow/.test(L[0].system), L[0].system.slice(-500));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+{
+  // A long "think harder": Jarvis says it's thinking straight away, then "still working" every ~25 s
+  const p = await open({ script:[{ delay:27500, text:"Having weighed it, sir: wait a quarter." }] });
+  await p.click("#bootBtn"); await settle(p);
+  const n = (await p.evaluate(() => window.__spoken)).length;
+  await sayNow(p, "jarvis think harder about when to sell my shares");
+  await p.waitForTimeout(1500);
+  const first = (await p.evaluate(() => window.__spoken)).slice(n);
+  check('"think harder" says straight away that it will take a moment', first.some(t => /think this through|proper thought|Thinking it through/.test(t)), first.join(" | "));
+  await p.waitForTimeout(27000); await settle(p, 800);
+  const all = (await p.evaluate(() => window.__spoken)).slice(n);
+  check("…keeps you posted while it works, then answers", all.some(t => /Still working|Still thinking|Nearly there|Bear with me/.test(t)) && /quarter/.test(all.at(-1)), all.join(" | "));
+  const before = all.length; await p.waitForTimeout(26000);
+  check("…and goes quiet once it has answered", (await p.evaluate(() => window.__spoken)).slice(n).length === before);
+  await p.close();
+}
+
 await browser.close(); server.close();
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
