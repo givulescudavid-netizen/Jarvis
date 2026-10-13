@@ -1204,8 +1204,9 @@ console.log("Reminders, weather, travel times, Uber and hotels (website version)
   await settle(p);
   await say(p, "jarvis remind me in five minutes to call the bank", 900);
   const L0 = (await log(p))[0];
-  check("the new tools are offered to Claude", ["set_reminder", "get_weather", "travel_time", "uber_estimate", "find_hotels"].every(n => L0.tools.includes(n)), L0.tools.join(","));
-  check("…and Claude is told it CAN use them", ["set_reminder", "get_weather", "travel_time", "uber_estimate", "find_hotels"].every(n => L0.system.includes(n)));
+  check("the new tools are offered to Claude", ["set_reminder", "get_weather", "travel_time", "uber_estimate", "find_hotels", "find_bookings", "find_deliveries"].every(n => L0.tools.includes(n)), L0.tools.join(","));
+  check("…and Claude is told it CAN use them", ["set_reminder", "get_weather", "travel_time", "uber_estimate", "find_hotels", "find_bookings", "find_deliveries"].every(n => L0.system.includes(n)));
+  check("trips from email: flights go on the calendar only after confirming, with check-in and leave-for-the-airport reminders", /create_event[^.]*each one asks the user to confirm/.test(L0.system) && /check in about 24 hours before/.test(L0.system));
   check("hotel details (online only) aren't offered on the website version", !L0.tools.includes("hotel_info"));
   check("reminder saved and shown on the dashboard", /call the bank/.test(await p.evaluate(() => localStorage.getItem("jarvis.reminders"))) && /call the bank/.test(await p.locator("#timers").textContent()) && await p.locator("#timersBox").isVisible());
   await p.evaluate(() => { const r = JSON.parse(localStorage.getItem("jarvis.reminders")); r.forEach(x => x.at = Date.now() - 1000); localStorage.setItem("jarvis.reminders", JSON.stringify(r)); });
@@ -1241,7 +1242,8 @@ console.log("Online version (claude.ai connectors)");
   await p.evaluate(() => { window.__sampleTools = [
     { name:"uber_estimate", input:{ from:"Puerta del Sol", to:"Madrid Barajas Airport", city:"Madrid", country_code:"es" } },
     { name:"find_hotels", input:{ location:"Lisbon, Portugal", check_in:"2026-10-17", check_out:"2026-10-19", max_price:200, sort:"cheapest" } },
-    { name:"hotel_info", input:{ hotel:"Hotel Avenida Palace, Lisbon" } } ]; });
+    { name:"hotel_info", input:{ hotel:"Hotel Avenida Palace, Lisbon" } },
+    { name:"find_bookings", input:{} }, { name:"find_deliveries", input:{ days_back:14 } } ]; });
   await say(p, "jarvis uber to the airport, then hotels in lisbon", 900);
   const calls = await p.evaluate(() => window.__calls), by = t => calls.find(c => c[1] === t);
   const u = by("get_estimates_between_two_locations_claude");
@@ -1250,6 +1252,9 @@ console.log("Online version (claude.ai connectors)");
   check("hotel search goes through the Tripadvisor connector", h && h[0] === "Tripadvisor" && h[2].location === "Lisbon, Portugal" && h[2].checkIn === "2026-10-17" && h[2].sortBy === "PRICE_LOW_TO_HIGH" && h[2].filters.maxPrice === 200 && h[2].mcpServerVersion.version && h[2].requestContext.clientType, JSON.stringify(h));
   const d = by("hotel_details");
   check("hotel details go through the Tripadvisor connector", d && d[0] === "Tripadvisor" && /Avenida Palace/.test(d[2].hotelName) && d[2].includeReviews && d[2].includePricing);
+  const gq = calls.filter(c => c[0] === "Gmail" && c[1] === "search_threads").map(c => c[2].query);
+  check("trips: searches Gmail for booking confirmations (last 60 days)", gq.some(q => /^newer_than:60d /.test(q) && /subject:\{flight itinerary "boarding pass"/.test(q) && /OR from:\{booking\.com/.test(q)), gq.join(" || "));
+  check("deliveries: searches Gmail for shipping emails", gq.some(q => /^newer_than:14d /.test(q) && /subject:\{shipped dispatched/.test(q) && /OR from:\{amazon ups fedex/.test(q)), gq.join(" || "));
   check("…and nothing failed", !(await log(p)).some(x => x.sampleToolError), JSON.stringify((await log(p)).filter(x => x.sampleToolError)));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
