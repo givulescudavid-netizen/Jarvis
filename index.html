@@ -419,7 +419,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.12.8";
+const VERSION = "2026.10.13.1";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -497,7 +497,7 @@ What you CAN do, using your tools (use them; don't say you can't when a tool fit
 - Uber price and pickup estimates for a ride right now (uber_estimate). You can't book: the user books in the Uber app. On the website version it opens Uber with the trip filled in.
 - Hotels from Tripadvisor (find_hotels, and hotel_info for one hotel): give two or three good options with price per night, rating and area, not the whole list. You can't book; offer to open the hotel's page. On the website version, find_hotels opens Tripadvisor and you suggest options from web search.
 - Hand gestures (if the user switched them on in settings, website in Chrome): open palm wakes you, fist stops you talking, thumbs up/down answer "Shall I go ahead?", peace sign toggles focus mode, "rock on" (🤟) asks you for music they like, pointing moves an on-screen cursor and a pinch clicks; pinching and holding on an empty spot grabs Jarvis's window so they can drag it to another monitor, and in its own window a swipe up makes it bigger and a swipe down smaller. While barehands is running, you ignore their hands (so moving cards on the board doesn't click things in Jarvis) until they hold up a pointing finger for a second, which gives you their hand for a few seconds (e.g. to pinch-drag your window to another screen); they can untick that in settings → Hand gestures. If they ask how gestures work, explain briefly.
-- The barehands board (show_on_board): a hand-tracked glass board on the user's computer where they move cards with their hands. When they ask to SEE something or put it on the board, put it up as a short card (a title and a few lines) instead of reading it all out, and say in one sentence what you put up. It only shows things; it can't show you what's on it. If they ask to open the board, use action open. 3D: when they ask you to create or design something in 3D, build it with build_3d_model (it saves the model into barehands and puts it centre stage); "show it in pieces" / "explode it" is show_on_board explode with its title, "put it back together" is assemble. Items on your screen panel have a "→ board" button the user can click. A DCF goes up with dcf_show_on_board (valuation, assumptions and upside cards that update as assumptions change). You can't start barehands itself: they start it on their computer.
+- The barehands board (show_on_board): a hand-tracked glass board on the user's computer where they move cards with their hands. When they ask to SEE something or put it on the board, put it up as a short card (a title and a few lines) instead of reading it all out, and say in one sentence what you put up. It only shows things; it can't show you what's on it. If they ask to open the board, use action open. 3D: when they ask you to create or design something in 3D, build it with build_3d_model (it saves the model into barehands and puts it centre stage). While it's up they can change it live by voice ("add a spoiler", "make the wheels red", "remove the mirrors", "bigger engine"): use edit_3d_model, which saves over the same file and swaps the new version onto the board; if you need the current parts first, call edit_3d_model with just the name. "Save it to my Drive": save_3d_to_drive (asks once; then every change updates the Drive copy). "Show it in pieces" / "explode it" is show_on_board explode with the board_title the build or edit returned, "put it back together" is assemble. Items on your screen panel have a "→ board" button the user can click. A DCF goes up with dcf_show_on_board (valuation, assumptions and upside cards that update as assumptions change). You can't start barehands itself: they start it on their computer.
 - See through the user's webcam (look_at_camera), only when they ask you to look: "what am I holding?", "what's this?", "read this", "how do I look?". It takes one picture; answer briefly about what they asked.
 - Move your own window to another monitor (move_window), e.g. "move to the other screen", and make it bigger or smaller (resize_window: "expand", "full screen", "minimize", "shrink", "back to normal"). Both only work when you're in your own window (⧉ pop-out or installed app). "Minimize" shrinks you to a small orb in the corner, because you have to stay visible to hear.
 Anything that changes the user's accounts (drafts, events) asks them to confirm first. You cannot send email, delete anything, edit files, or trade; if asked, say so briefly and offer the closest thing you can do (e.g. a draft).
@@ -1750,6 +1750,10 @@ async function showOnBoard({ action = "present", title = "", body = "", src = ""
     if(body) cmd.body = body;
     if(src && action === "present") cmd.src = src;
   }else if(title) cmd.title = String(title).slice(0, 80);
+  // barehands' "present" looks for an existing item first and, on a busy board, can fall back to whatever was touched
+  // last, so a NEW card or file is added first, then presented by its title.
+  if(action === "present" && (cmd.body || cmd.src)) await boardSend(cmd.src ? { a:"add_img", title:cmd.title || cmd.src, src:cmd.src } : { a:"add_card", title:cmd.title, body:cmd.body });
+  if(action === "present" && cmd.src){ delete cmd.src; cmd.title = cmd.title || String(src); }
   await boardSend(cmd);
   return { present:"It's centre stage on the board.", add_card:"The card is on the board.", clear:"Board cleared.", reset:"Board reset.", explode:"Exploded.", assemble:"Put back together." }[action];
 }
@@ -1840,27 +1844,101 @@ function buildGltf(name, parts){
   });
   const all = new Uint8Array(offset); let o = 0; chunks.forEach(c => { all.set(c, o); o += c.length; });
   let bin = ""; for(let i = 0; i < all.length; i += 0x8000) bin += String.fromCharCode.apply(null, all.subarray(i, i + 0x8000));
-  return { asset:{ version:"2.0", generator:"J.A.R.V.I.S." }, scene:0, scenes:[{ name, nodes:nodes.map((_, i) => i) }], nodes, meshes, materials, accessors, bufferViews:views,
+  return { asset:{ version:"2.0", generator:"J.A.R.V.I.S.", extras:{ jarvisParts:parts.slice(0, 80) } }, scene:0, scenes:[{ name, nodes:nodes.map((_, i) => i) }], nodes, meshes, materials, accessors, bufferViews:views,
     buffers:[{ byteLength:offset, uri:"data:application/octet-stream;base64," + btoa(bin) }] };
 }
-async function build3d({name, parts, hologram, show = true}){
-  name = String(name || "model").trim().slice(0, 60) || "model";
-  if(!Array.isArray(parts) || !parts.length) throw new Error("A model needs at least one part.");
-  const file = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) + ".gltf";
-  const sub = hologram ? "holo" : "models";
-  const text = JSON.stringify(buildGltf(name, parts));
+// Every model Jarvis builds is remembered (name, file, parts, version) so it can be changed later by voice.
+// The file in models/ (or holo/) always holds the latest version under the same name. The board loads a fresh
+// copy from a hidden .live/ folder each time, because Chrome may otherwise show the old file from its cache.
+// What this Jarvis page put on the board itself. Kept in memory only: barehands' "yank" falls back to the last-touched
+// card when it can't find the title, so Jarvis only yanks an old version it put up during this visit.
+const boardShown = new Map();
+const slugOf = n => String(n || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "model";
+function models3d(){ return store.get("jarvis.models", {}) || {}; }
+function findModel(name){
+  const all = models3d(), recs = Object.values(all).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+  if(!name) return recs[0] || null;
+  const q = String(name).toLowerCase();
+  return all[slugOf(name)] || recs.find(r => r.name.toLowerCase().includes(q) || q.includes(r.name.toLowerCase())) || null;
+}
+async function saveModel(rec){
+  const all = models3d(); rec.updated = Date.now(); all[rec.slug] = rec; store.set("jarvis.models", all);
+  const text = JSON.stringify(buildGltf(rec.name, rec.parts));
+  const file = rec.slug + ".gltf", out = { name:rec.name, version:rec.version, parts:rec.parts.map(p => p.name || p.shape) };
+  if(rec.driveId) out.drive = await driveUpdateModel(rec, text).then(() => "Google Drive copy updated", e => "Google Drive copy NOT updated: " + e.message);
   const dir = await barehandsFolder();
   if(!dir || dir === "needs-click"){
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type:"model/gltf+json" })); a.download = file; document.body.append(a); a.click(); a.remove();
-    return { saved:false, downloaded:file, parts:parts.length,
-      note: dir === "needs-click" ? `Chrome needs one click to let Jarvis use the barehands folder again: ask the user to open settings → barehands board and click "Choose barehands' media folder". Meanwhile the model was downloaded as ${file}; they can drop it into barehands/media/${sub}/ and say "show it".`
-        : `No barehands folder chosen yet, so the model was downloaded as ${file}. Tell the user: drop it into barehands/media/${sub}/, or (once) open settings → barehands board → "Choose barehands' media folder" so Jarvis can save models there itself.` };
+    return { ...out, saved:false, downloaded:file,
+      note: dir === "needs-click" ? `Chrome needs one click to let Jarvis use the barehands folder again: ask the user to open settings → barehands board and click "Choose barehands' media folder". Meanwhile the model was downloaded as ${file}; they can drop it into barehands/media/${rec.sub}/.`
+        : `No barehands folder chosen yet, so the model was downloaded as ${file}. Tell the user: drop it into barehands/media/${rec.sub}/, or (once) open settings → barehands board → "Choose barehands' media folder" so Jarvis can save and update models there itself.` };
   }
-  const folder = await dir.getDirectoryHandle(sub, { create:true });
-  const w = await (await folder.getFileHandle(file, { create:true })).createWritable(); await w.write(text); await w.close();
-  if(show && store.get("jarvis.board", false)) await boardSend({ a:"present", title:name, src:`${sub}/${file}` });
-  return { saved:true, file:`media/${sub}/${file}`, parts:parts.length, shown: !!(show && store.get("jarvis.board", false)),
-    note:"Say it's on the board. They can split it apart by hand (an empty pinch dragged sideways) or ask you: show_on_board with action explode and this title; assemble puts it back together." };
+  const folder = await dir.getDirectoryHandle(rec.sub, { create:true });
+  const write = async (d, f) => { const w = await (await d.getFileHandle(f, { create:true })).createWritable(); await w.write(text); await w.close(); };
+  await write(folder, file);                                   // the one file the user keeps: always the latest version
+  const live = await folder.getDirectoryHandle(".live", { create:true }), liveFile = `${rec.slug}-v${rec.version}.gltf`;
+  await write(live, liveFile);
+  for await (const [n] of live.entries()) if(n.startsWith(rec.slug + "-v") && n !== liveFile) await live.removeEntry(n).catch(() => {});   // tidy old copies
+  out.saved = true; out.file = `media/${rec.sub}/${file}`;
+  if(store.get("jarvis.board", false)){
+    const title = `${rec.name} · v${rec.version}`;
+    const prev = boardShown.get(rec.slug);
+    if(prev && prev !== title) await boardSend({ a:"yank", title:prev });   // the old version leaves the board
+    await boardSend({ a:"add_img", title, src:`${rec.sub}/.live/${liveFile}` });   // add first: "present" alone could pick up another card
+    await boardSend({ a:"present", title });
+    boardShown.set(rec.slug, title);
+    out.board_title = title;
+  }
+  return out;
+}
+async function build3d({name, parts, hologram}){
+  name = String(name || "model").trim().slice(0, 60) || "model";
+  if(!Array.isArray(parts) || !parts.length) throw new Error("A model needs at least one part.");
+  const old = models3d()[slugOf(name)];
+  const rec = { name, slug:slugOf(name), sub: hologram ? "holo" : "models", parts:parts.slice(0, 80), version:(old?.version || 0) + 1, driveId:old?.driveId };
+  const r = await saveModel(rec);
+  return { ...r, note: r.note || "Say it's on the board. The user can change it by voice any time (edit_3d_model), split it apart (show_on_board explode with board_title) or ask to keep a copy in Google Drive (save_3d_to_drive)." };
+}
+async function edit3d({name, add, remove, change, hologram}){
+  const rec = findModel(name);
+  if(!rec) throw new Error(name ? `No 3D model called "${name}". Models: ${Object.values(models3d()).map(r => r.name).join(", ") || "none yet"}.` : "No 3D model built yet.");
+  const has = (p, q) => String(p.name || "").toLowerCase().includes(String(q || "").toLowerCase());
+  let parts = rec.parts.slice(), removed = [], changed = [];
+  (Array.isArray(remove) ? remove : []).forEach(q => { const hit = parts.filter(p => has(p, q)); removed.push(...hit.map(p => p.name)); parts = parts.filter(p => !has(p, q)); });
+  (Array.isArray(change) ? change : []).forEach(c => { if(!c?.name) return; parts = parts.map(p => { if(!has(p, c.name)) return p; changed.push(p.name); const { name:_, ...rest } = c; return { ...p, ...rest }; }); });
+  const added = (Array.isArray(add) ? add : []).filter(p => p && p.shape);
+  parts = parts.concat(added).slice(0, 80);
+  if(!added.length && !removed.length && !changed.length && hologram === undefined) return { name:rec.name, version:rec.version, parts:rec.parts, note:"Nothing changed. These are its parts (sizes and positions) so you can plan the change." };
+  if(!parts.length) throw new Error("That would remove every part.");
+  const r = await saveModel({ ...rec, parts, sub: hologram === undefined ? rec.sub : hologram ? "holo" : "models", version:rec.version + 1 });
+  return { ...r, added:added.map(p => p.name || p.shape), removed, changed:[...new Set(changed)] };
+}
+// Google Drive copy (website version): created once with the user's OK, then kept up to date after every change.
+async function driveUpload(method, url, meta, text){
+  const tok = await oauthToken(false), b = "jarvis" + Date.now();
+  const body = `--${b}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\ncontent-type: model/gltf+json\r\n\r\n${text}\r\n--${b}--`;
+  const r = await fetch(url, { method, headers:{ Authorization:"Bearer " + tok, "content-type":`multipart/related; boundary=${b}` }, body });
+  if(r.status === 401){ google.token = null; throw new Error("Google session expired. Ask the user to click Connect Google."); }
+  const j = await r.json().catch(() => ({}));
+  if(!r.ok) throw new Error(j?.error?.message || ("Google Drive error " + r.status));
+  return j;
+}
+function driveUpdateModel(rec, text){
+  if(!myFiles().some(f => f.id === rec.driveId)) throw new Error("that Drive file wasn't made by Jarvis");
+  return driveUpload("PATCH", `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(rec.driveId)}?uploadType=multipart`, { name:rec.slug + ".gltf" }, text);
+}
+async function save3dToDrive({name}){
+  if(google.mode !== "oauth") throw new Error("Saving 3D models to Google Drive works in the website version of Jarvis with Google connected.");
+  const rec = findModel(name);
+  if(!rec) throw new Error("No 3D model by that name yet.");
+  if(rec.driveId) return { already:true, note:"It's already in Google Drive and updates itself after every change." };
+  if(!await confirmAction(`Save a copy of the 3D model "${rec.name}" in your Google Drive, in a folder called Jarvis 3D? I'll keep it updated as we change it.`)) return { saved:false, note:"The user said no." };
+  let folderId = store.get("jarvis.drive3dFolder", "");
+  if(!folderId){ const f = await gsend(`${DRIVE}?fields=id`, "POST", { name:"Jarvis 3D", mimeType:"application/vnd.google-apps.folder", appProperties:{ jarvis:"3d" } }); folderId = f.id; store.set("jarvis.drive3dFolder", folderId); }
+  const j = await driveUpload("POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink", { name:rec.slug + ".gltf", parents:[folderId], mimeType:"model/gltf+json", appProperties:{ jarvis:"3d" } }, JSON.stringify(buildGltf(rec.name, rec.parts)));
+  rememberFile({ id:j.id, name:rec.name + " (3D)", kind:"3d", created:Date.now() });
+  const all = models3d(); all[rec.slug] = { ...rec, driveId:j.id }; store.set("jarvis.models", all);
+  return { saved:true, link:j.webViewLink, note:"Saved in Google Drive → Jarvis 3D. From now on every change you make by voice updates that copy too." };
 }
 function openWebsite({url, name}){
   let u = String(url || "").trim();
@@ -1918,6 +1996,15 @@ const tools = [
     inputSchema:{type:"object",properties:{name:{type:"string",description:"Short name, also the card title, e.g. 'V8 engine'"},hologram:{type:"boolean"},
       parts:{type:"array",items:{type:"object",properties:{name:{type:"string"},shape:{type:"string",enum:["box","cylinder","cone","sphere"]},size:{type:"array",items:{type:"number"},description:"[x, y, z]"},position:{type:"array",items:{type:"number"}},rotation:{type:"array",items:{type:"number"},description:"degrees [x, y, z]"},color:{type:"string",description:"#rrggbb"},metal:{type:"number",description:"0-1"}},required:["shape","size","position"]}}},required:["name","parts"]},
     execute: input => build3d(input) },
+  { name:"edit_3d_model", description:"Changes a 3D model you built, live: add parts, remove parts (by name), or change parts (by name: size, position, rotation, colour, shape). Saves over the same file in barehands (and the Google Drive copy if there is one) and swaps the new version onto the board. With only a name, returns the model's current parts so you can plan the change. Without a name, uses the last model.",
+    inputSchema:{type:"object",properties:{name:{type:"string"},hologram:{type:"boolean",description:"switch to (true) or from (false) the hologram look"},
+      add:{type:"array",items:{type:"object",properties:{name:{type:"string"},shape:{type:"string",enum:["box","cylinder","cone","sphere"]},size:{type:"array",items:{type:"number"}},position:{type:"array",items:{type:"number"}},rotation:{type:"array",items:{type:"number"}},color:{type:"string"},metal:{type:"number"}},required:["name","shape","size","position"]}},
+      remove:{type:"array",items:{type:"string"},description:"part names (or words in them) to remove"},
+      change:{type:"array",items:{type:"object",properties:{name:{type:"string",description:"which part(s): a name or words in it"},shape:{type:"string"},size:{type:"array",items:{type:"number"}},position:{type:"array",items:{type:"number"}},rotation:{type:"array",items:{type:"number"}},color:{type:"string"},metal:{type:"number"}},required:["name"]}}}},
+    execute: input => edit3d(input) },
+  { name:"save_3d_to_drive", description:"Keeps a copy of a 3D model in the user's Google Drive (folder 'Jarvis 3D'), asking them to confirm first. After that, every edit updates the Drive copy automatically.",
+    inputSchema:{type:"object",properties:{name:{type:"string",description:"model name; default the last one"}}},
+    execute: input => save3dToDrive(input) },
   { name:"show_on_board", description:"Puts something on the user's barehands board (a hand-tracked glass board on their computer) when they ask to see it or put it on the board. 'open' opens the board's page in a new tab (barehands must already be running; Jarvis can't start it); 'present' flies one card centre stage and dims the rest; 'add_card' adds a card beside the others; 'clear' empties the board; 'reset' sweeps it and brings back its ring; 'explode'/'assemble' split or rebuild a 3D model already on it. Keep cards short: a title and a few lines.",
     inputSchema:{type:"object",properties:{action:{type:"string",enum:BOARD_ACTIONS},title:{type:"string",description:"Short card title"},body:{type:"string",description:"A few short lines"},src:{type:"string",description:"Only with present: an image or 3D model file already in barehands' media folder, e.g. 'misc/logo.png'"}},required:["action"]},
     execute: input => showOnBoard(input) },

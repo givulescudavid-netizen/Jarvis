@@ -1069,7 +1069,7 @@ console.log("barehands board");
   await p.click("#bootBtn"); await settle(p);
   await say(p, "jarvis put today's plan on the board", 900);
   const b = await p.evaluate(() => window.__board);
-  check("'put it on the board' sends a present card to barehands on this computer", b.length === 1 && b[0].u === "http://127.0.0.1:8794/cmd" && b[0].mode === "no-cors" && b[0].cmd.a === "present" && b[0].cmd.title === "Today" && /Board meeting/.test(b[0].cmd.body), JSON.stringify(b));
+  check("'put it on the board' adds the card to barehands on this computer, then presents it by its title", b.length === 2 && b[0].u === "http://127.0.0.1:8794/cmd" && b[0].mode === "no-cors" && b[0].cmd.a === "add_card" && b[0].cmd.title === "Today" && /Board meeting/.test(b[0].cmd.body) && b[1].cmd.a === "present" && b[1].cmd.title === "Today", JSON.stringify(b));
   check("…and tells Jarvis it worked", /centre stage/.test(await lastResult(p)), await lastResult(p));
   await p.evaluate(() => { window.__boardDown = true; });
   await say(p, "jarvis add a card for later", 900);
@@ -1086,7 +1086,7 @@ console.log("barehands board");
   await p.close();
 }
 
-console.log("3D models and alerts on the barehands board");
+console.log("3D models on the barehands board: build, change live, keep in Drive, alerts");
 {
   const parts = [
     { name:"Engine block", shape:"box", size:[2, 1, 1.2], position:[0, 0, 0], color:"#8899aa" },
@@ -1096,40 +1096,64 @@ console.log("3D models and alerts on the barehands board");
     { name:"Air intake", shape:"cone", size:[0.5, 0.4, 0.5], position:[0, 1.5, 0] },
     { name:"Oil filter", shape:"sphere", size:[0.35, 0.35, 0.35], position:[0, -0.7, 0.5], color:"#ff8800" } ];
   // Chrome's private test folder stands in for the barehands media folder the user picks in settings
-  const p = await open({ ls:{ "jarvis.board": true, "jarvis.boardAlerts": true }, script:[
+  const p = await open({ googleBefore:true, ls:{ "jarvis.board": true, "jarvis.boardAlerts": true }, script:[
     { tool:"build_3d_model", input:{ name:"V8 engine", parts } }, { text:"It's on the board, sir." },
-    { tool:"show_on_board", input:{ action:"explode", title:"V8 engine" } }, { text:"In pieces, sir." },
+    { tool:"show_on_board", input:{ action:"explode", title:"V8 engine · v1" } }, { text:"In pieces, sir." },
+    { tool:"edit_3d_model", input:{ name:"v8", add:[{ name:"Turbo", shape:"sphere", size:[0.5, 0.5, 0.5], position:[-1.2, 0.6, 0], color:"#ff0000" }], remove:["oil filter"], change:[{ name:"cylinder", color:"#ffd700" }] } }, { text:"Turbo fitted, sir." },
+    { tool:"save_3d_to_drive", input:{} }, { text:"Saved to your Drive, sir." },
+    { tool:"edit_3d_model", input:{ change:[{ name:"turbo", size:[0.7, 0.7, 0.7] }] } }, { text:"Bigger turbo, sir." },
     { tool:"build_3d_model", input:{ name:"Arc reactor", hologram:true, parts:parts.slice(0, 2) } }, { text:"Hologram's up." },
     { tool:"show_on_screen", input:{ title:"Centris deals", items:[{ title:"123 Rue Fake · 4-plex", right:"$899,000", detail:"cap 5.6%", link:"https://www.centris.ca/en/x/1" }] } }, { text:"On screen, sir." } ] }, undefined, HTTP_PAGE);
-  await p.evaluate(() => { window.__board = []; window.__extraFetch = async (u, o) => {
-    if(!/127\.0\.0\.1:\d+\/cmd/.test(u)) return null; window.__board.push(JSON.parse(o.body)); return new Response(null, { status:204 }); }; });
+  await p.evaluate(() => { window.__board = []; window.__drive = []; window.__extraFetch = async (u, o, J) => {
+    if(/127\.0\.0\.1:\d+\/cmd/.test(u)){ window.__board.push(JSON.parse(o.body)); return new Response(null, { status:204 }); }
+    if(u.includes("/upload/drive/v3/files")){ window.__drive.push({ u, method:o.method, body:String(o.body) }); return J({ id:"DRIVE3D", webViewLink:"https://drive.google.com/file/d/DRIVE3D/view" }); }
+    if(u.startsWith("https://www.googleapis.com/drive/v3/files") && o?.method === "POST"){ window.__drive.push({ u, method:"POST", body:String(o.body) }); return J({ id:"FOLDER3D" }); }
+    return null; }; });
   await p.evaluate(async () => {
     const root = await navigator.storage.getDirectory(), media = await root.getDirectoryHandle("media", { create:true });
     const db = await new Promise((res, rej) => { const r = indexedDB.open("jarvis", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
     await new Promise(res => { const t = db.transaction("kv", "readwrite"); t.objectStore("kv").put(media, "bhMedia"); t.oncomplete = res; });
   });
-  await p.click("#bootBtn"); await settle(p);
+  const readModel = (sub, f, live) => p.evaluate(async ({ sub, f, live }) => { try{
+    let d = await (await (await navigator.storage.getDirectory()).getDirectoryHandle("media")).getDirectoryHandle(sub);
+    if(live) d = await d.getDirectoryHandle(".live");
+    return JSON.parse(await (await (await d.getFileHandle(f)).getFile()).text()); }catch(e){ return { error:e.message }; } }, { sub, f, live });
+  const liveFiles = () => p.evaluate(async () => { const d = await (await (await (await navigator.storage.getDirectory()).getDirectoryHandle("media")).getDirectoryHandle("models")).getDirectoryHandle(".live"); const n = []; for await (const [k] of d.entries()) n.push(k); return n.sort(); });
+  await p.click("#bootBtn"); await settle(p, 1200);
   await say(p, "jarvis build me a v8 engine in 3d and put it on the board", 1500);
   const L0 = (await log(p))[0];
-  check("Jarvis knows it can build 3D models for the board", L0.tools.includes("build_3d_model") && /build_3d_model/.test(L0.system));
-  const g = await p.evaluate(async () => { try{
-    const root = await navigator.storage.getDirectory();
-    const f = await (await (await (await root.getDirectoryHandle("media")).getDirectoryHandle("models")).getFileHandle("v8-engine.gltf")).getFile();
-    return JSON.parse(await f.text()); }catch(e){ return { error:e.message }; } });
+  check("Jarvis knows it can build, change and save 3D models", ["build_3d_model", "edit_3d_model", "save_3d_to_drive"].every(n => L0.tools.includes(n) && L0.system.includes(n)));
+  const g = await readModel("models", "v8-engine.gltf");
   const bytes = g.buffers ? Buffer.from(g.buffers[0].uri.split(",")[1], "base64") : Buffer.alloc(0);
-  const okIdx = g.meshes && g.meshes.every((m, i) => { const a = g.accessors[m.primitives[0].indices], v = g.accessors[m.primitives[0].attributes.POSITION], bv = g.bufferViews[a.bufferView];
+  const okIdx = g.meshes && g.meshes.every(m => { const a = g.accessors[m.primitives[0].indices], v = g.accessors[m.primitives[0].attributes.POSITION], bv = g.bufferViews[a.bufferView];
     const idx = new Uint16Array(bytes.buffer.slice(bytes.byteOffset + bv.byteOffset, bytes.byteOffset + bv.byteOffset + bv.byteLength));
     return idx.length === a.count && Math.max(...idx) < v.count && a.count % 3 === 0; });
   check("the model is saved into barehands' media/models as a valid glTF file", g.asset?.version === "2.0" && bytes.length === g.buffers[0].byteLength && okIdx, JSON.stringify(g).slice(0, 300));
-  check("…one separate part per piece (so barehands can explode it), named and coloured", g.meshes.length === 6 && g.nodes.length === 6 && g.nodes[3].name === "Pulley" && g.nodes[1].translation[1] === 0.9 && Math.abs(g.nodes[3].rotation[2] - Math.SQRT1_2) < 1e-6 && g.materials[5].pbrMetallicRoughness.baseColorFactor[0] === 1, JSON.stringify(g.nodes[3]));
+  check("…one separate part per piece (so barehands can explode it), named and coloured, with its design kept inside", g.meshes.length === 6 && g.nodes[3].name === "Pulley" && g.nodes[1].translation[1] === 0.9 && Math.abs(g.nodes[3].rotation[2] - Math.SQRT1_2) < 1e-6 && g.materials[5].pbrMetallicRoughness.baseColorFactor[0] === 1 && g.asset.extras.jarvisParts.length === 6);
   let b = await p.evaluate(() => window.__board);
-  check("…and goes centre stage on the board", b.some(c => c.a === "present" && c.title === "V8 engine" && c.src === "models/v8-engine.gltf"), JSON.stringify(b));
+  check("…and goes up on the board: added first, then presented (so no other card gets picked by mistake)", b.length === 2 && b[0].a === "add_img" && b[0].src === "models/.live/v8-engine-v1.gltf" && b[0].title === "V8 engine · v1" && b[1].a === "present" && b[1].title === "V8 engine · v1" && !b[1].src, JSON.stringify(b));
   await say(p, "show it in pieces", 900);
   b = await p.evaluate(() => window.__board);
-  check("'show it in pieces' explodes it on the board", b.at(-1).a === "explode" && b.at(-1).title === "V8 engine", JSON.stringify(b.at(-1)));
+  check("'show it in pieces' explodes it on the board", b.at(-1).a === "explode" && b.at(-1).title === "V8 engine · v1", JSON.stringify(b.at(-1)));
+  await p.evaluate(() => { window.__board = []; });
+  await say(p, "add a turbo, lose the oil filter and make the cylinders gold", 1200);
+  const g2 = await readModel("models", "v8-engine.gltf"), names = g2.nodes.map(n => n.name);
+  check("live edit: the SAME file in barehands is updated with the change", names.includes("Turbo") && !names.includes("Oil filter") && names.length === 6 && g2.materials[names.indexOf("Cylinder 1")].pbrMetallicRoughness.baseColorFactor[0] === 1 && Math.abs(g2.materials[names.indexOf("Cylinder 2")].pbrMetallicRoughness.baseColorFactor[2]) < 0.01, names.join(","));
+  b = await p.evaluate(() => window.__board);
+  check("…the old version leaves the board and the new one goes up", b.length === 3 && b[0].a === "yank" && b[0].title === "V8 engine · v1" && b[1].a === "add_img" && b[1].src === "models/.live/v8-engine-v2.gltf" && b[2].a === "present" && b[2].title === "V8 engine · v2", JSON.stringify(b));
+  check("…and only the latest copy is kept in the hidden .live folder", JSON.stringify(await liveFiles()) === JSON.stringify(["v8-engine-v2.gltf"]), JSON.stringify(await liveFiles()));
+  await say(p, "save it to my google drive");
+  check("Drive: asks first", await p.locator("#confirmBox").isVisible() && /Google Drive/.test(await p.locator("#confirmText").textContent()));
+  await say(p, "yes", 1200);
+  let d = await p.evaluate(() => window.__drive);
+  check("…then creates a 'Jarvis 3D' folder and uploads the model there", d.some(x => x.method === "POST" && /Jarvis 3D/.test(x.body)) && d.some(x => x.method === "POST" && /uploadType=multipart/.test(x.u) && /"parents":\["FOLDER3D"\]/.test(x.body) && /"Turbo"/.test(x.body)), JSON.stringify(d).slice(0, 400));
+  await p.evaluate(() => { window.__drive = []; });
+  await say(p, "make the turbo bigger", 1200);
+  d = await p.evaluate(() => window.__drive);
+  check("…and every later change updates that Drive file without asking again", d.length === 1 && d[0].method === "PATCH" && /files\/DRIVE3D\?uploadType=multipart/.test(d[0].u) && /0\.7/.test(d[0].body) && await p.locator("#confirmBox").isHidden(), JSON.stringify(d).slice(0, 300));
   await say(p, "jarvis make an arc reactor hologram", 900);
   b = await p.evaluate(() => window.__board);
-  check("holograms go in media/holo (barehands' blue wireframe look)", b.at(-1).a === "present" && b.at(-1).src === "holo/arc-reactor.gltf");
+  check("holograms go in media/holo (barehands' blue wireframe look)", b.at(-2).a === "add_img" && b.at(-2).src === "holo/.live/arc-reactor-v1.gltf" && (await readModel("holo", "arc-reactor.gltf")).asset?.version === "2.0");
   await say(p, "jarvis show me the centris deals", 900);
   await p.click("#dispList li .tob"); await p.waitForTimeout(300);
   b = await p.evaluate(() => window.__board);
@@ -1144,9 +1168,9 @@ console.log("3D models and alerts on the barehands board");
   await q.click("#bootBtn"); await settle(q);
   const dl = q.waitForEvent("download", { timeout:5000 }).catch(() => null);
   await say(q, "jarvis build a helmet in 3d", 900);
-  const d = await dl;
+  const dd = await dl;
   const res = JSON.stringify((await log(q)).filter(x => x.last).at(-1).last.content);
-  check("no barehands folder yet: the model downloads and Jarvis says where it goes", d && d.suggestedFilename() === "helmet.gltf" && /Choose barehands' media folder/.test(res) && /media\/models/.test(res), res);
+  check("no barehands folder yet: the model downloads and Jarvis says where it goes", dd && dd.suggestedFilename() === "helmet.gltf" && /Choose barehands' media folder/.test(res) && /media\/models/.test(res), res);
   await q.close();
 }
 
