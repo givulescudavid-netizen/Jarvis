@@ -1363,6 +1363,29 @@ console.log("Centris deals and the on-screen panel");
   await p.close();
 }
 
+console.log("Auto-start (opened by the presence sensor)");
+{
+  const p = await open({ events:[ { title:"Board meeting", inMin:90 } ] }, undefined, PAGE + "?autostart=1");
+  await p.waitForFunction(() => window.__spoken.length > 0, null, { timeout:4000 }).catch(() => {});
+  check("opened with ?autostart=1: starts and greets without the Initialize click", await p.locator("#boot").isHidden() && /Good (morning|afternoon|evening)|Working late/.test((await p.evaluate(() => window.__spoken))[0] || ""), (await p.evaluate(() => window.__spoken)).join(" | "));
+  await settle(p);
+  await say(p, "jarvis");
+  check("…and is listening for you straight away", /Yes, sir\?|Go ahead, sir/.test(await p.locator("#mode").textContent()));
+  await p.click("#gearBtn");
+  const cmd = await p.locator("#autoCmd").textContent();
+  check("settings show the auto-start command (own window, sound allowed, autostart link)", /chrome\.exe" --user-data-dir=.*--autoplay-policy=no-user-gesture-required --app="https:\/\/givulescudavid-netizen\.github\.io\/Jarvis\/\?autostart=1"/.test(cmd), cmd);
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+  const q = await open({ voiceNeedsClick:true }, undefined, PAGE + "?autostart=1");
+  await q.waitForTimeout(1500);
+  check("if Chrome still wants a click: the Initialize screen comes back, explaining how to skip it", await q.locator("#boot").isVisible() && /presence sensor/.test(await q.locator("#bootNote").textContent()), await q.locator("#bootNote").textContent());
+  await q.close();
+  const r = await open({});
+  await r.waitForTimeout(1200);
+  check("opened normally: still waits for the Initialize click", await r.locator("#boot").isVisible() && (await r.evaluate(() => window.__spoken.length)) === 0);
+  await r.close();
+}
+
 console.log("Online version (claude.ai connectors)");
 {
   const p = await open({ mcp:true });

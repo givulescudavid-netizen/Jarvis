@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.13.2 — Auto-start: Jarvis opens when you walk in
+- Jarvis can now be opened by your presence sensor (through Home Assistant) and start on its own: no Initialize click, it just greets you ("Good evening, sir…") and listens.
+- ⚙ → **Open when I walk in** shows the exact command for Home Assistant to run. It opens Jarvis in its own window, in a separate Chrome profile that's allowed to speak straight away. Set Jarvis up once in that window (API key, Google).
+- If Chrome still insists on a click, the usual Initialize screen comes back and says why.
+
 ## 2026.10.13.1 — Change 3D models live, keep them in Google Drive
 - **Change it live:** with a model up on barehands, just say what to change: "add a turbo", "make the cylinders gold", "remove the mirrors", "make it bigger". Jarvis saves over the **same file** in barehands' media folder and swaps the new version onto the board.
 - **Pick up later:** Jarvis remembers every model it built (the design is stored inside the file too), so "Jarvis, add wheels to the go-kart" works another day.

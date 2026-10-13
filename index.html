@@ -340,6 +340,14 @@ ul.disp li .tob{align-self:flex-start;font-size:.75rem;padding:1px 6px}
     <p class="note" id="gestStatus"></p>
   </section>
 
+  <section id="autoBox">
+    <h3>Open when I walk in (auto-start)</h3>
+    <p class="note">Your presence sensor (through Home Assistant) can open Jarvis when you enter the room. It runs this command, which opens Jarvis in its own window and lets it speak straight away, without the Initialize click:</p>
+    <pre class="disp-text" id="autoCmd"></pre>
+    <p><button type="button" id="autoCopy">Copy the command</button> <span class="note" id="autoCopyNote"></span></p>
+    <p class="note">The first time, set Jarvis up once in that window (API key, Google), because it's a separate Chrome profile. To try it now: press Windows + R, paste the command, press Enter.</p>
+  </section>
+
   <section>
     <h3>barehands board</h3>
     <label class="check"><input type="checkbox" id="boardOn"> Put things on my barehands board when I ask to see them</label>
@@ -419,7 +427,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.13.1";
+const VERSION = "2026.10.13.2";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -497,6 +505,7 @@ What you CAN do, using your tools (use them; don't say you can't when a tool fit
 - Uber price and pickup estimates for a ride right now (uber_estimate). You can't book: the user books in the Uber app. On the website version it opens Uber with the trip filled in.
 - Hotels from Tripadvisor (find_hotels, and hotel_info for one hotel): give two or three good options with price per night, rating and area, not the whole list. You can't book; offer to open the hotel's page. On the website version, find_hotels opens Tripadvisor and you suggest options from web search.
 - Hand gestures (if the user switched them on in settings, website in Chrome): open palm wakes you, fist stops you talking, thumbs up/down answer "Shall I go ahead?", peace sign toggles focus mode, "rock on" (🤟) asks you for music they like, pointing moves an on-screen cursor and a pinch clicks; pinching and holding on an empty spot grabs Jarvis's window so they can drag it to another monitor, and in its own window a swipe up makes it bigger and a swipe down smaller. While barehands is running, you ignore their hands (so moving cards on the board doesn't click things in Jarvis) until they hold up a pointing finger for a second, which gives you their hand for a few seconds (e.g. to pinch-drag your window to another screen); they can untick that in settings → Hand gestures. If they ask how gestures work, explain briefly.
+- Auto-start: the user can have their presence sensor (Home Assistant) open you when they walk into the room; then you greet them on your own. If they ask how, point them to settings → Open when I walk in.
 - The barehands board (show_on_board): a hand-tracked glass board on the user's computer where they move cards with their hands. When they ask to SEE something or put it on the board, put it up as a short card (a title and a few lines) instead of reading it all out, and say in one sentence what you put up. It only shows things; it can't show you what's on it. If they ask to open the board, use action open. 3D: when they ask you to create or design something in 3D, build it with build_3d_model (it saves the model into barehands and puts it centre stage). While it's up they can change it live by voice ("add a spoiler", "make the wheels red", "remove the mirrors", "bigger engine"): use edit_3d_model, which saves over the same file and swaps the new version onto the board; if you need the current parts first, call edit_3d_model with just the name. "Save it to my Drive": save_3d_to_drive (asks once; then every change updates the Drive copy). "Show it in pieces" / "explode it" is show_on_board explode with the board_title the build or edit returned, "put it back together" is assemble. Items on your screen panel have a "→ board" button the user can click. A DCF goes up with dcf_show_on_board (valuation, assumptions and upside cards that update as assumptions change). You can't start barehands itself: they start it on their computer.
 - See through the user's webcam (look_at_camera), only when they ask you to look: "what am I holding?", "what's this?", "read this", "how do I look?". It takes one picture; answer briefly about what they asked.
 - Move your own window to another monitor (move_window), e.g. "move to the other screen", and make it bigger or smaller (resize_window: "expand", "full screen", "minimize", "shrink", "back to normal"). Both only work when you're in your own window (⧉ pop-out or installed app). "Minimize" shrinks you to a small orb in the corner, because you have to stay visible to hear.
@@ -3089,7 +3098,17 @@ setInterval(() => { if(mode === "idle" && !convoOpen) checkForUpdate(false); }, 
 
 /* start screen: one click unlocks speech, sound and the mic meter */
 function greeting(){ const h = new Date().getHours(); return h < 5 ? "Working late, sir?" : h < 12 ? "Good morning, sir." : h < 18 ? "Good afternoon, sir." : "Good evening, sir."; }
-function needsActivation(){ $("boot").hidden = false; }
+/* ---------- auto-start: opened by the presence sensor ----------
+   …/Jarvis/?autostart=1 starts without the Initialize click when Chrome allows sound without one (the shortcut below
+   launches Chrome with that permission). If Chrome still wants a click, the normal Initialize screen stays, with a note. */
+const AUTOSTART = new URLSearchParams(location.search).has("autostart");
+const AUTO_CMD = `"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --user-data-dir="%LOCALAPPDATA%\\JarvisChrome" --autoplay-policy=no-user-gesture-required --app="${JARVIS_URL}?autostart=1"`;
+$("autoCmd").textContent = AUTO_CMD;
+$("autoCopy").onclick = async () => { try{ await navigator.clipboard.writeText(AUTO_CMD); $("autoCopyNote").textContent = "Copied ✓"; }catch{ $("autoCopyNote").textContent = "Select the text above and copy it."; } };
+const AUTO_NOTE = "Opened by your presence sensor, but Chrome wants one click before Jarvis can speak. To skip this click, open Jarvis with the auto-start command in ⚙ → Open when I walk in.";
+// Like the pop-out window: just start. If Chrome blocks the voice, the welcome fails and the click screen comes back (needsActivation).
+if(AUTOSTART && !window.claude) setTimeout(() => { if(!$("boot").hidden && !dormant){ logDiag("boot", "auto-start (opened by the presence sensor)"); $("bootBtn").click(); } }, 300);
+function needsActivation(){ $("boot").hidden = false; if(typeof AUTOSTART !== "undefined" && AUTOSTART){ $("bootNote").textContent = AUTO_NOTE; logDiag("boot", "auto-start: Chrome wanted a click before sound"); } }
 // a click anywhere on the click screen counts, not just the button
 $("boot").addEventListener("click", e => { if(e.target === $("boot") || e.target === $("bootNote")) $("bootBtn").click(); });
 // "Welcome home, sir": time + what's next + unread mail, from what the dashboard already knows (no AI call, instant)
