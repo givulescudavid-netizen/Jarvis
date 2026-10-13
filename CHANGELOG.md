@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026.10.13.2 — Jarvis learns from your conversations, anticipates, and thinks harder
+- **Jarvis reflects:** each time you open Jarvis, it quietly looks back over the conversations it hasn't reviewed yet (at most every 6 hours, and only once there are a handful of new ones). It keeps three kinds of notes: new lasting facts about you (added to its memory), **habits** it can anticipate ("usually asks for the market around 9"), and **lessons** on doing better ("give prices in euros, not dollars").
+- **Anticipates:** when a habit fits the moment, Jarvis offers the next thing before you ask, once ("Shall I pull up the market, sir? You usually check it about now."). The briefing can end with one such offer too.
+- **Ask it directly:** "Jarvis, learn from our conversations" or "what have you learned about me?". "Forget that" also removes a habit or lesson.
+- **See and edit what it learned:** ⚙ → Memory → "Learned by Jarvis". Each habit and lesson has a ✕ to delete it, and a "Reflect now" button. The conversation notes stay in this browser only and are never put in problem reports.
+- **Safety:** reflecting can't make Jarvis do anything. It has no tools, it learns only from what *you* said (not from emails or web pages Jarvis read out), and any note that would let Jarvis skip asking "Shall I go ahead?" is thrown away.
+- **"Think harder":** say "think harder", "take your time" or "think it through" and Jarvis gets the most thinking time for that question (website version, with your API key). It takes longer and costs a little more.
+- **Briefing when you open Jarvis:** the automatic briefing now comes the first time you open Jarvis each day, at any hour (it used to be mornings only), so it works when you only open Jarvis at work.
+
 ## 2026.10.13.1 — Change 3D models live, keep them in Google Drive
 - **Change it live:** with a model up on barehands, just say what to change: "add a turbo", "make the cylinders gold", "remove the mirrors", "make it bigger". Jarvis saves over the **same file** in barehands' media folder and swaps the new version onto the board.
 - **Pick up later:** Jarvis remembers every model it built (the design is stored inside the file too), so "Jarvis, add wheels to the go-kart" works another day.
