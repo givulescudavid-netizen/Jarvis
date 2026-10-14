@@ -27,7 +27,7 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
     // a pretend camera hand, ready before Jarvis starts (for pages that start by themselves)
     if(fakeHand){ window.__gr = { gestures:[], landmarks:[] }; window.__fakeGR = { recognizeForVideo: () => window.__gr }; }
     // the automatic morning briefing would otherwise make the results depend on the time of day
-    Object.entries({ "jarvis.autoBrief": false, ...ls }).forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v)));
+    Object.entries({ "jarvis.autoBrief": false, "jarvis.pauseMs": 0, ...ls }).forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v)));
     if(micBusy) navigator.mediaDevices.getUserMedia = () => Promise.reject(Object.assign(new Error("Could not start audio source"), { name:"NotReadableError" }));
     if(googleBefore){ localStorage.setItem("jarvis.gon", "true"); localStorage.setItem("jarvis.gconsented3", "true"); }
     localStorage.setItem("jarvis.key", '"sk-ant-test"'); localStorage.setItem("jarvis.gclient", '"x.apps.googleusercontent.com"');
@@ -215,6 +215,28 @@ console.log("Start screen, voice, wake word, conversation");
   await p.setViewportSize({ width:400, height:850 }); await p.waitForTimeout(300);
   check("no sideways scroll on phones", (await p.evaluate(() => document.documentElement.scrollWidth)) <= 400);
   await p.screenshot({ path: path.join(shots, "phone.png") });
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Long requests with pauses, and 'answer it'");
+{
+  const p = await open({ ls:{ "jarvis.pauseMs": 1000 }, script:[{ text:"The rents cover it, sir." }, { text:"Yes, sir: the rents cover it." }] });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis");
+  await sayNow(p, "I was looking at the duplex on Main Street"); await p.waitForTimeout(500);
+  check("waits while you pause for breath instead of sending half a sentence", (await log(p)).length === 0);
+  check("…and keeps showing what it heard so far", /duplex on Main Street/.test(await p.locator("#capYou").textContent()));
+  await sayNow(p, "and wondering if the rents cover the mortgage"); await settle(p, 1600);
+  let L = await log(p);
+  const asked = JSON.stringify(L[0]?.last || "");
+  check("sends the whole request once you stop", L.length === 1 && /duplex on Main Street/.test(asked) && /rents cover the mortgage/.test(asked), asked);
+  check("Jarvis is told to guess misheard words instead of asking you to repeat", /speech recognition/.test(L[0].system) && /answer it/.test(L[0].system));
+  await sayNow(p, "answer it"); await settle(p, 1600);
+  L = await log(p);
+  const again = JSON.stringify(L[1]?.last || "");
+  check("'answer it' picks your last request back up", /previous request/.test(again) && /duplex on Main Street/.test(again), again);
+  check("…and shows only what you said", (await p.locator("#capYou").textContent()).trim() === "answer it");
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
