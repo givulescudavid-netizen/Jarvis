@@ -423,7 +423,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.14";
+const VERSION = "2026.10.14.2";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -3432,7 +3432,10 @@ async function readStream(res, onText){
       else if(x.type === "signature_delta") b.signature = x.signature;
     }
     else if(d.type === "content_block_stop" && d.index in json){
-      try{ msg.content[d.index].input = json[d.index] ? JSON.parse(json[d.index]) : {}; }catch{ msg.content[d.index].input = {}; }
+      // A server step (e.g. a web fetch run from Claude's own code) can arrive with its whole input at the start and no deltas:
+      // keep that input exactly, since Claude's later thinking is bound to the reply as it was sent
+      if(json[d.index]) try{ msg.content[d.index].input = JSON.parse(json[d.index]); }catch{ msg.content[d.index].input = {}; }
+      else msg.content[d.index].input ??= {};
       delete json[d.index];
     }
     else if(d.type === "message_delta"){ Object.assign(msg, d.delta || {}); Object.assign(msg.usage, d.usage || {}); }
@@ -3516,7 +3519,7 @@ async function askApi(text, signal, onText){
           logDiag("api", "per-question effort rejected, turning it off: " + msg.slice(0, 160));
           effortTurns = false; apiEffort = "low"; apiMsgs = apiMsgs.filter(x => !x.output_config); start = apiMsgs.indexOf(userMsg); round--; continue;
         }
-        if(res.status === 400 && !recovered && /without a corresponding|tool_use_id|tool_result/i.test(msg)){   // a broken turn in the history: start the conversation afresh instead of failing forever
+        if(res.status === 400 && !recovered && /without a corresponding|tool_use_id|tool_result|signature|block_binding|bound to a different conversation/i.test(msg)){   // a broken turn in the history: start the conversation afresh instead of failing forever
           logDiag("api", "conversation history rejected, starting fresh: " + msg.slice(0, 160));
           recovered = true; apiMsgs = [userMsg]; apiSystem = sysPrompt(); apiEffort = "low"; start = 0; round--; continue;
         }
