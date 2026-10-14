@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.10.14.2 — Fix "Uplink error … Invalid signature in thinking block"
+- **The error after a Centris question is fixed.** When Claude read a listing page in a certain way, Jarvis saved a small detail of that step (which page it opened) slightly wrong. Claude then refused the next question with "Invalid signature in thinking block". Jarvis now keeps the step exactly as Claude sent it.
+- **If it ever happens again,** Jarvis quietly starts a fresh conversation and answers, instead of showing the error. It still remembers your recent exchanges.
+
 ## 2026.10.14 — Centris listings: a second way in, and clearer error reports
 - **If a listing link won't open,** Jarvis now looks the listing up by its Centris number and opens the page it finds. Before, it gave up.
 - **No more "I can't open Centris":** Jarvis used to say that in earlier conversations, and it still remembers those. It's now told plainly that it can open the pages.

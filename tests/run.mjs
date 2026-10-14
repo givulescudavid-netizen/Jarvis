@@ -76,6 +76,8 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
         if(st.delay) await new Promise(r => setTimeout(r, st.delay));
         if(st.err) return J({ error:{ message: st.err } }, st.status || 400);
         if(st.raw) return J(st.raw);
+        // Exact server-sent events, as the API streams them
+        if(st.events) return new Response(st.events.map(d => `event: ${d.type}\ndata: ${JSON.stringify(d)}\n\n`).join(""), { status:200, headers:{ "content-type":"text/event-stream" } });
         // A streamed reply (server-sent events), sent piece by piece `gap` ms apart. Pieces: "words" or { tool, input }.
         if(st.sse) return new Response(new ReadableStream({ async start(c){
           const enc = new TextEncoder(), send = d => c.enqueue(enc.encode(`event: ${d.type}\ndata: ${JSON.stringify(d)}\n\n`));
@@ -939,6 +941,41 @@ console.log("Unfinished web-search steps don't break the conversation");
   await say(p, "and what about apple", 900);
   const l2 = (await log(p)).filter(x => x.msgs);
   check("if Claude still rejects the history, Jarvis starts the conversation afresh and answers", /Back with you/.test((await p.evaluate(() => window.__spoken)).join(" ")) && l2.at(-1).msgs.length === 1, JSON.stringify(l2.at(-1)?.msgs).slice(0, 200));
+  check("…without showing an Uplink error", !/Uplink error/.test(await p.locator("body").innerText()));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Replies with web page reads are sent back exactly as they came");
+{
+  // A web fetch run from Claude's own code arrives with its whole input up front and no input deltas; it must be echoed unchanged,
+  // or Claude rejects the next question ("Invalid signature in thinking block … bound to a different conversation")
+  const fetchIn = { url:"https://www.centris.ca/fr/plex~a-vendre~montreal/21808900" };
+  const ev = [
+    { type:"message_start", message:{ id:"m1", model:"claude-opus-5-5", content:[], usage:{ input_tokens:100, output_tokens:1 } } },
+    { type:"content_block_start", index:0, content_block:{ type:"thinking", thinking:"", signature:"" } },
+    { type:"content_block_delta", index:0, delta:{ type:"signature_delta", signature:"sig1" } },
+    { type:"content_block_stop", index:0 },
+    { type:"content_block_start", index:1, content_block:{ type:"server_tool_use", id:"srv1", name:"web_fetch", input:fetchIn, caller:{ type:"code_execution_20260120", tool_id:"srv0" } } },
+    { type:"content_block_stop", index:1 },
+    { type:"content_block_start", index:2, content_block:{ type:"web_fetch_tool_result", tool_use_id:"srv1", content:{ type:"web_fetch_result", url:fetchIn.url, content:{ type:"document", source:{ type:"text", media_type:"text/plain", data:"Prix 899 000 $" } } } } },
+    { type:"content_block_stop", index:2 },
+    { type:"content_block_start", index:3, content_block:{ type:"text", text:"" } },
+    { type:"content_block_delta", index:3, delta:{ type:"text_delta", text:"The Saint-Denis duplex is listed at 899,000 dollars, sir." } },
+    { type:"content_block_stop", index:3 },
+    { type:"message_delta", delta:{ stop_reason:"end_turn" }, usage:{ output_tokens:40 } }, { type:"message_stop" } ];
+  const p = await open({ script:[ { events:ev }, { text:"Noted, sir." },
+    { err:"messages.3.content.10: Invalid `signature` in `thinking` block. The block is bound to a different conversation. Remove the block, or set `thinking.block_binding.prefix_mismatch_behavior` to \"drop_block\"." },
+    { text:"Back with you, sir." } ] });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis what's the saint-denis listing asking", 900);
+  await say(p, "and the taxes", 900);
+  const l = (await log(p)).filter(x => x.msgs), back = l[1]?.msgs?.[1]?.content || [];
+  const su = back.find(b => b.type === "server_tool_use");
+  check("a web page read that arrived in one piece is sent back unchanged (input and all)", JSON.stringify(su?.input) === JSON.stringify(fetchIn) && su?.caller?.tool_id === "srv0" && back.find(b => b.type === "thinking")?.signature === "sig1", JSON.stringify(back).slice(0, 400));
+  await say(p, "and the rents", 900);
+  const l2 = (await log(p)).filter(x => x.msgs);
+  check("if Claude still says a thinking block belongs to another conversation, Jarvis starts afresh and answers", /Back with you/.test((await p.evaluate(() => window.__spoken)).join(" ")) && l2.at(-1).msgs.length === 1, JSON.stringify(l2.at(-1)?.msgs).slice(0, 200));
   check("…without showing an Uplink error", !/Uplink error/.test(await p.locator("body").innerText()));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
