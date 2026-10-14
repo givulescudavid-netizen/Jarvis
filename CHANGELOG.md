@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.10.14.5 — Jarvis underwrites deals your way, with CMHC expenses
+- **Deals are now underwritten like your income statement.** Jarvis takes the rents (plus parking and laundry when they're separate), takes off 3% vacancy, then subtracts the actual taxes, insurance and utilities and CMHC's stabilized expenses: maintenance and repairs, management, salaries, appliance, heat pump and elevator reserves, and other costs.
+- **It knows the CMHC rates for every region** (Atlantic, Quebec, Ontario, Prairies and territories, B.C.), for wood frame with 11 units or less, wood frame with 12 or more, and concrete. They're the same rates as in your portfolio's CMHC tab.
+- It also gives the building's value at a 4.5% cap rate and how the asking price compares. You can change that cap rate by voice ("use a 5% cap rate").
+- If a listing doesn't show the insurance or taxes, Jarvis says the NOI is too high because of it.
+- This works for Centris listings and any other income property you ask about.
+
 ## 2026.10.14.4 — Jarvis doesn't lose long questions
 - **Long questions aren't cut off any more.** When you paused for breath in the middle of a long question, Jarvis sent only the first half to its brain, which then said it didn't get it. Now it waits until you've actually stopped (about a second of silence) and sends the whole thing.
 - **"Answer it" works.** If Jarvis still misunderstands or hits an error, just say "answer it", "you heard me" or "try again", and it answers what you said before, so you don't have to repeat a long question.
