@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.14.3 — Jarvis finds Centris listings by their number
+- **No more stalling on tracking links:** the "Voir la propriété" links in Centris emails are long tracking addresses, and Jarvis wouldn't read through them. Now it looks each listing up by its Centris number (for example "Centris 25265270") and opens the real centris.ca page. The email link is only a last resort.
+- The links on Jarvis's screen now point to the clean centris.ca page when Jarvis found it.
+- Jarvis can now do up to 8 web searches per question (was 3), so it can look up all the listings in one go.
+
 ## 2026.10.14.2 — Fix "Uplink error … Invalid signature in thinking block"
 - **The error after a Centris question is fixed.** When Claude read a listing page in a certain way, Jarvis saved a small detail of that step (which page it opened) slightly wrong. Claude then refused the next question with "Invalid signature in thinking block". Jarvis now keeps the step exactly as Claude sent it.
 - **If it ever happens again,** Jarvis quietly starts a fresh conversation and answers, instead of showing the error. It still remembers your recent exchanges.
