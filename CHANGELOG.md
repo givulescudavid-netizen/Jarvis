@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.14 — Centris listings: a second way in, and clearer error reports
+- **If a listing link won't open,** Jarvis now looks the listing up by its Centris number and opens the page it finds. Before, it gave up.
+- **No more "I can't open Centris":** Jarvis used to say that in earlier conversations, and it still remembers those. It's now told plainly that it can open the pages.
+- **Problem reports show which pages failed and why,** so a "Report a problem" after a Centris question tells us exactly what Centris said. Only the page address is logged, never its content.
+
 ## 2026.10.13.5 — Jarvis opens your Centris listings and learns what you like
 - **Reads the listing pages:** your Centris alert emails only give the address and a "Voir la propriété" button. Jarvis now opens each listing's page on Centris and reads the asking price, the units and their rents, potential gross revenue, municipal and school taxes, heating/electricity and other expenses, year built and anything notable (vacant units, commercial space, work needed). It then runs the numbers (cap rate, cash flow, mortgage) and ranks the listings on screen. It reads up to 6 listings per question, newest first.
   - Jarvis can only open pages on centris.ca, nothing else.
