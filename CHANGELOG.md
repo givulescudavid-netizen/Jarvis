@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.10.13.5 — Jarvis opens your Centris listings and learns what you like
+- **Reads the listing pages:** your Centris alert emails only give the address and a "Voir la propriété" button. Jarvis now opens each listing's page on Centris and reads the asking price, the units and their rents, potential gross revenue, municipal and school taxes, heating/electricity and other expenses, year built and anything notable (vacant units, commercial space, work needed). It then runs the numbers (cap rate, cash flow, mortgage) and ranks the listings on screen. It reads up to 6 listings per question, newest first.
+  - Jarvis can only open pages on centris.ca, nothing else.
+  - This works in your own-API-key version (GitHub Pages / local). The claude.ai version can't open web pages yet, so there it still uses what's in the email.
+- **Heating and electricity count:** when a listing says what the owner pays for energy, it's included in the expenses instead of guessed.
+- **Train it:** tell Jarvis what you think of a listing ("pass, too far from the metro", "I like that one, good rents for the area"). It keeps your verdict and reason, and uses everything you've said before to judge new listings the way you would ("this looks like the Rosemont triplex you liked").
+
 ## 2026.10.13.4 — Jarvis remembers earlier conversations, moves meetings, keeps you posted while thinking
 - **Picks up where you left off:** after a refresh, an update or a new day, Jarvis now starts knowing your last 20 or so exchanges ("what did I ask you this morning?"). They're kept in this browser only.
 - **Move or change meetings:** "Jarvis, move my 3pm to 4", "push the board meeting to tomorrow at 10", "rename it", "change the place to Stark Tower". Jarvis says exactly what will change and asks "Shall I go ahead?" first. If you only give a new start, the meeting keeps its length.
