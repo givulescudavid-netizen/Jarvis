@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.14.7 — Your whole portfolio in the briefing, gold included
+- **Physical gold:** "Jarvis, I own physical gold" puts gold on your watchlist. Jarvis reads the spot price per ounce in US$ and C$, and the move since the day before. No market data key is needed for gold.
+- **Canadian and European holdings:** for stocks the free market data plan doesn't cover, like Canadian Net REIT (NET-UN.V) or Unibail-Rodamco-Westfield (URW.PA), the briefing now does one quick web search each (up to four) for news and what's coming up. It used to stop at two.
+- Your holdings still come first, then the stocks you only watch.
+
 ## 2026.10.14.6 — The briefing tells you what matters: money, your stocks, Centris
 - **One sweep for what matters:** when Jarvis briefs you (by itself when you first open it each day, or when you ask "anything important?" or "what did I miss?"), it checks everything since you last looked in one go:
   - **Money emails:** banks, cards and brokers (Desjardins, RBC, TD, BMO, Scotiabank, CIBC, National Bank, Tangerine, Wealthsimple, Questrade, Interactive Brokers, Wise, PayPal, Amex…). It looks for statements, payments due, deposits, e-transfers, fraud or security alerts, and dividends.
