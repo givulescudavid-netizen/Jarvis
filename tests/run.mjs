@@ -1621,6 +1621,46 @@ console.log("Move a calendar event, remember earlier conversations, keep talking
   await p.close();
 }
 
+console.log("What matters: money emails, Centris, and the stocks you own and watch, in one go");
+{
+  const p = await open({ googleBefore:true, script:[{ tool:"whats_important", input:{} }, { text:"Sir, Desjardins says a payment is due Friday." },
+    { tool:"watchlist_add", input:{ symbol:"wise", owned:true } }, { text:"Noted, sir." }],
+    ls:{ "jarvis.fhKey":"fh-test", "jarvis.watch":[{ symbol:"WSE", above:null, below:null, fired:{} }, { symbol:"NFLX", owned:true, above:null, below:null, fired:{} }] } }, undefined, HTTP_PAGE);
+  await p.evaluate(() => { window.__gq = []; window.__fh = []; window.__extraFetch = async (u, o, J) => {
+    if(u.includes("finnhub.io")){ window.__fh.push(u);
+      if(u.includes("/quote")) return J(u.includes("NFLX") ? { c:71, d:-3, dp:-4.1, pc:74 } : { c:12.1, d:0.1, dp:0.8, pc:12 });
+      if(u.includes("company-news")) return J(u.includes("NFLX") ? [{ headline:"Netflix signs Disney licensing deal", source:"Reuters", datetime:Math.floor(Date.now() / 1000) }] : []);
+      if(u.includes("calendar/earnings")) return J({ earningsCalendar: u.includes("NFLX") ? [{ date:"2026-10-20", hour:"amc", epsEstimate:0.82, revenueEstimate:12.87e9 }] : [] });
+      return J({}); }
+    if(u.includes("gmail.googleapis.com") && u.includes("messages?")){ const q = decodeURIComponent(new URL(u).searchParams.get("q") || ""); window.__gq.push(q);
+      if(/desjardins/.test(q)) return J({ messages:[{ id:"b1" }], resultSizeEstimate:1 });
+      if(/^after:\d+ from:centris$/.test(q)) return J({ messages:[{ id:"c1" }, { id:"c2" }], resultSizeEstimate:2 });
+      return J({ messages:[{ id:"b1" }, { id:"o1" }], resultSizeEstimate:2 }); }
+    if(u.includes("gmail.googleapis.com") && /messages\/(b1|c1|c2|o1)/.test(u)){ const id = u.match(/messages\/(\w+)/)[1];
+      const hd = { b1:["Desjardins <alerts@desjardins.com>", "Payment due Friday"], c1:["Centris <alerte@centris.ca>", "3 new listings"], c2:["Centris <alerte@centris.ca>", "1 new listing"], o1:["Mark <mark@example.com>", "Contract signed"] }[id];
+      return J({ id, snippet:"…", labelIds:["UNREAD"], payload:{ headers:[{ name:"From", value:hd[0] }, { name:"Subject", value:hd[1] }, { name:"Date", value:"Wed, 14 Oct 2026 09:00" }] } }); }
+    return null; }; });
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(400); await p.click("#closeBtn");
+  await say(p, "jarvis anything important", 1500);
+  const L = await log(p), res = JSON.parse(L.find(x => x.last?.content?.[0]?.type === "tool_result")?.last.content[0].content || "{}");
+  check("the briefing is told to start with whats_important and put money first", /call whats_important first/.test(L[0].system) && /anything about money that needs action/.test(L[0].system) && L[0].tools.includes("whats_important"));
+  check("money emails (banks, payments due) are found", res.money_emails?.[0]?.subject === "Payment due Friday", JSON.stringify(res).slice(0, 400));
+  check("…and not repeated under other unread", res.other_important_unread?.length === 1 && res.other_important_unread[0].subject === "Contract signed");
+  check("new Centris alerts are counted, not analysed", res.new_centris_alerts?.count === 2);
+  const dq = (await p.evaluate(() => window.__gq)).filter(q => q !== "in:inbox is:unread");   // that one is the dashboard's unread count
+  check("only email since the last look (at least the last day)", dq.length === 3 && dq.every(q => /^after:\d+ /.test(q)), JSON.stringify(dq));
+  const nf = res.stocks?.[0];
+  check("stocks you own come first, with move, news and results date", nf?.symbol === "NFLX" && nf.owned && nf.big_move && /Disney/.test(nf.news[0].headline) && nf.results_next_14_days[0].date === "2026-10-20", JSON.stringify(res.stocks));
+  check("…then the ones you watch", res.stocks?.[1]?.symbol === "WSE" && !res.stocks[1].owned && !res.stocks[1].big_move);
+  check("remembers when you last looked", await p.evaluate(() => Date.now() - JSON.parse(localStorage.getItem("jarvis.lastDigest")) < 60000));
+  await say(p, "jarvis I own wise too", 800);
+  const w = await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.watch")));
+  check('"I own…" marks a stock as owned', w.find(x => x.symbol === "WISE")?.owned === true && w.find(x => x.symbol === "NFLX").owned === true);
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 await browser.close(); server.close();
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
