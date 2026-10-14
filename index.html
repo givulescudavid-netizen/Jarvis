@@ -423,7 +423,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.14.6";
+const VERSION = "2026.10.14.7";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -451,7 +451,7 @@ function sysPrompt(){
   return RULES
     + (about ? `\n\nAbout the user, in their own words:\n${about}` : "")
     + (mem.length ? `\n\nThings the user asked you to remember:\n${mem.map(m => "- " + m.text).join("\n")}` : "")
-    + `\n\nWhen asked for a briefing ("brief me", "morning briefing", "what's my day") or "anything important?" / "what did I miss?": call whats_important first, then (for a briefing) today's calendar, open tasks and timers, reminders due today, any trip in the next two days (find_bookings) and packages arriving today (find_deliveries) but only mention them if there are some, plus today's weather for the user's city if you know it (get_weather)${sample ? ", and the portfolio summary" : ""}. Speak a natural briefing under 150 words, most important first: anything about money that needs action (a payment due, a fraud or security alert, a large or unexpected transaction, a deposit they were waiting for), then today's meetings, then the stocks they own and then the ones they watch (big moves, results or trading updates in the next week with the day, and one line of news only if it really matters), then new Centris listings (just how many, and offer to rank them; don't analyse them now), then anything else important. For owned or watched stocks with no_data, use at most two web searches, for the owned ones first, to find what's coming up this week. Skip anything empty. If a habit you've learned suggests something they'll want today, end with one short offer to do it.`
+    + `\n\nWhen asked for a briefing ("brief me", "morning briefing", "what's my day") or "anything important?" / "what did I miss?": call whats_important first, then (for a briefing) today's calendar, open tasks and timers, reminders due today, any trip in the next two days (find_bookings) and packages arriving today (find_deliveries) but only mention them if there are some, plus today's weather for the user's city if you know it (get_weather)${sample ? ", and the portfolio summary" : ""}. Speak a natural briefing under 150 words, most important first: anything about money that needs action (a payment due, a fraud or security alert, a large or unexpected transaction, a deposit they were waiting for), then today's meetings, then the stocks they own and then the ones they watch (big moves, results or trading updates in the next week with the day, and one line of news only if it really matters), then new Centris listings (just how many, and offer to rank them; don't analyse them now), then anything else important. For owned holdings with no_data (often non-US listings), do one web search each (at most four) for their latest news and what's coming up this week; then at most one more for watched ones. Gold: say the price per ounce in the user's currency and the day's move only if it's notable. Skip anything empty. If a habit you've learned suggests something they'll want today, end with one short offer to do it.`
     + (!sample && webOn ? `\n\nYou can search the web for current information (news, prices, companies, people, facts). Use it whenever the answer may have changed recently, and say where it came from in a few words.` : "")
     + `\n\nMusic: play_music opens songs, albums or artists in Apple Music. Be honest that you can't pause or skip afterwards. If asked for a mood or genre rather than a song, pick a well-known fitting song or album yourself.`
     + `\n\nHearing: the user's words come from speech recognition, so expect misheard words, missing punctuation and odd spellings (e.g. "rennts" for rents). Work out the most likely meaning and answer it. Don't say you didn't catch it or ask them to repeat when you can reasonably guess; if you truly can't, say what you heard and ask only about the unclear part. When they say "answer it", "you heard me" or similar, they mean their previous request: answer that, don't ask them to say it again.`
@@ -1775,9 +1775,23 @@ async function fh(path, params = {}){
 }
 const ymd = d => d.toISOString().slice(0, 10);
 const SYM = s => String(s || "").trim().toUpperCase().replace(/[^A-Z0-9.:-]/g, "");
+// Gold (physical gold / bullion): spot price per troy ounce from a free service, no key needed, in US$ and C$.
+const isGold = s => /^(GOLD|XAU|XAUUSD|XAU-USD|BULLION)$/.test(SYM(s));
+async function goldQuote(){
+  const usd = Number((await getJson("https://api.gold-api.com/price/XAU", "gold price")).price);
+  if(!usd) throw new Error("No gold price right now. Use web search instead if available.");
+  const today = new Date().toDateString();
+  let fx = store.get("jarvis.fxCAD", null);
+  if(fx?.day !== today){ const r = await getJson("https://api.frankfurter.app/latest?from=USD&to=CAD", "exchange rate").catch(() => null); if(r?.rates?.CAD){ fx = { day:today, cad:r.rates.CAD }; store.set("jarvis.fxCAD", fx); } }
+  // change against the last price seen on an earlier day
+  let g = store.get("jarvis.gold", null); if(g?.day !== today) g = { day:today, base:g?.last ?? null };
+  g.last = usd; store.set("jarvis.gold", g);
+  return { symbol:"GOLD", price:usd, unit:"US$ per troy ounce", price_cad: fx?.cad ? Math.round(usd * fx.cad * 100) / 100 : null,
+    change_pct: g.base ? Math.round((usd - g.base) / g.base * 1e4) / 100 : null };
+}
 async function quotes({symbols}){
   const list = (Array.isArray(symbols) ? symbols : String(symbols || "").split(/[,\s]+/)).map(SYM).filter(Boolean).slice(0, 20);
-  const res = await Promise.all(list.map(async s => { try{ const q = await fh("quote", { symbol:s }); return { symbol:s, price:q.c, change:q.d, change_pct:q.dp, prev_close:q.pc, high:q.h, low:q.l }; }catch(e){ return { symbol:s, error:e.message }; } }));
+  const res = await Promise.all(list.map(async s => { try{ if(isGold(s)) return await goldQuote(); const q = await fh("quote", { symbol:s }); return { symbol:s, price:q.c, change:q.d, change_pct:q.dp, prev_close:q.pc, high:q.h, low:q.l }; }catch(e){ return { symbol:s, error:e.message }; } }));
   return res;
 }
 async function marketNews({symbol, days}){
@@ -1832,7 +1846,7 @@ async function buildComps({symbols, title}){
 const watchlist = () => store.get("jarvis.watch", []);
 function saveWatch(w){ store.set("jarvis.watch", w.slice(0, 30)); renderWatch(); }
 function watchAdd({symbol, above, below, owned}){
-  const s = SYM(symbol); if(!s) throw new Error("Which ticker?");
+  const s = isGold(symbol) || /gold|bullion/i.test(String(symbol)) ? "GOLD" : SYM(symbol); if(!s) throw new Error("Which ticker?");
   const old = watchlist().find(x => x.symbol === s), w = watchlist().filter(x => x.symbol !== s);
   const own = owned === undefined ? !!old?.owned : !!owned;
   w.push({ symbol:s, above: above ? Number(above) : old?.above ?? null, below: below ? Number(below) : old?.below ?? null, owned:own, fired:{} });
@@ -1858,11 +1872,13 @@ async function whatsImportant(){
   const w = [...watchlist()].sort((a, b) => (b.owned ? 1 : 0) - (a.owned ? 1 : 0)).slice(0, 10);
   if(sample && google.mode === "mcp") out.holdings = await ibkr("get_account_positions").catch(e => "couldn't read positions: " + e.message);
   if(!w.length) out.stocks_note = "No watchlist yet: if the user mentions stocks they own or follow, offer to add them (watchlist_add, owned for ones they own).";
-  else if(!fhKey) out.stocks = w.map(x => ({ symbol:x.symbol, owned:!!x.owned, no_data:"no market data key (Finnhub) in settings" }));
   else {
     const qs = await quotes({ symbols:w.map(x => x.symbol) }).catch(() => []), soon = ymd(new Date(now + 14 * 864e5));
     out.stocks = await Promise.all(w.map(async x => {
       const q = qs.find(y => y.symbol === x.symbol) || {};
+      if(isGold(x.symbol)) return q.error || !q.price ? { symbol:"GOLD", owned:!!x.owned, no_data:"gold price service unavailable" }
+        : { symbol:"GOLD", what:"physical gold, spot price per troy ounce", owned:!!x.owned, price_usd:q.price, price_cad:q.price_cad, change_pct_since_previous_day:q.change_pct, big_move: Math.abs(q.change_pct || 0) >= 2 };
+      if(!fhKey) return { symbol:x.symbol, owned:!!x.owned, no_data:"no market data key (Finnhub) in settings" };
       const [news, cal] = await Promise.all([
         fh("company-news", { symbol:x.symbol, from:ymd(new Date(now - 2 * 864e5)), to:ymd(new Date(now)) }).catch(() => []),
         fh("calendar/earnings", { symbol:x.symbol, from:ymd(new Date(now)), to:soon }).catch(() => ({})) ]);
@@ -1880,11 +1896,11 @@ function watchRemove({symbol}){ const s = SYM(symbol); saveWatch(watchlist().fil
 let lastQuotes = {};
 function renderWatch(){
   const box = $("marketsBox"); if(!box) return;
-  const w = watchlist(); box.hidden = !fhKey || !w.length;
+  const w = watchlist(); box.hidden = !w.length || !(fhKey || w.some(x => isGold(x.symbol)));
   fillList($("marketsList"), w.map(x => { const q = lastQuotes[x.symbol]; return [x.symbol + (x.above || x.below ? " 🔔" : ""), q && typeof q.price === "number" ? `${q.price.toFixed(2)} ${q.change_pct >= 0 ? "▲" : "▼"}${Math.abs(q.change_pct || 0).toFixed(1)}%` : "…"]; }), "");
 }
 async function refreshMarkets(){
-  const w = watchlist(); if(!fhKey || !w.length || dormantNow()) { renderWatch(); return; }
+  const w = watchlist(); if(!w.length || !(fhKey || w.some(x => isGold(x.symbol))) || dormantNow()) { renderWatch(); return; }
   const qs = await quotes({ symbols:w.map(x => x.symbol) }).catch(() => []);
   qs.forEach(q => { if(!q.error) lastQuotes[q.symbol] = q; });
   renderWatch();
@@ -2240,7 +2256,7 @@ const tools = [
     inputSchema:{type:"object",properties:{symbols:{type:"array",items:{type:"string"}},days:{type:"number"}}}, execute: input => earnings(input) },
   { name:"build_comps", description:"Builds a comparable-companies table (price, market cap, P/E, EV/EBITDA, P/S, margins, growth, beta, medians) as a new Google Sheet (asks to confirm).",
     inputSchema:{type:"object",properties:{symbols:{type:"array",items:{type:"string"}},title:{type:"string"}},required:["symbols"]}, execute: input => buildComps(input) },
-  { name:"watchlist_add", description:"Adds a ticker to the watchlist on the dashboard, optionally with a spoken price alert above and/or below a price. owned: true when the user owns the stock (not just watching), so briefings put it first.",
+  { name:"watchlist_add", description:"Adds a ticker to the watchlist on the dashboard, optionally with a spoken price alert above and/or below a price. owned: true when the user owns the stock (not just watching), so briefings put it first. Physical gold or bullion: symbol GOLD (spot price per troy ounce, no key needed). Non-US listings use exchange suffixes: NET-UN.V (TSX Venture), SHOP.TO (Toronto), URW.PA (Paris), WISE.L (London).",
     inputSchema:{type:"object",properties:{symbol:{type:"string"},above:{type:"number"},below:{type:"number"},owned:{type:"boolean"}},required:["symbol"]}, execute: input => watchAdd(input) },
   { name:"whats_important", description:"One call that gathers what matters since the user last looked: money emails (banks, cards, brokers: statements, payments due, deposits, fraud or security alerts), new Centris alert emails, other important unread email, and for the stocks they own and watch: price moves, the latest news and results dates in the next two weeks. Use it first for every briefing, and for 'anything important?' or 'what did I miss?'.",
     execute: () => whatsImportant() },

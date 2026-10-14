@@ -1661,6 +1661,30 @@ console.log("What matters: money emails, Centris, and the stocks you own and wat
   await p.close();
 }
 
+{
+  // A portfolio with physical gold and Canadian/European listings, without a Finnhub key
+  const p = await open({ googleBefore:true, script:[{ tool:"watchlist_add", input:{ symbol:"physical gold", owned:true } }, { text:"Noted, sir." }, { tool:"whats_important", input:{} }, { text:"Gold is up, sir." }],
+    ls:{ "jarvis.watch":[{ symbol:"NET-UN.V", owned:true, fired:{} }], "jarvis.gold":{ day:"Mon Oct 12 2026", last:2600 } } }, undefined, HTTP_PAGE);
+  await p.evaluate(() => { window.__extraFetch = async (u, o, J) => {
+    if(u.includes("api.gold-api.com/price/XAU")) return J({ name:"Gold", price:2650, symbol:"XAU" });
+    if(u.includes("api.frankfurter.app")) return J({ amount:1, base:"USD", rates:{ CAD:1.37 } });
+    if(u.includes("gmail.googleapis.com") && u.includes("messages?")) return J({ messages:[], resultSizeEstimate:0 });
+    return null; }; });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis I own physical gold", 900);
+  const w = await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.watch")));
+  check('"physical gold" goes on the watchlist as GOLD, owned', w.some(x => x.symbol === "GOLD" && x.owned), JSON.stringify(w));
+  check("gold shows on the dashboard without a market data key", await p.locator("#marketsBox").isVisible());
+  await say(p, "jarvis anything important", 1200);
+  const L = await log(p), res = JSON.parse(L.filter(x => x.last?.content?.[0]?.type === "tool_result").at(-1)?.last.content[0].content || "{}");
+  const g = res.stocks?.find(x => x.symbol === "GOLD"), n = res.stocks?.find(x => x.symbol === "NET-UN.V");
+  check("gold: price per ounce in US$ and C$, and the move since the previous day", g?.price_usd === 2650 && g.price_cad === 3630.5 && g.change_pct_since_previous_day === 1.92 && g.owned, JSON.stringify(g));
+  check("a holding without data is flagged for a web search", n?.owned && /no market data key/.test(n.no_data), JSON.stringify(n));
+  check("Jarvis may search for each owned holding without data (up to four)", /one web search each \(at most four\)/.test(L[0].system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 await browser.close(); server.close();
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
