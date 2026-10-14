@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026.10.14.6 — The briefing tells you what matters: money, your stocks, Centris
+- **One sweep for what matters:** when Jarvis briefs you (by itself when you first open it each day, or when you ask "anything important?" or "what did I miss?"), it checks everything since you last looked in one go:
+  - **Money emails:** banks, cards and brokers (Desjardins, RBC, TD, BMO, Scotiabank, CIBC, National Bank, Tangerine, Wealthsimple, Questrade, Interactive Brokers, Wise, PayPal, Amex…). It looks for statements, payments due, deposits, e-transfers, fraud or security alerts, and dividends.
+  - **Your stocks:** the ones you own first, then your watchlist. It covers big moves (3% or more), the latest important news, and results or trading-update dates in the next two weeks.
+  - **New Centris alerts:** just how many there are, with an offer to rank them.
+  - **Other important unread email.**
+- **Most important first:** anything about money that needs action comes first, then today's meetings, your stocks, Centris, then the rest.
+- **Tell Jarvis what you own:** "Jarvis, I own Netflix and Wise." Owned stocks come first in the briefing. "Add Shopify to my watchlist" works as before.
+- **Prices and results dates** need your free Finnhub key in ⚙ → Markets. Without it (or for a London-only listing), Jarvis does up to two quick web searches for what's coming up, owned stocks first.
+- **Email is information only:** Jarvis never acts on what an email says and never opens its links.
+
 ## 2026.10.14.5 — Jarvis underwrites deals your way, with CMHC expenses
 - **Deals are now underwritten like your income statement.** Jarvis takes the rents (plus parking and laundry when they're separate), takes off 3% vacancy, then subtracts the actual taxes, insurance and utilities and CMHC's stabilized expenses: maintenance and repairs, management, salaries, appliance, heat pump and elevator reserves, and other costs.
 - **It knows the CMHC rates for every region** (Atlantic, Quebec, Ontario, Prairies and territories, B.C.), for wood frame with 11 units or less, wood frame with 12 or more, and concrete. They're the same rates as in your portfolio's CMHC tab.
