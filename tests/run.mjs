@@ -1344,7 +1344,12 @@ console.log("Centris deals and the on-screen panel");
   const b64 = t => Buffer.from(t).toString("base64").replace(/\+/g, "-").replace(/\//g, "_");
   const p = await open({ ls:{ "jarvis.dealCriteria":{ min_units:3, max_price:1500000, min_cap_rate:5 } }, script:[
     { tool:"centris_listings", input:{} },
-    { tool:"analyze_property", input:{ address:"123 Rue Fake, Montréal", price:899000, units:4, gross_revenue:72000, taxes:9000 } },
+    { raw:{ stop_reason:"tool_use", content:[
+      { type:"server_tool_use", id:"srv1", name:"web_fetch", input:{ url:"https://consumersharingqc.centris.ca/api/Retrieve/abc/?id=25265270" } },
+      { type:"web_fetch_tool_result", tool_use_id:"srv1", content:{ type:"web_fetch_tool_error", error_code:"url_not_accessible" } },
+      { type:"server_tool_use", id:"srv2", name:"web_fetch", input:{ url:"https://www.centris.ca/fr/plex~a-vendre~montreal/21808900" } },
+      { type:"web_fetch_tool_result", tool_use_id:"srv2", content:{ type:"web_fetch_result", url:"https://www.centris.ca/fr/plex~a-vendre~montreal/21808900", content:{ type:"document", source:{ type:"text", media_type:"text/plain", data:"Prix 899 000 $" } } } },
+      { type:"tool_use", id:"t2", name:"analyze_property", input:{ address:"123 Rue Fake, Montréal", price:899000, units:4, gross_revenue:72000, taxes:9000 } } ] } },
     { tool:"show_on_screen", input:{ title:"Centris deals", items:[
       { title:"123 Rue Fake · 4-plex", right:"$899,000", detail:"4 units · $224,750/door · cap 5.6% · +$216/mo", link:"https://www.centris.ca/en/4plex~for-sale~montreal-rosemont/12345678", verdict:"good" },
       { title:"Sketchy one", right:"$1", link:"javascript:alert(1)", verdict:"pass" } ] } },
@@ -1372,6 +1377,9 @@ console.log("Centris deals and the on-screen panel");
   const ls = firstRes.emails[0].listings;
   check("Centris: each listing in the alert is pulled out with its address, what's new and its own page link", ls.length === 2 && ls[0].centris_no === "25265270" && ls[0].address === "9 - 11, Rue Legault, Sainte-Anne-de-Bellevue, Quartier Sud" && ls[0].news === "Nouvelle inscription"
     && ls[0].link === "https://consumersharingqc.centris.ca/api/Retrieve/abc/?id=25265270&context=AlertViewListingSummary" && ls[1].centris_no === "21808900" && ls[1].news === "Nouveau prix" && /id=21808900/.test(ls[1].link), JSON.stringify(ls));
+  check("…and told it can open the pages, with a search fallback when a link won't open", /CAN open these listing pages/.test(firstRes.pages) && /web search/.test(firstRes.pages));
+  const diag = JSON.stringify(await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.diag") || "[]")));
+  check("problem reports say which listing pages opened and which failed, and why", /couldn't open consumersharingqc\.centris\.ca\/api\/Retrieve\/abc\/\?id=25265270: url_not_accessible/.test(diag) && /opened www\.centris\.ca\/fr\/plex~a-vendre~montreal\/21808900/.test(diag) && !/899 000/.test(diag), diag.slice(-600));
   const wf = L[0].server.find(t => t.name === "web_fetch");
   check("Centris: Claude can open listing pages (web fetch, centris.ca only) and is told to read price, rents, taxes and utilities there", !!wf && /^web_fetch_2026/.test(wf.type) && JSON.stringify(wf.allowed_domains) === '["centris.ca"]' && wf.max_uses > 0
     && /web_fetch/.test(L[0].system) && /taxes/.test(L[0].system) && /energy/.test(L[0].system), JSON.stringify(wf));
