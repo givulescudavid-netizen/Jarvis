@@ -1414,7 +1414,8 @@ console.log("Centris deals and the on-screen panel");
   const ls = firstRes.emails[0].listings;
   check("Centris: each listing in the alert is pulled out with its address, what's new and its own page link", ls.length === 2 && ls[0].centris_no === "25265270" && ls[0].address === "9 - 11, Rue Legault, Sainte-Anne-de-Bellevue, Quartier Sud" && ls[0].news === "Nouvelle inscription"
     && ls[0].link === "https://consumersharingqc.centris.ca/api/Retrieve/abc/?id=25265270&context=AlertViewListingSummary" && ls[1].centris_no === "21808900" && ls[1].news === "Nouveau prix" && /id=21808900/.test(ls[1].link), JSON.stringify(ls));
-  check("…and told it can open the pages, with a search fallback when a link won't open", /CAN open these listing pages/.test(firstRes.pages) && /web search/.test(firstRes.pages));
+  check("…and told to find each page by searching its Centris number, not through the long tracking links in the email", /CAN read these listings' pages/.test(firstRes.pages) && /tracking redirects/.test(firstRes.pages)
+    && ls[0].find_page === 'web search "Centris 25265270"' && /web search "Centris" plus its Centris number/.test(L[0].system) && /long tracking redirects/.test(L[0].system), JSON.stringify(ls[0]));
   const diag = JSON.stringify(await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.diag") || "[]")));
   check("problem reports say which listing pages opened and which failed, and why", /couldn't open consumersharingqc\.centris\.ca\/api\/Retrieve\/abc\/\?id=25265270: url_not_accessible/.test(diag) && /opened www\.centris\.ca\/fr\/plex~a-vendre~montreal\/21808900/.test(diag) && !/899 000/.test(diag), diag.slice(-600));
   const wf = L[0].server.find(t => t.name === "web_fetch");
