@@ -71,7 +71,7 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
       u = String(u); const J = (x, st = 200) => new Response(JSON.stringify(x), { status: st });
       if(window.__extraFetch){ const r = await window.__extraFetch(u, o, J); if(r) return r; }
       if(u.includes("api.anthropic.com")){
-        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), last: body.messages.at(-1), msgs: body.messages, system: body.system, cache: body.cache_control, toolCache: body.tools.filter(t => t.cache_control).map(t => t.name), stream: body.stream, model: body.model, beta: o.headers["anthropic-beta"] || "" });
+        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), server: body.tools.filter(t => t.type), last: body.messages.at(-1), msgs: body.messages, system: body.system, cache: body.cache_control, toolCache: body.tools.filter(t => t.cache_control).map(t => t.name), stream: body.stream, model: body.model, beta: o.headers["anthropic-beta"] || "" });
         const st = script[call++] || { text: "Done." };
         if(st.delay) await new Promise(r => setTimeout(r, st.delay));
         if(st.err) return J({ error:{ message: st.err } }, st.status || 400);
@@ -253,7 +253,7 @@ console.log("Acting like JARVIS: spoken acknowledgements, welcome status, meetin
 console.log("Memory, confirmations, drafts, events, web search fallback, diagnostics");
 {
   const p = await open({ script:[
-    { err:"web_search tool is not enabled for this organization" }, { tool:"remember", input:{ fact:"Acme is my biggest client" } }, { text:"Noted." },
+    { err:"web_fetch tool is not enabled for this organization" }, { err:"web_search tool is not enabled for this organization" }, { tool:"remember", input:{ fact:"Acme is my biggest client" } }, { text:"Noted." },
     { tool:"draft_email", input:{ to:["pepper@example.com"], subject:"Board meeting", body:"Hi Pepper,\nSee you at 9.\nTony" } }, { text:"Draft saved." },
     { tool:"draft_email", input:{ to:["happy@example.com"], body:"Car at 8" } }, { text:"Nothing saved." },
     { tool:"create_event", input:{ title:"Call with Mark", start:"2026-10-16T15:00", attendees:["mark@example.com"], add_meet:true } }, { text:"Booked." },
@@ -265,7 +265,8 @@ console.log("Memory, confirmations, drafts, events, web search fallback, diagnos
   await say(p, "jarvis remember that acme is my biggest client", 900);
   let L = await log(p);
   check("offers web search first", L[0].tools.includes("web_search"));
-  check("retries without web search when it's disabled", !L[1].tools.includes("web_search"));
+  check("retries without reading web pages when that's disabled (web search stays)", L[0].tools.includes("web_fetch") && !L[1].tools.includes("web_fetch") && L[1].tools.includes("web_search"));
+  check("retries without web search when it's disabled", !L[2].tools.includes("web_search") && !L[2].tools.includes("web_fetch"));
   check("local version doesn't offer brokerage tools", !L[0].tools.some(t => t.startsWith("portfolio_")));
   check("Jarvis is told it CAN open websites and play music", /open_website/.test(L[0].system) && /play_music/.test(L[0].system) && L[0].tools.includes("open_website") && L[0].tools.includes("play_music"));
   check("no blanket 'everything is read-only' rule that makes it refuse", !/Everything is read-only/i.test(L[0].system));
@@ -1335,6 +1336,10 @@ console.log("Centris deals and the on-screen panel");
   const html = `<html><body><h1>3 new properties match your search</h1>
     <div>4-plex · 123 Rue Fake, Montréal (Rosemont) · $899,000 · Potential gross revenue $72,000 · Municipal taxes $9,000</div>
     <a href="https://www.centris.ca/en/4plex~for-sale~montreal-rosemont/12345678">View listing</a>
+    <div>Nouvelle inscription</div><div>9 - 11, Rue Legault, Sainte-Anne-de-Bellevue, Quartier Sud - No Centris 25265270</div>
+    <a href="https://consumersharingqc.centris.ca/api/Retrieve/abc/?id&#x3D;25265270&amp;context&#x3D;AlertViewListingSummary">Voir la propriété</a>
+    <div>Nouveau prix</div><div>10830 - 10832, Rue Saint-Denis, Montréal (Ahuntsic-Cartierville) - No Centris 21808900</div>
+    <a href="https://consumersharingqc.centris.ca/api/Retrieve/abc/?id&#x3D;21808900&amp;context&#x3D;AlertViewListingSummary">Voir la propriété</a>
     <a href="https://evil.example/track">Unsubscribe</a></body></html>`;
   const b64 = t => Buffer.from(t).toString("base64").replace(/\+/g, "-").replace(/\//g, "_");
   const p = await open({ ls:{ "jarvis.dealCriteria":{ min_units:3, max_price:1500000, min_cap_rate:5 } }, script:[
@@ -1346,7 +1351,10 @@ console.log("Centris deals and the on-screen panel");
     { text:"The Rosemont fourplex looks best, sir." },
     { tool:"show_on_screen", input:{ title:"Inbox", items:[ { title:"Board meeting", right:"Pepper", email_id:"m1" } ] } },
     { text:"Your inbox is on the screen, sir." },
-    { tool:"deal_criteria", input:{ areas:"Montreal, Laval", min_cap_rate:"6", bogus:1 } }, { text:"Noted, sir." } ]});
+    { tool:"deal_criteria", input:{ areas:"Montreal, Laval", min_cap_rate:"6", bogus:1 } }, { text:"Noted, sir." },
+    { tool:"deal_feedback", input:{ listing:"9 - 11 Rue Legault", centris_no:"25265270", verdict:"pass", reason:"too far from the metro", price:749000, units:2 } }, { text:"Noted, sir." },
+    { tool:"centris_listings", input:{} }, { text:"Done." },
+    { tool:"analyze_property", input:{ price:600000, units:3, gross_revenue:48000, taxes:6000, utilities:3000 } }, { text:"Done." } ]});
   await p.evaluate(({ html, mail }) => { window.__gq = []; window.__extraFetch = async (u, o, J) => {
     if(!u.includes("gmail.googleapis.com")) return;
     if(/messages\?/.test(u)){ window.__gq.push(decodeURIComponent(u.split("q=")[1])); return J({ messages:[{ id:"c1" }], resultSizeEstimate:1 }); }
@@ -1360,6 +1368,13 @@ console.log("Centris deals and the on-screen panel");
   const L = await log(p), sent = JSON.stringify(L.filter(x => x.last).map(x => x.last));
   check("Centris tools are offered and explained to Claude", ["centris_listings", "analyze_property", "deal_criteria", "show_on_screen"].every(n => L[0].tools.includes(n) && L[0].system.includes(n)));
   check("Centris: searches the Centris alert emails", (await p.evaluate(() => window.__gq)).some(q => /^from:centris newer_than:14d/.test(q)), (await p.evaluate(() => window.__gq)).join(" | "));
+  const firstRes = JSON.parse(L[1].last.content[0].content);
+  const ls = firstRes.emails[0].listings;
+  check("Centris: each listing in the alert is pulled out with its address, what's new and its own page link", ls.length === 2 && ls[0].centris_no === "25265270" && ls[0].address === "9 - 11, Rue Legault, Sainte-Anne-de-Bellevue, Quartier Sud" && ls[0].news === "Nouvelle inscription"
+    && ls[0].link === "https://consumersharingqc.centris.ca/api/Retrieve/abc/?id=25265270&context=AlertViewListingSummary" && ls[1].centris_no === "21808900" && ls[1].news === "Nouveau prix" && /id=21808900/.test(ls[1].link), JSON.stringify(ls));
+  const wf = L[0].server.find(t => t.name === "web_fetch");
+  check("Centris: Claude can open listing pages (web fetch, centris.ca only) and is told to read price, rents, taxes and utilities there", !!wf && /^web_fetch_2026/.test(wf.type) && JSON.stringify(wf.allowed_domains) === '["centris.ca"]' && wf.max_uses > 0
+    && /web_fetch/.test(L[0].system) && /taxes/.test(L[0].system) && /energy/.test(L[0].system), JSON.stringify(wf));
   check("…reads the whole email with the listing link (and drops other links) plus the saved criteria", /Potential gross revenue \$72,000/.test(sent) && /centris\.ca\/en\/4plex~for-sale~montreal-rosemont\/12345678/.test(sent) && !/evil\.example/.test(sent) && /min_cap_rate/.test(sent), sent.slice(0, 600));
   check("deal numbers: cap rate, Canadian mortgage payment, cash flow, verdict", /\\"cap_rate_pct\\":5\.6/.test(sent) && /\\"mortgage_monthly\\":3981/.test(sent) && /\\"cash_flow_monthly\\":216/.test(sent) && /\\"price_per_door\\":224750/.test(sent) && /\\"verdict\\":\\"good\\"/.test(sent), sent.slice(-900));
   check("listings go up on Jarvis's screen with a green 'good' marker", await p.locator("#dispBox").isVisible() && (await p.locator("#dispTitle").textContent()) === "Centris deals" && await p.locator("#dispList li.good").count() === 1);
@@ -1370,6 +1385,15 @@ console.log("Centris deals and the on-screen panel");
   await say(p, "jarvis only montreal and laval, and at least a 6 percent cap rate", 900);
   const crit = JSON.parse(await p.evaluate(() => localStorage.getItem("jarvis.dealCriteria")));
   check("deal criteria can be changed by voice (and the rest is kept)", crit.areas === "Montreal, Laval" && crit.min_cap_rate === 6 && crit.min_units === 3 && !("bogus" in crit), JSON.stringify(crit));
+  await say(p, "jarvis pass on the legault one, too far from the metro", 900);
+  const fb = JSON.parse(await p.evaluate(() => localStorage.getItem("jarvis.dealFeedback")));
+  check("deal feedback: the user's verdict and reason on a listing are kept", fb.length === 1 && fb[0].verdict === "pass" && fb[0].reason === "too far from the metro" && fb[0].centris_no === "25265270" && fb[0].price === 749000, JSON.stringify(fb));
+  await say(p, "jarvis any new deals on centris", 900);
+  const L2 = await log(p), again = JSON.parse(L2.at(-1).last.content[0].content);
+  check("…and comes back with the listings next time, so Claude judges new ones by the user's taste", again.user_feedback?.past?.[0]?.reason === "too far from the metro", JSON.stringify(again.user_feedback));
+  await say(p, "jarvis analyze a triplex at 600k with 48k revenue, 6k taxes and 3k heating", 900);
+  const an = JSON.parse((await log(p)).at(-1).last.content[0].content);
+  check("analyze_property counts the utilities the listing gives", an.assumptions.expenses === "taxes and utilities given + estimate for the rest" && an.noi === Math.round(48000 * 0.97 - (6000 + 3000 + 48000 * 0.97 * 0.11)), JSON.stringify(an));
   await p.click("#dispClose");
   check("the panel closes", await p.locator("#dispBox").isHidden());
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
