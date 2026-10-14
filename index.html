@@ -423,7 +423,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.14.3";
+const VERSION = "2026.10.14.4";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -454,6 +454,7 @@ function sysPrompt(){
     + `\n\nWhen asked for a briefing ("brief me", "morning briefing", "what's my day"): check today's calendar, important unread email from the last day (query: in:inbox is:unread newer_than:1d -category:promotions -category:social -category:forums), open tasks and timers, the watchlist's moves and any earnings in the next week (if a market data key is set)${sample ? ", and the portfolio summary" : ""}, reminders due today, any trip in the next two days (find_bookings) and packages arriving today (find_deliveries) but only mention them if there are some, plus today's weather for the user's city if you know it (get_weather), then speak a natural briefing under 120 words, most important first. Skip anything empty. If a habit you've learned suggests something they'll want today, end with one short offer to do it.`
     + (!sample && webOn ? `\n\nYou can search the web for current information (news, prices, companies, people, facts). Use it whenever the answer may have changed recently, and say where it came from in a few words.` : "")
     + `\n\nMusic: play_music opens songs, albums or artists in Apple Music. Be honest that you can't pause or skip afterwards. If asked for a mood or genre rather than a song, pick a well-known fitting song or album yourself.`
+    + `\n\nHearing: the user's words come from speech recognition, so expect misheard words, missing punctuation and odd spellings (e.g. "rennts" for rents). Work out the most likely meaning and answer it. Don't say you didn't catch it or ask them to repeat when you can reasonably guess; if you truly can't, say what you heard and ask only about the unclear part. When they say "answer it", "you heard me" or similar, they mean their previous request: answer that, don't ask them to say it again.`
     + `\n\nInterruptions: a message starting with [You were interrupted…] means the user talked over you. React like a person would: if they corrected you or added information, adjust; if they asked something new, answer that and drop the old point unless it still matters; if they said "go on" or "continue", pick up exactly where they stopped hearing you without repeating; never re-read what they already heard. Keep it short.`
     + `\n\nDCF co-pilot (the user is building valuations with you, by voice):
 - First time: if no template is saved (dcf_new will say so), ask what their DCF template is called, find it with search_drive (a Google Sheet or an Excel file both work: for Excel, dcf_inspect offers to make a Google Sheets copy, keeping their layout and formulas, and from then on that copy's file_id is the template), read it with dcf_inspect, and work out the input cells (assumptions and historicals) and output cells (EV, equity value, implied share price, upside, sensitivity). Summarise your understanding in a few spoken sentences ("Assumptions are on the Inputs tab: growth in C8 to G8, EBIT margin row 10…"), fix anything they correct, then dcf_save_template.
@@ -2793,10 +2794,16 @@ function endConvo(){
   if(mode === "idle" || mode === "listening") setMode("idle");
   chime(true);
 }
+// Chrome splits a long request into several "final" pieces whenever you pause for breath. Collect them and
+// only send once you've stopped for a moment, so a long question isn't cut off after its first half.
+const PAUSE_MS = store.get("jarvis.pauseMs", 1000);
 function startWake(){
   if(!SR || !wakeOn || recOn || mode === "speaking" || (mode === "thinking" && !pendingConfirm)) return;
   rec = makeRec(true); recOn = true;
   const w = rec;
+  let parts = [], tail = "", sendTimer = 0;
+  const sofar = () => [...parts, tail].join(" ").replace(/\s+/g, " ").trim();
+  const send = () => { clearTimeout(sendTimer); clearTimeout(awaitTimer); const t = sofar(); parts = []; tail = ""; if(t && rec === w) heard(t); };
   rec.onstart = () => { if(awaiting && !pendingConfirm) armConvoTimer(); if(mode === "idle") setMode("idle"); };
   rec.onresult = e => {
     if(rec !== w) return;   // ignore late results from a listener that was already stopped
@@ -2804,26 +2811,32 @@ function startWake(){
       const said = e.results[i][0].transcript.trim();
       if(!e.results[i].isFinal){
         if(pendingConfirm){ setLive(said); continue; }
+        if(parts.length){ clearTimeout(sendTimer); tail = said; setLive(sofar()); continue; }   // still going: wait for the rest
         if(awaiting){ setLive(said); armConvoTimer(); }   // still talking: keep the conversation open
         else if(WAKE.test(said)) setLive(said);
         continue;
       }
       if(pendingConfirm){ if(said) answerConfirm(said); return; }
+      if(parts.length){ if(said) parts.push(said); tail = ""; setLive(sofar()); clearTimeout(sendTimer); sendTimer = setTimeout(send, PAUSE_MS); continue; }
       if(awaiting){
         if(!said) continue;
         if(END_CONVO.test(said)){ endConvo(); const bye = "Very good, sir. I'll be here."; addMsg("you", said); addMsg("j", bye); speak(bye); return; }
-        clearTimeout(awaitTimer); heard(said); return;
+        clearTimeout(awaitTimer); parts = [said]; tail = ""; setLive(said); sendTimer = setTimeout(send, PAUSE_MS); continue;
       }
       const m = said.match(WAKE);
       if(!m) continue;
       convoOpen = true;
       const rest = m[1].trim();
-      if(rest.length > 1) heard(rest);
+      if(rest.length > 1){ parts = [rest]; tail = ""; setLive(rest); sendTimer = setTimeout(send, PAUSE_MS); continue; }
       else { awaiting = true; setMode("idle","Yes, sir?"); armConvoTimer(); speak(pick(WAKE_ACKS), { ack:true }); }
       return;
     }
   };
-  rec.onend = () => { recOn = false; rec = null; if(wakeOn) setTimeout(startWake, 250); };
+  rec.onend = () => {
+    if(rec === w && parts.length){ send(); return; }   // Chrome stopped listening mid-request: use what we have
+    clearTimeout(sendTimer);
+    recOn = false; rec = null; if(wakeOn) setTimeout(startWake, 250);
+  };
   try{ rec.start(); }catch{ recOn = false; }
 }
 function heard(text){ stopRec(); ask(text); }
@@ -3591,7 +3604,15 @@ function apiErr(e){
   if(e.name === "TypeError") return "Couldn't reach Anthropic. Check your internet connection.";
   return "Uplink error: " + e.message;
 }
+// "Answer it" / "you heard me": the user means what they just said, which Jarvis may have lost (an error, or it misunderstood)
+const ANSWER_IT = /^(?:jarvis[\s,]*)?(?:(?:please|just|ok(?:ay)?|so|well|no)[\s,]+)*(?:answer(?: (?:it|that|this|me|the question|my question|what i (?:just )?said))?|go ahead and answer(?: it| that)?|(?:you|did you) (?:heard|hear) me|(?:i )?(?:just )?(?:said|asked) it|what i (?:just )?said|(?:respond|reply) to (?:it|that|what i said)|try (?:it |that )?again)(?: please)?[\s.!?]*$/i;
+let lastAsked = null;   // { text, at }: the user's last real request, so "answer it" can pick it back up
 async function ask(text, shown, interruptedHeard){
+  const bare = String(text).trim();
+  if(ANSWER_IT.test(bare) && lastAsked && Date.now() - lastAsked.at < 15 * 60000){
+    shown = shown || bare;
+    text = `${bare} [The user means their previous request, which they don't want to repeat: "${lastAsked.text}". Answer that now, using your best reading of it.]`;
+  } else if(bare.split(/\s+/).length >= 3 && interruptedHeard === undefined) lastAsked = { text: bare.replace(/^jarvis[\s,]*/i, ""), at: Date.now() };
   if(interruptedHeard !== undefined){
     const tail = interruptedHeard.length > 300 ? "…" + interruptedHeard.slice(-300) : interruptedHeard;
     text = `[You were interrupted mid-reply. The user only heard: "${tail || "(nothing yet)"}". The rest was not spoken.] ${text}`;

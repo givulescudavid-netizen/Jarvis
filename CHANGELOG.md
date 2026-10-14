@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.14.4 — Jarvis doesn't lose long questions
+- **Long questions aren't cut off any more.** When you paused for breath in the middle of a long question, Jarvis sent only the first half to its brain, which then said it didn't get it. Now it waits until you've actually stopped (about a second of silence) and sends the whole thing.
+- **"Answer it" works.** If Jarvis still misunderstands or hits an error, just say "answer it", "you heard me" or "try again", and it answers what you said before, so you don't have to repeat a long question.
+- Jarvis now knows your words come from speech recognition, so it guesses the most likely meaning of a misheard word instead of asking you to say it again.
+
 ## 2026.10.14.3 — Jarvis finds Centris listings by their number
 - **No more stalling on tracking links:** the "Voir la propriété" links in Centris emails are long tracking addresses, and Jarvis wouldn't read through them. Now it looks each listing up by its Centris number (for example "Centris 25265270") and opens the real centris.ca page. The email link is only a last resort.
 - The links on Jarvis's screen now point to the clean centris.ca page when Jarvis found it.
