@@ -1418,7 +1418,8 @@ console.log("Centris deals and the on-screen panel");
     { tool:"deal_criteria", input:{ areas:"Montreal, Laval", min_cap_rate:"6", bogus:1 } }, { text:"Noted, sir." },
     { tool:"deal_feedback", input:{ listing:"9 - 11 Rue Legault", centris_no:"25265270", verdict:"pass", reason:"too far from the metro", price:749000, units:2 } }, { text:"Noted, sir." },
     { tool:"centris_listings", input:{} }, { text:"Done." },
-    { tool:"analyze_property", input:{ price:600000, units:3, gross_revenue:48000, taxes:6000, utilities:3000 } }, { text:"Done." } ]});
+    { tool:"analyze_property", input:{ price:600000, units:3, gross_revenue:48000, taxes:6000, utilities:3000 } }, { text:"Done." },
+    { tool:"analyze_property", input:{ price:5000000, units:24, gross_revenue:360000, taxes:40000, insurance:12000, province:"ON", structure:"concrete", elevators:1, heat_pumps:2, appliances_included:true, indoor_parking:10 } }, { text:"Done." } ]});
   await p.evaluate(({ html, mail }) => { window.__gq = []; window.__extraFetch = async (u, o, J) => {
     if(!u.includes("gmail.googleapis.com")) return;
     if(/messages\?/.test(u)){ window.__gq.push(decodeURIComponent(u.split("q=")[1])); return J({ messages:[{ id:"c1" }], resultSizeEstimate:1 }); }
@@ -1444,7 +1445,7 @@ console.log("Centris deals and the on-screen panel");
   check("Centris: Claude can open listing pages (web fetch, centris.ca only) and is told to read price, rents, taxes and utilities there", !!wf && /^web_fetch_2026/.test(wf.type) && JSON.stringify(wf.allowed_domains) === '["centris.ca"]' && wf.max_uses > 0
     && /web_fetch/.test(L[0].system) && /taxes/.test(L[0].system) && /energy/.test(L[0].system), JSON.stringify(wf));
   check("…reads the whole email with the listing link (and drops other links) plus the saved criteria", /Potential gross revenue \$72,000/.test(sent) && /centris\.ca\/en\/4plex~for-sale~montreal-rosemont\/12345678/.test(sent) && !/evil\.example/.test(sent) && /min_cap_rate/.test(sent), sent.slice(0, 600));
-  check("deal numbers: cap rate, Canadian mortgage payment, cash flow, verdict", /\\"cap_rate_pct\\":5\.6/.test(sent) && /\\"mortgage_monthly\\":3981/.test(sent) && /\\"cash_flow_monthly\\":216/.test(sent) && /\\"price_per_door\\":224750/.test(sent) && /\\"verdict\\":\\"good\\"/.test(sent), sent.slice(-900));
+  check("deal numbers: cap rate, Canadian mortgage payment, cash flow, verdict", /\\"cap_rate_pct\\":5\.92/.test(sent) && /\\"mortgage_monthly\\":3981/.test(sent) && /\\"cash_flow_monthly\\":453/.test(sent) && /\\"price_per_door\\":224750/.test(sent) && /\\"verdict\\":\\"good\\"/.test(sent), sent.slice(-900));
   check("listings go up on Jarvis's screen with a green 'good' marker", await p.locator("#dispBox").isVisible() && (await p.locator("#dispTitle").textContent()) === "Centris deals" && await p.locator("#dispList li.good").count() === 1);
   check("…with a working Centris link, and unsafe links are left out", (await p.locator("#dispList li.good a").getAttribute("href")) === "https://www.centris.ca/en/4plex~for-sale~montreal-rosemont/12345678" && await p.locator("#dispList li.pass a").count() === 0);
   await say(p, "jarvis put my emails up", 900);
@@ -1461,7 +1462,17 @@ console.log("Centris deals and the on-screen panel");
   check("…and comes back with the listings next time, so Claude judges new ones by the user's taste", again.user_feedback?.past?.[0]?.reason === "too far from the metro", JSON.stringify(again.user_feedback));
   await say(p, "jarvis analyze a triplex at 600k with 48k revenue, 6k taxes and 3k heating", 900);
   const an = JSON.parse((await log(p)).at(-1).last.content[0].content);
-  check("analyze_property counts the utilities the listing gives", an.assumptions.expenses === "taxes and utilities given + estimate for the rest" && an.noi === Math.round(48000 * 0.97 - (6000 + 3000 + 48000 * 0.97 * 0.11)), JSON.stringify(an));
+  const egi = 48000 * 0.97;
+  check("analyze_property underwrites like the owner's income statement: actual taxes and utilities + CMHC Quebec wood-frame expenses", /income statement/.test(an.assumptions.expenses) && /Quebec, wood frame, 11 units and less/.test(an.assumptions.expenses)
+    && an.expense_lines.maintenance_repairs === 2100 && an.expense_lines.salaries === 750 && an.expense_lines.management === Math.round(0.045 * egi) && an.expense_lines.other_costs === Math.round(0.01 * egi) && an.expense_lines.utilities === 3000
+    && an.noi === 32149 && an.underwritten_value === Math.round(32149.2 / 0.045) && /insurance/.test(an.missing), JSON.stringify(an));
+  await say(p, "jarvis underwrite the 24-unit concrete building in Toronto", 900);
+  const big = JSON.parse((await log(p)).at(-1).last.content[0].content);
+  const egi2 = (360000 + 10 * 120 * 12) * 0.97;
+  check("…using the right CMHC table for the province and building type (Ontario concrete, elevator included), and parking added", big.assumptions.expenses.includes("Ontario, concrete") && big.expense_lines.maintenance_repairs === 1090 * 24
+    && big.expense_lines.management === Math.round(0.0425 * egi2) && big.expense_lines.salaries === 770 * 24 && big.expense_lines.appliance_reserve === 60 * 48 && big.expense_lines.heat_pump_reserve === 380 && !big.expense_lines.elevator_reserve
+    && big.parking_laundry_added === 14400 && !big.missing, JSON.stringify(big));
+  check("Jarvis is told to use this underwriting for any property", /underwrites the way the user does/.test(L[0].system) && /any other income property/.test(L[0].system));
   await p.click("#dispClose");
   check("the panel closes", await p.locator("#dispBox").isHidden());
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
