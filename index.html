@@ -12,7 +12,7 @@
 /* Layout: one giant reactor centre stage with subtitles under it; a slim column of glanceable info each side; everything else lives in a slide-out settings drawer. Single dark look by design. */
 :root{
   --void:#010509; --line:rgba(90,220,255,.18); --line-hi:rgba(120,230,255,.6);
-  --cyan:#5fdcff; --ice:#d4f6ff; --dim:#5a8799; --amber:#ffae34; --red:#ff4d4d; --ok:#4dffb0;
+  --cyan:#5fdcff; --ice:#d4f6ff; --dim:#8fb6c6; --ts:1; --side:calc(300px * var(--ts)); --amber:#ffae34; --red:#ff4d4d; --ok:#4dffb0;
   --glow:0 0 6px rgba(95,220,255,.7),0 0 18px rgba(95,220,255,.3);
   --f-display:"Orbitron","Rajdhani",system-ui,sans-serif;
   --f-body:"Rajdhani","Segoe UI",system-ui,sans-serif;
@@ -37,33 +37,45 @@ header{position:absolute;top:12px;left:16px;right:16px;display:flex;justify-cont
 .dot.warn{background:var(--amber);box-shadow:0 0 8px var(--amber)}
 .dot.bad{background:var(--red);box-shadow:0 0 8px var(--red)}
 
-.side{position:absolute;top:64px;width:230px;display:flex;flex-direction:column;gap:28px;min-width:0;z-index:4}
+.side{position:absolute;top:64px;width:var(--side);display:flex;flex-direction:column;gap:30px;min-width:0;z-index:4;font-size:calc(1rem * var(--ts))}
 .left{left:16px}.right{right:16px}
 .block{min-width:0}
-.block h2{font-family:var(--f-display);font-size:.62rem;letter-spacing:.32em;color:var(--cyan);margin:0 0 10px;font-weight:500;text-transform:uppercase;
+.block h2{font-family:var(--f-display);font-size:.8em;letter-spacing:.26em;color:var(--cyan);margin:0 0 10px;font-weight:500;text-transform:uppercase;
   display:flex;align-items:center;gap:8px;text-shadow:0 0 8px rgba(95,220,255,.45)}
 .block h2::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,var(--line-hi),transparent)}
 .count{color:var(--amber);font-family:var(--f-mono);letter-spacing:.05em;order:2}
-.clock{font-family:var(--f-display);font-size:2.6rem;letter-spacing:.06em;font-variant-numeric:tabular-nums;color:var(--ice);text-shadow:var(--glow);line-height:1}
-.date{font-family:var(--f-mono);color:var(--dim);font-size:.76rem;letter-spacing:.14em;text-transform:uppercase;margin-top:8px}
-ul.list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;font-size:.95rem}
-ul.list li{display:flex;justify-content:space-between;gap:10px;min-width:0}
-ul.list li span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-ul.list li span:last-child{font-family:var(--f-mono);font-size:.82rem;color:var(--amber);font-variant-numeric:tabular-nums;white-space:nowrap}
-.empty{color:var(--dim);font-size:.85rem}
+.clock{font-family:var(--f-display);font-size:2.8em;letter-spacing:.06em;font-variant-numeric:tabular-nums;color:var(--ice);text-shadow:var(--glow);line-height:1}
+.date{font-family:var(--f-mono);color:var(--dim);font-size:.85em;letter-spacing:.14em;text-transform:uppercase;margin-top:8px}
+ul.list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;font-size:1.1em;line-height:1.35}
+ul.list li{display:flex;justify-content:space-between;gap:12px;min-width:0}
+ul.list li span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ice)}
+ul.list li span:last-child{font-family:var(--f-mono);font-size:.95em;color:#ffc46b;font-variant-numeric:tabular-nums;white-space:nowrap}
+.empty{color:var(--dim);font-size:.9em}
+/* two-line rows: who / what on top, the detail underneath (emails) */
+ul.list li.two{flex-wrap:wrap;row-gap:1px;padding-bottom:8px;border-bottom:1px solid rgba(120,200,255,.12)}
+ul.list li.two span:first-child{font-weight:600;flex:1}
+ul.list li.two span:nth-child(2){font-family:var(--f-mono);font-size:.85em;color:#ffc46b;white-space:nowrap}
+ul.list li.two .sub{flex-basis:100%;font-family:var(--f-body);font-size:.9em;color:var(--dim);white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+/* markets: symbol, price, and a green / red move */
+ul.mkt li{align-items:baseline}
+ul.mkt li span:first-child{font-family:var(--f-mono);font-weight:600;letter-spacing:.04em}
+ul.mkt li .own{font-family:var(--f-body);font-weight:400;font-size:.7em;color:var(--cyan);border:1px solid var(--line-hi);padding:0 4px;margin-left:6px;vertical-align:2px}
+ul.mkt li .px{margin-left:auto;font-family:var(--f-mono);color:var(--ice);font-variant-numeric:tabular-nums}
+ul.mkt li span.chg{font-size:.9em;min-width:4.6em;text-align:right}
+.up{color:var(--ok)!important}.down{color:#ff6b6b!important}
 
 /* centre */
 .center{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:0;box-sizing:border-box;padding-block:36px}
-#reactor{width:min(780px,calc(100vw - 560px),72vh);aspect-ratio:1;display:block;cursor:pointer;border-radius:50%}
+#reactor{width:min(780px,calc(100vw - 2 * var(--side) - 80px),72vh);aspect-ratio:1;display:block;cursor:pointer;border-radius:50%}
 #reactor:focus-visible{outline:2px solid var(--cyan);outline-offset:6px}
 .mode{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .center::before{content:"";display:block;height:calc(5.5em + 4px);flex:none}
 .captions{width:min(760px,100%);min-height:5.5em;height:5.5em;overflow:hidden;text-align:center;display:flex;flex-direction:column;gap:6px;margin-top:4px}
 .captions p{margin:0;transition:opacity .4s}
-.cap-you{font-family:var(--f-mono);font-size:.9rem;color:var(--dim);letter-spacing:.04em}
+.cap-you{font-family:var(--f-mono);font-size:1.02rem;color:var(--dim);letter-spacing:.04em}
 .cap-you:not(:empty)::before{content:"› "}
 .cap-j{font-size:1.3rem;line-height:1.4;color:var(--cyan);text-shadow:0 0 calc(12px + var(--voice,0) * 22px) rgba(95,220,255,calc(.4 + var(--voice,0) * .5));text-wrap:balance}
-.cap-j.sys{color:var(--amber);font-family:var(--f-mono);font-size:.9rem;text-shadow:none}
+.cap-j.sys{color:var(--amber);font-family:var(--f-mono);font-size:1rem;text-shadow:none}
 .captions.fade p{opacity:0}
 
 /* controls */
@@ -162,10 +174,10 @@ html.mini #popBtn{display:none}
 ul.disp li{flex-direction:column;gap:2px;padding:6px 0;border-bottom:1px solid rgba(120,200,255,.12)}
 ul.disp li .row{display:flex;justify-content:space-between;gap:10px;min-width:0}
 ul.disp li .row span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-ul.disp li .row span:last-child{font-family:var(--f-mono);font-size:.82rem;color:var(--amber);white-space:nowrap}
-ul.disp li .sub{font-size:.82rem;color:var(--dim);white-space:normal}
+ul.disp li .row span:last-child{font-family:var(--f-mono);font-size:.95em;color:#ffc46b;white-space:nowrap}
+ul.disp li .sub{font-size:.9em;color:var(--dim);white-space:normal}
 ul.disp li.click{cursor:pointer}
-ul.disp li a{font-size:.8rem;color:var(--cyan)}
+ul.disp li a{font-size:.88em;color:var(--cyan)}
 ul.disp li.good .row span:first-child::before{content:"● ";color:#4ade80}
 ul.disp li.fair .row span:first-child::before{content:"● ";color:var(--amber)}
 ul.disp li.pass .row span:first-child::before{content:"● ";color:#f87171}
@@ -193,7 +205,7 @@ ul.disp li .tob{align-self:flex-start;font-size:.75rem;padding:1px 6px}
     </div>
     <div class="block" id="marketsBox" hidden>
       <h2>Markets</h2>
-      <ul class="list" id="marketsList"></ul>
+      <ul class="list mkt" id="marketsList"></ul>
     </div>
     <div class="block">
       <h2>Inbox <span id="inboxCount" class="count"></span></h2>
@@ -272,6 +284,14 @@ ul.disp li .tob{align-self:flex-start;font-size:.75rem;padding:1px 6px}
     <div class="mc"><span>Last problem</span><b id="mcErr">none</b></div>
     <button type="button" id="mcTest">Test microphone</button>
     <p class="note">If the level bar moves when you talk but "Last thing I heard" stays empty, your mic works and Chrome's speech recognition is the problem. If the bar doesn't move, Chrome is using the wrong microphone or none at all.</p>
+  </section>
+
+  <section>
+    <h3>Text size</h3>
+    <select id="textSize" aria-label="Size of the text on Jarvis's screen">
+      <option value="1">Normal</option><option value="1.2">Large</option><option value="1.4">Extra large</option>
+    </select>
+    <p class="note">For the schedule, markets, inbox and everything Jarvis puts on screen.</p>
   </section>
 
   <section>
@@ -423,7 +443,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.15";
+const VERSION = "2026.10.15.2";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -1502,10 +1522,20 @@ function fmtWhen(ev){
   const day = d.toDateString() === now.toDateString() ? "" : d.toDateString() === tmw.toDateString() ? "Tmrw " : d.toLocaleDateString([], {weekday:"short"}) + " ";
   return day + (ev.allDay ? "all day" : d.toLocaleTimeString([], {hour:"2-digit", minute:"2-digit", hour12:false}));
 }
+// "09:14" for today, "Tue" this week, otherwise "12 Oct"
+function mailTime(d){
+  const t = new Date(d); if(isNaN(t)) return "";
+  const now = new Date();
+  if(t.toDateString() === now.toDateString()) return t.toLocaleTimeString([], { hour:"2-digit", minute:"2-digit" });
+  return now - t < 6 * 864e5 ? t.toLocaleDateString([], { weekday:"short" }) : t.toLocaleDateString([], { day:"numeric", month:"short" });
+}
 function fillList(ul, rows, emptyText){
   ul.textContent = "";
   if(!rows.length){ const li = document.createElement("li"); li.className = "empty"; li.textContent = emptyText; ul.append(li); return; }
-  rows.forEach(([a, b]) => { const li = document.createElement("li"); const x = document.createElement("span"); x.textContent = a; const y = document.createElement("span"); y.textContent = b; li.append(x, y); ul.append(li); });
+  rows.forEach(([a, b, sub]) => {
+    const li = document.createElement("li"); const x = document.createElement("span"); x.textContent = a; const y = document.createElement("span"); y.textContent = b; li.append(x, y);
+    if(sub){ li.className = "two"; const z = document.createElement("span"); z.className = "sub"; z.textContent = sub; li.append(z); }
+    ul.append(li); });
 }
 const dash = { events:null, unread:null, refreshing:null };   // what the dashboard knows, for greetings and reminders
 function refreshGooglePanels(){ return dash.refreshing = refreshPanelsNow().finally(() => { dash.refreshing = null; checkReminders(); }); }
@@ -1513,13 +1543,13 @@ async function refreshPanelsNow(){
   const now = new Date(), end = new Date(now); end.setDate(now.getDate() + 2); end.setHours(23,59,59);
   try{
     const evs = await listEvents(now, end, 10); dash.events = evs;
-    fillList($("schedList"), evs.map(e => [clip(e.title, 34), fmtWhen(e)]), "Nothing scheduled for the next two days.");
+    fillList($("schedList"), evs.map(e => [e.title, fmtWhen(e)]), "Nothing scheduled for the next two days.");
   }catch(e){ fillList($("schedList"), [], e.message); }
   try{
     const r = await searchEmail("in:inbox is:unread", 4);
     $("inboxCount").textContent = r.estimate ? `${r.estimate}${r.estimate >= 201 ? "+" : ""} unread` : "0 unread";
     dash.unread = r.estimate || 0;
-    fillList($("inboxList"), r.items.map(m => [clip(m.subject || "(no subject)", 34), nameOf(m.from).split(" ")[0]]), "Inbox zero. Well done, sir.");
+    fillList($("inboxList"), r.items.map(m => [nameOf(m.from) || "(unknown sender)", mailTime(m.date), m.subject || "(no subject)"]), "Inbox zero. Well done, sir.");
   }catch(e){ fillList($("inboxList"), [], e.message); }
 }
 async function connectGoogle(){
@@ -1898,7 +1928,22 @@ let lastQuotes = {};
 function renderWatch(){
   const box = $("marketsBox"); if(!box) return;
   const w = watchlist(); box.hidden = !w.length || !(fhKey || w.some(x => isGold(x.symbol)));
-  fillList($("marketsList"), w.map(x => { const q = lastQuotes[x.symbol]; return [x.symbol + (x.above || x.below ? " 🔔" : ""), q && typeof q.price === "number" ? `${q.price.toFixed(2)} ${q.change_pct >= 0 ? "▲" : "▼"}${Math.abs(q.change_pct || 0).toFixed(1)}%` : "…"]; }), "");
+  const ul = $("marketsList"); ul.textContent = "";
+  const owned = [...w].sort((a, b) => (b.owned ? 1 : 0) - (a.owned ? 1 : 0));
+  for(const x of owned){
+    const q = lastQuotes[x.symbol], li = document.createElement("li");
+    const name = document.createElement("span"); name.textContent = isGold(x.symbol) ? "GOLD" : x.symbol; if(isGold(x.symbol)) li.title = "Gold, US$ per ounce";
+    if(x.above || x.below) name.textContent += " 🔔";
+    if(x.owned){ const o = document.createElement("b"); o.className = "own"; o.textContent = "OWN"; name.append(o); }
+    const px = document.createElement("span"); px.className = "px";
+    const chg = document.createElement("span"); chg.className = "chg";
+    if(q && typeof q.price === "number"){
+      px.textContent = q.price >= 1000 ? q.price.toLocaleString([], { maximumFractionDigits:0 }) : q.price.toFixed(2);
+      const c = Number(q.change_pct);
+      if(isFinite(c) && q.change_pct !== null){ chg.textContent = `${c >= 0 ? "▲" : "▼"} ${Math.abs(c).toFixed(1)}%`; chg.classList.add(c >= 0 ? "up" : "down"); }
+    } else px.textContent = "…";
+    li.append(name, px, chg); ul.append(li);
+  }
 }
 async function refreshMarkets(){
   const w = watchlist(); if(!w.length || !(fhKey || w.some(x => isGold(x.symbol))) || dormantNow()) { renderWatch(); return; }
@@ -3394,6 +3439,9 @@ renderMemories();
 const BRIEF = "Give me my briefing.";
 function runBriefing(){ greeted = true; store.set("jarvis.lastBrief", new Date().toDateString()); convo = false; ask(BRIEF, "Briefing"); }
 $("briefBtn").onclick = () => { openDrawer(false); runBriefing(); };
+const applyTextSize = v => { document.documentElement.style.setProperty("--ts", String(v)); $("textSize").value = String(v); };
+applyTextSize(store.get("jarvis.textSize", 1));
+$("textSize").onchange = e => { const v = Number(e.target.value) || 1; store.set("jarvis.textSize", v); applyTextSize(v); };
 renderMind();
 $("mindBtn").onclick = async () => {
   $("mindNote").textContent = "Reflecting…";

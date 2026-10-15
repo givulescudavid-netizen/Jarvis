@@ -1722,6 +1722,31 @@ console.log("Files Jarvis makes go to the Jarvis Library folder in Google Drive,
   await p.close();
 }
 
+console.log("Readable dashboard: bigger text, coloured market moves, who emailed you");
+{
+  const p = await open({ googleBefore:true, unread:1, script:[{ tool:"watchlist_show", input:{} }, { text:"Here, sir." }],
+    ls:{ "jarvis.fhKey":"k", "jarvis.watch":[{ symbol:"NFLX", fired:{} }, { symbol:"GOOGL", owned:true, fired:{} }] } }, undefined, HTTP_PAGE);
+  await p.evaluate(() => { window.__extraFetch = async (u, o, J) => {
+    if(u.includes("finnhub.io") && u.includes("/quote")) return J(u.includes("GOOGL") ? { c:343.65, d:-5, dp:-1.4 } : { c:71.02, d:0.56, dp:0.79 });
+    if(u.includes("gmail.googleapis.com") && u.includes("messages?")) return J({ messages:[{ id:"a" }], resultSizeEstimate:1 });
+    if(u.includes("gmail.googleapis.com") && /messages\/a/.test(u)) return J({ id:"a", snippet:"", labelIds:["UNREAD"], payload:{ headers:[{ name:"From", value:"Desjardins <alerts@desjardins.com>" }, { name:"Subject", value:"Payment due Friday" }, { name:"Date", value:new Date().toUTCString() }] } });
+    return null; }; });
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(600); await p.click("#closeBtn");
+  await say(p, "jarvis show my watchlist", 900);
+  const rows = await p.$$eval("#marketsList li", ls => ls.map(l => ({ t:l.textContent, up:!!l.querySelector(".up"), down:!!l.querySelector(".down") })));
+  check("markets: what you own first, with the move in green or red", /^GOOGL.*OWN.*343\.65.*▼ 1\.4%/.test(rows[0]?.t) && rows[0].down && /^NFLX.*71\.02.*▲ 0\.8%/.test(rows[1]?.t) && rows[1].up, JSON.stringify(rows));
+  const mail = await p.$eval("#inboxList li", l => ({ cls:l.className, who:l.children[0].textContent, what:l.querySelector(".sub")?.textContent }));
+  check("inbox: who it's from, with the subject underneath", mail.cls === "two" && mail.who === "Desjardins" && mail.what === "Payment due Friday", JSON.stringify(mail));
+  const size = async () => p.$eval("#schedList", el => parseFloat(getComputedStyle(el).fontSize));
+  const normal = await size();
+  check("dashboard text is bigger than before (at least 17px)", normal >= 17, normal);
+  await p.click("#gearBtn"); await p.selectOption("#textSize", "1.4"); await p.click("#closeBtn");
+  check("⚙ Text size makes it bigger still, and is remembered", await size() > normal * 1.3 && await p.evaluate(() => localStorage.getItem("jarvis.textSize")) === "1.4");
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 await browser.close(); server.close();
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
