@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026.10.15 — Jarvis really makes files now, and keeps them in your Jarvis Library
+- **Fixed:** asking Jarvis to make a template (or any file) got "it's downloading", but nothing came. Jarvis had no way to make files and was claiming it had.
+- **Now it makes real files:** "Jarvis, make me a monthly budget template", "write me a packing list", "make a checklist for viewing a duplex". Jarvis writes it and saves it in your **Jarvis Library** folder in Google Drive as:
+  - a **Google Sheet**, with working formulas, for tables and templates;
+  - a **Google Doc** for documents and lists;
+  - or a plain text file.
+
+  It asks "Shall I go ahead?" first, opens the new file for you, and creates the Jarvis Library folder the first time if you don't have one yet.
+- **Nothing goes to Downloads any more:** 3D models that can't go into barehands' folder are kept in the Jarvis Library too. Jarvis asks once the first time, and every change you make updates that copy.
+- Jarvis is told never to say it made, saved or downloaded a file unless it really did.
+
 ## 2026.10.14.7 — Your whole portfolio in the briefing, gold included
 - **Physical gold:** "Jarvis, I own physical gold" puts gold on your watchlist. Jarvis reads the spot price per ounce in US$ and C$, and the move since the day before. No market data key is needed for gold.
 - **Canadian and European holdings:** for stocks the free market data plan doesn't cover, like Canadian Net REIT (NET-UN.V) or Unibail-Rodamco-Westfield (URW.PA), the briefing now does one quick web search each (up to four) for news and what's coming up. It used to stop at two.
