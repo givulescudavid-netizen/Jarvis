@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026.10.15.2 — A dashboard you can read without squinting
+- **Bigger, brighter text:** the schedule, markets, inbox and everything Jarvis puts on screen are larger. The side panels are wider, and the grey secondary text is lighter.
+- **Markets at a glance:**
+  - your holdings come first, marked **OWN**;
+  - each one shows its price and the day's move in **green ▲ or red ▼**;
+  - gold shows its price per ounce.
+- **Inbox:** each email shows **who it's from** in bold, the time, and the subject underneath (up to two lines), instead of a cut-off subject and a first name.
+- **Text size:** ⚙ → Text size → Normal, Large or Extra large. Jarvis remembers your choice.
+
 ## 2026.10.15 — Jarvis really makes files now, and keeps them in your Jarvis Library
 - **Fixed:** asking Jarvis to make a template (or any file) got "it's downloading", but nothing came. Jarvis had no way to make files and was claiming it had.
 - **Now it makes real files:** "Jarvis, make me a monthly budget template", "write me a packing list", "make a checklist for viewing a duplex". Jarvis writes it and saves it in your **Jarvis Library** folder in Google Drive as:
