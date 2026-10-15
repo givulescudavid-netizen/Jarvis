@@ -423,7 +423,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.14.7";
+const VERSION = "2026.10.15";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -500,6 +500,7 @@ What you CAN do, using your tools (use them; don't say you can't when a tool fit
 - Deliveries from email (find_deliveries, then read_email): "where's my package", "what's arriving this week": say what's coming, from whom and when it's expected, newest status first, and anything delayed or needing action (customs fee, missed delivery). Never open tracking links unless the user asks. Google Calendar: read, create events with invites, and move or change an existing event's time, title or place (update_event, with the event's id from check_calendar; you can't delete events). Google Drive: search and read files.
 - Interactive Brokers (online version only): read the account summary and positions.
 - Learning and anticipating (reflect_now): you review past conversations (by yourself each time Jarvis opens, or now when asked) and keep habits to anticipate and lessons on doing better; they appear below when you have some. If asked what you've learned, say it briefly; "forget" removes a habit or lesson. Thinking harder: when the user says "think harder", "take your time" or "think it through", you automatically get much more thinking time for that question.
+- Files (save_file): when the user asks you to make, create or download a template, document, checklist, letter, plan, table or list, write it and save it with save_file as a Google Doc, Google Sheet (with formulas where useful) or text file in their "Jarvis Library" folder in Google Drive. You can't put files in the computer's Downloads folder. Never say you made, saved or downloaded a file unless a tool just did it and said so; if it failed, say so.
 - The Brain: a linked memory of people, companies, projects and topics (remember with things and links, recall, forget), kept in a "Jarvis Brain" Google Sheet once set up (brain_setup), plus the user's "Jarvis Library" Drive folder of documents you read and index (library_scan, library_index).
 - Reminders at a time or after a delay (set_reminder, list_reminders, cancel_reminder): you say them out loud when due, and if Jarvis was closed then, as soon as it's open again. Timers, a task list, web search (when available), the time.
 - Weather anywhere, now and for the next days (get_weather), and travel times between places by car, on foot or by bike (travel_time). Driving times don't include live traffic: say "usually about 25 minutes" and offer to open Google Maps for live traffic. If the user says "home", "the office" or a person's place and you don't know the address, ask once, then remember it.
@@ -648,7 +649,7 @@ async function brainSetup(viaClick){
   const sheet = await gsend(`${DRIVE}?fields=id`, "POST", { name:"Jarvis Brain", mimeType:"application/vnd.google-apps.spreadsheet", appProperties:{ jarvis:"brain" } });
   const names = Object.keys(TABS);
   await gsend(`${SHEETS}${sheet.id}:batchUpdate`, "POST", { requests:[ { updateSheetProperties:{ properties:{ sheetId:0, title:names[0] }, fields:"title" } }, ...names.slice(1).map(title => ({ addSheet:{ properties:{ title } } })) ] });
-  const folder = await gsend(`${DRIVE}?fields=id`, "POST", { name:"Jarvis Library", mimeType:"application/vnd.google-apps.folder", appProperties:{ jarvis:"library" } });
+  const folder = brainIds()?.folder ? { id:brainIds().folder } : await gsend(`${DRIVE}?fields=id`, "POST", { name:"Jarvis Library", mimeType:"application/vnd.google-apps.folder", appProperties:{ jarvis:"library" } });
   store.set("jarvis.brain", { sheet:sheet.id, folder:folder.id });
   rememberFile({ id:sheet.id, name:"Jarvis Brain", kind:"brain", created:Date.now() });
   await brainPush(); renderMemories();
@@ -2146,6 +2147,20 @@ async function saveModel(rec){
   const file = rec.slug + ".gltf", out = { name:rec.name, version:rec.version, parts:rec.parts.map(p => p.name || p.shape) };
   if(rec.driveId) out.drive = await driveUpdateModel(rec, text).then(() => "Google Drive copy updated", e => "Google Drive copy NOT updated: " + e.message);
   const dir = await barehandsFolder();
+  if((!dir || dir === "needs-click") && google.mode === "oauth" && google.token && !rec.driveId){
+    // no barehands folder: keep it in the Jarvis Library in Google Drive rather than downloading it (asked once)
+    const ok = store.get("jarvis.libSave3d", false) || await confirmAction(`I can't reach the barehands folder, so shall I keep "${rec.name}" and future 3D models in your Jarvis Library folder in Google Drive instead of downloading them?`);
+    if(ok){
+      store.set("jarvis.libSave3d", true);
+      const j = await driveUpload("POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink", { name:file, parents:[await libraryFolderId()], mimeType:"model/gltf+json", appProperties:{ jarvis:"3d" } }, text);
+      rememberFile({ id:j.id, name:rec.name + " (3D)", kind:"3d", created:Date.now() });
+      all[rec.slug] = { ...rec, driveId:j.id }; store.set("jarvis.models", all);
+      return { ...out, saved:false, drive:"saved in Google Drive → Jarvis Library", link:j.webViewLink,
+        note:`Saved as ${file} in the user's Jarvis Library folder in Google Drive (not downloaded); every change updates it. To see it on the board, they can put it in barehands/media/${rec.sub}/, or once open settings → barehands board → "Choose barehands' media folder".` };
+    }
+  }
+  if((!dir || dir === "needs-click") && rec.driveId && /updated$/.test(out.drive || ""))
+    return { ...out, saved:false, note:"Updated in the user's Google Drive (not downloaded). To see it on the board, they can choose barehands' media folder once in settings → barehands board." };
   if(!dir || dir === "needs-click"){
     const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([text], { type:"model/gltf+json" })); a.download = file; document.body.append(a); a.click(); a.remove();
     return { ...out, saved:false, downloaded:file,
@@ -2193,9 +2208,9 @@ async function edit3d({name, add, remove, change, hologram}){
   return { ...r, added:added.map(p => p.name || p.shape), removed, changed:[...new Set(changed)] };
 }
 // Google Drive copy (website version): created once with the user's OK, then kept up to date after every change.
-async function driveUpload(method, url, meta, text){
+async function driveUpload(method, url, meta, text, type = "model/gltf+json"){
   const tok = await oauthToken(false), b = "jarvis" + Date.now();
-  const body = `--${b}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\ncontent-type: model/gltf+json\r\n\r\n${text}\r\n--${b}--`;
+  const body = `--${b}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\ncontent-type: ${type}; charset=UTF-8\r\n\r\n${text}\r\n--${b}--`;
   const r = await fetch(url, { method, headers:{ Authorization:"Bearer " + tok, "content-type":`multipart/related; boundary=${b}` }, body });
   if(r.status === 401){ google.token = null; throw new Error("Google session expired. Ask the user to click Connect Google."); }
   const j = await r.json().catch(() => ({}));
@@ -2205,6 +2220,47 @@ async function driveUpload(method, url, meta, text){
 function driveUpdateModel(rec, text){
   if(!myFiles().some(f => f.id === rec.driveId)) throw new Error("that Drive file wasn't made by Jarvis");
   return driveUpload("PATCH", `https://www.googleapis.com/upload/drive/v3/files/${encodeURIComponent(rec.driveId)}?uploadType=multipart`, { name:rec.slug + ".gltf" }, text);
+}
+/* Files Jarvis makes (templates, documents, tables…) go to the user's "Jarvis Library" folder in Google Drive, never to Downloads */
+async function libraryFolderId(){
+  const b = brainIds() || {};
+  if(b.folder) return b.folder;
+  let id = "";
+  if(google.mode === "mcp"){
+    const p = await mcpCall("Google Drive", "search_files", { query:"title = 'Jarvis Library' and mimeType = 'application/vnd.google-apps.folder' and trashed = false", pageSize:1, excludeContentSnippets:true });
+    id = (p.files || p.items || [])[0]?.id || "";
+    if(!id) id = (await mcpCall("Google Drive", "create_file", { title:"Jarvis Library", contentMimeType:"application/vnd.google-apps.folder" }).catch(() => ({}))).id || "";
+  } else {
+    id = (await findMine("library"))?.id || (await gsend(`${DRIVE}?fields=id`, "POST", { name:"Jarvis Library", mimeType:"application/vnd.google-apps.folder", appProperties:{ jarvis:"library" } })).id;
+  }
+  if(id){ store.set("jarvis.brain", { ...b, folder:id }); renderMemories(); }
+  return id;
+}
+const FILE_KINDS = { doc:["a Google Doc", "application/vnd.google-apps.document", "text/plain"], sheet:["a Google Sheet", "application/vnd.google-apps.spreadsheet", "text/csv"], text:["a text file", "", "text/plain"] };
+async function saveFile({name, kind, text, rows}){
+  if(!google.mode) throw new Error("Saving files needs Google Drive: ask the user to connect Google in settings.");
+  const k = FILE_KINDS[kind] ? kind : Array.isArray(rows) ? "sheet" : "doc", [what, gtype, ctype] = FILE_KINDS[k];
+  const title = String(name || "Jarvis file").trim().slice(0, 120);
+  const csv = r => (Array.isArray(r) ? r : []).map(row => (Array.isArray(row) ? row : [row]).map(c => { const v = String(c ?? ""); return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v; }).join(",")).join("\n");
+  const body = k === "sheet" ? (Array.isArray(rows) && rows.length ? csv(rows) : String(text || "")) : String(text || "");
+  if(!body.trim()) throw new Error("Nothing to save: give the file's content (text, or rows for a sheet).");
+  if(!(await confirmAction(`Save "${title}" as ${what} in your Jarvis Library folder in Google Drive?`))) return "The user declined. Nothing was saved.";
+  const folder = await libraryFolderId();
+  let id, link;
+  if(google.mode === "mcp"){
+    const input = { title, textContent:body, contentMimeType:ctype };
+    if(folder) input.parentId = folder; if(k === "text") input.disableConversionToGoogleType = true;
+    const f = await mcpCall("Google Drive", "create_file", input); id = f.id; link = f.webViewLink || f.viewUrl || "";
+  } else {
+    const meta = { name:title, parents:[folder], appProperties:{ jarvis:"made" } }; if(gtype) meta.mimeType = gtype;
+    const f = await driveUpload("POST", "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,webViewLink,modifiedTime", meta, body, ctype);
+    id = f.id; link = f.webViewLink;
+    // index it straight away, so Jarvis doesn't go back and re-read its own file as "new in the Library"
+    const lib = library().filter(x => x.id !== id); lib.push({ id, name:title, summary:`Made by Jarvis: ${what}.`, things:[], modified:f.modifiedTime || "" }); store.set("jarvis.library", lib.slice(-300)); brainChanged();
+  }
+  if(id) rememberFile({ id, name:title, kind:k, created:Date.now() });
+  if(link) openExternal(link, "Open " + title);
+  return { saved:true, where:"Google Drive → Jarvis Library" + (folder ? "" : " (couldn't find the folder, so it's in My Drive)"), link, note:"It's in Google Drive, not the computer's Downloads folder. Say where it is in one sentence." };
 }
 async function save3dToDrive({name}){
   if(google.mode !== "oauth") throw new Error("Saving 3D models to Google Drive works in the website version of Jarvis with Google connected.");
@@ -2283,6 +2339,9 @@ const tools = [
       remove:{type:"array",items:{type:"string"},description:"part names (or words in them) to remove"},
       change:{type:"array",items:{type:"object",properties:{name:{type:"string",description:"which part(s): a name or words in it"},shape:{type:"string"},size:{type:"array",items:{type:"number"}},position:{type:"array",items:{type:"number"}},rotation:{type:"array",items:{type:"number"}},color:{type:"string"},metal:{type:"number"}},required:["name"]}}}},
     execute: input => edit3d(input) },
+  { name:"save_file", description:"Makes a new file in the user's Jarvis Library folder in Google Drive (the user is asked to confirm first): a template, document, checklist, letter, plan, table or list. kind 'doc' (Google Doc: pass text), 'sheet' (Google Sheet: pass rows, an array of rows, formulas like '=SUM(B2:B9)' work) or 'text' (plain text file). This is how you 'download' or 'make' anything: nothing goes to the computer's Downloads folder.",
+    inputSchema:{type:"object",properties:{name:{type:"string",description:"File name"},kind:{type:"string",enum:["doc","sheet","text"]},text:{type:"string",description:"The content, for a doc or text file"},rows:{type:"array",items:{type:"array",items:{type:"string"}},description:"For a sheet: rows of cells, the first row as headers"}},required:["name","kind"]},
+    execute: input => saveFile(input) },
   { name:"save_3d_to_drive", description:"Keeps a copy of a 3D model in the user's Google Drive (folder 'Jarvis 3D'), asking them to confirm first. After that, every edit updates the Drive copy automatically.",
     inputSchema:{type:"object",properties:{name:{type:"string",description:"model name; default the last one"}}},
     execute: input => save3dToDrive(input) },

@@ -1236,7 +1236,7 @@ console.log("3D models on the barehands board: build, change live, keep in Drive
   check("reminders and alerts also land on the board as cards (when switched on)", (await p.evaluate(() => window.__board)).some(c => c.a === "add_card" && c.title === "J.A.R.V.I.S. alert" && /a reminder: call the bank/.test(c.body)));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
-  // No folder chosen yet: the model is downloaded and Jarvis explains where to put it
+  // No folder chosen yet and Google not connected: the model is downloaded and Jarvis explains where to put it
   const q = await open({ ls:{ "jarvis.board": true }, script:[ { tool:"build_3d_model", input:{ name:"Helmet", parts:parts.slice(0, 3) } }, { text:"Downloaded, sir." } ] }, undefined, HTTP_PAGE);
   await q.click("#bootBtn"); await settle(q);
   const dl = q.waitForEvent("download", { timeout:5000 }).catch(() => null);
@@ -1681,6 +1681,43 @@ console.log("What matters: money emails, Centris, and the stocks you own and wat
   check("gold: price per ounce in US$ and C$, and the move since the previous day", g?.price_usd === 2650 && g.price_cad === 3630.5 && g.change_pct_since_previous_day === 1.92 && g.owned, JSON.stringify(g));
   check("a holding without data is flagged for a web search", n?.owned && /no market data key/.test(n.no_data), JSON.stringify(n));
   check("Jarvis may search for each owned holding without data (up to four)", /one web search each \(at most four\)/.test(L[0].system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Files Jarvis makes go to the Jarvis Library folder in Google Drive, never to Downloads");
+{
+  const p = await open({ googleBefore:true, script:[
+      { tool:"save_file", input:{ name:"Monthly budget template", kind:"sheet", rows:[["Item", "Budget", "Actual"], ["Rent", "1500", ""], ["Total", "=SUM(B2:B2)", "=SUM(C2:C2)"]] } }, { text:"It's in your Jarvis Library, sir." },
+      { tool:"save_file", input:{ name:"Packing list", kind:"doc", text:"Passport\nCharger" } }, { text:"Nothing saved, sir." },
+      { tool:"build_3d_model", input:{ name:"Arc reactor", parts:[{ name:"ring", shape:"cylinder", size:[2, 0.3, 2], position:[0, 0, 0], color:"#9cf" }, { name:"core", shape:"sphere", size:[0.8, 0.8, 0.8], position:[0, 0, 0], color:"#fff" }] } }, { text:"In your Jarvis Library, sir." } ],
+    ls:{ "jarvis.board": true } }, undefined, HTTP_PAGE);
+  await p.evaluate(() => { window.__up = []; window.__folders = 0; window.__extraFetch = async (u, o, J) => {
+    if(u.includes("googleapis.com/drive/v3/files?") && /appProperties/.test(decodeURIComponent(u))) return J({ files:[] });   // no Library folder yet
+    if(u.includes("googleapis.com/drive/v3/files?fields=id") && o?.method === "POST"){ window.__folders++; return J({ id:"LIB1" }); }
+    if(u.includes("googleapis.com/upload/drive/v3/files")){ const b = String(o.body); const meta = JSON.parse(b.split("\r\n\r\n")[1].split("\r\n--")[0]); window.__up.push({ meta, media:b.split("\r\n\r\n")[2].split("\r\n--")[0], type:(b.match(/content-type: (\S+); charset=UTF-8\r\n\r\n(?!\{)/) || [])[1] });
+      return J({ id:"F" + window.__up.length, webViewLink:"https://docs.google.com/x/F" + window.__up.length, modifiedTime:"2026-10-15T10:00:00Z" }); }
+    return null; }; });
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(400); await p.click("#closeBtn");
+  await say(p, "jarvis make me a monthly budget template", 900);
+  check("making a file asks first, naming the Jarvis Library folder", await p.locator("#confirmBox").isVisible() && /Monthly budget template.+Google Sheet.+Jarvis Library folder in Google Drive/.test(await p.locator("#confirmText").textContent()));
+  await p.click("#confirmYes"); await settle(p, 900);
+  const up = (await p.evaluate(() => window.__up))[0];
+  check("…then creates it as a Google Sheet inside the Jarvis Library (creating the folder once)", up && up.meta.parents[0] === "LIB1" && up.meta.mimeType === "application/vnd.google-apps.spreadsheet" && up.type === "text/csv" && /^Item,Budget,Actual\nRent,1500,\nTotal,=SUM\(B2:B2\),=SUM\(C2:C2\)$/.test(up.media) && await p.evaluate(() => window.__folders) === 1, JSON.stringify(up));
+  const res = JSON.stringify((await log(p)).filter(x => x.last).at(-1).last.content);
+  check("…and tells Jarvis it's in Google Drive, not Downloads, with a link to open it", /Jarvis Library/.test(res) && /not the computer's Downloads/.test(res) && (await p.evaluate(() => window.__opened)).some(u => /docs\.google\.com\/x\/F1/.test(u)), res.slice(0, 300));
+  check("…and knows it made it (no re-reading it as a new Library file)", await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.library")).some(f => f.id === "F1" && f.modified)));
+  await say(p, "jarvis make a packing list", 900); await say(p, "no", 900);
+  check("'no' saves nothing", (await p.evaluate(() => window.__up)).length === 1);
+  const dl = p.waitForEvent("download", { timeout:4000 }).catch(() => null);
+  await say(p, "jarvis build an arc reactor in 3d", 900);
+  check("3D model with no barehands folder: asks once to keep it in the Jarvis Library instead", /Jarvis Library folder in Google Drive instead of downloading/.test(await p.locator("#confirmText").textContent()));
+  await p.click("#confirmYes"); await settle(p, 900);
+  const up3 = (await p.evaluate(() => window.__up)).at(-1);
+  check("…then saves it there, and nothing is downloaded", up3?.meta.name === "arc-reactor.gltf" && up3.meta.parents[0] === "LIB1" && !(await dl), JSON.stringify(up3?.meta));
+  const L = await log(p);
+  check("Jarvis is told never to claim a download a tool didn't make", L[0].tools.includes("save_file") && /Never say you made, saved or downloaded a file unless a tool just did it/.test(L[0].system));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
