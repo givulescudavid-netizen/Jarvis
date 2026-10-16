@@ -1811,6 +1811,69 @@ console.log("The agent team: Jarvis reads what they found and passes on your ord
   await p.close();
 }
 
+console.log("Computer helper: bookings done in your own Chrome, with your yes before the final click");
+{
+  const book = { tool:"book_restaurant", input:{ restaurant:"Joe Beef", city:"Montreal", date:"Friday 17 October 2026", time:"8:00 PM", party_size:2, earliest_time:"7:30 PM", latest_time:"9:00 PM", name:"David" } };
+  const p = await open({ script:[book, { text:"On it, sir." }, book, { text:"On it, sir." }, book, { text:"Here are the instructions, sir." }], ls:{ "jarvis.helperCode":"pair123" } }, undefined, HTTP_PAGE);
+  await p.evaluate(() => { window.__h = { jobs:[], answers:[], state:"running", n:0, up:true }; window.__extraFetch = async (u, o, J) => {
+    if(!u.startsWith("http://localhost:8766")) return null;
+    const h = window.__h; if(!h.up) throw new TypeError("Failed to fetch");
+    if((o?.headers || {})["x-jarvis-token"] !== "pair123") return J({ error:"Wrong or missing pairing code." }, 401);
+    if(u.endsWith("/status")) return J({ ok:true, claude:true, busy:false });
+    if(u.endsWith("/task") && o.method === "POST"){ h.jobs.push(JSON.parse(o.body)); h.n++; h.state = "running"; setTimeout(() => { h.state = "ready"; }, 300); return J({ id:"J" + h.n, state:"running" }); }
+    if(u.includes("/task?id=")) return J(h.state === "ready" ? { state:"ready", message:"Joe Beef, Fri 17 Oct 8:15 pm, 2 people, name David" }
+      : h.state === "done" ? { state:"done", message:"Booked Joe Beef, Fri 17 Oct 8:15 pm, 2 people, confirmation AB12" }
+      : h.state === "cancelled" ? { state:"failed", message:"Cancelled by the owner." } : { state:"running" });
+    if(u.endsWith("/task/answer")){ const a = JSON.parse(o.body); h.answers.push(a); h.state = "running"; setTimeout(() => { h.state = a.yes ? "done" : "cancelled"; }, 300); return J({ state:"running" }); }
+    return J({ error:"?" }, 404); }; });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis book joe beef for two friday at 8", 900);
+  const job = (await p.evaluate(() => window.__h.jobs))[0];
+  check("with the helper running, the booking goes to it (no copy-paste box)", job?.kind === "book" && /Joe Beef in Montreal for 2 people on Friday 17 October 2026 at 8:00 PM/.test(job.instructions) && /between 7:30 PM and 9:00 PM/.test(job.instructions) && await p.locator("#handoffBox").isHidden(), JSON.stringify(job));
+  check("…and the job never says to book without asking (the helper itself stops before the final click)", !/without asking me[^;]*final/i.test(job.instructions) && !/show me the full details and wait/.test(job.instructions));
+  await p.waitForFunction(() => !document.getElementById("confirmBox").hidden, null, { timeout:12000 }).catch(() => {});
+  check("when everything is filled in, Jarvis reads the details and asks before the final click", await p.locator("#confirmBox").isVisible() && /Ready to book: Joe Beef, Fri 17 Oct 8:15 pm, 2 people/.test(await p.locator("#confirmText").textContent()));
+  check("…and nothing is booked yet", !(await p.evaluate(() => window.__h.answers.length)));
+  await p.click("#confirmYes");
+  await p.waitForFunction(() => window.__spoken.some(t => /it's booked: Booked Joe Beef.*AB12/.test(t)), null, { timeout:15000 }).catch(() => {});
+  check("your yes books it, and Jarvis tells you the confirmation", (await p.evaluate(() => window.__h.answers))[0]?.yes === true && (await p.evaluate(() => window.__spoken)).some(t => /it's booked: Booked Joe Beef.*AB12/.test(t)), (await p.evaluate(() => window.__spoken)).slice(-3).join(" | "));
+  await settle(p);
+  await say(p, "jarvis book joe beef again", 900);
+  await p.waitForFunction(() => !document.getElementById("confirmBox").hidden, null, { timeout:12000 }).catch(() => {});
+  await p.click("#confirmNo");
+  await p.waitForFunction(() => window.__spoken.some(t => /Booking cancelled, sir. Nothing was booked/.test(t)), null, { timeout:15000 }).catch(() => {});
+  check("'no' cancels: nothing is booked", (await p.evaluate(() => window.__h.answers))[1]?.yes === false && (await p.evaluate(() => window.__spoken)).some(t => /Nothing was booked/.test(t)));
+  await settle(p);
+  await p.evaluate(() => { window.__h.up = false; });
+  await say(p, "jarvis book joe beef", 900);
+  const res = JSON.stringify((await log(p)).filter(x => x.last).at(-1).last.content);
+  check("helper not running: falls back to copy-and-paste, and says why", await p.locator("#handoffBox").isVisible() && /not running on the computer/.test(res), res.slice(0, 300));
+  check("Jarvis is told the helper asks before the final click", /only the user's yes books it/.test((await log(p))[0].system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+{
+  // ⚙ Computer helper: pair with the code and test it
+  const p = await open({}, undefined, HTTP_PAGE);
+  await p.evaluate(() => { window.__h = { answers:[] }; window.__extraFetch = async (u, o, J) => {
+    if(!u.startsWith("http://localhost:8766")) return null;
+    if((o?.headers || {})["x-jarvis-token"] !== "pair123") return J({ error:"Wrong or missing pairing code." }, 401);
+    if(u.endsWith("/status")) return J({ ok:true, claude:true, busy:false });
+    if(u.endsWith("/task") && o.method === "POST"){ window.__h.kind = JSON.parse(o.body).kind; return J({ id:"T1", state:"running" }); }
+    if(u.includes("/task?id=")) return J({ state:"ready", message:"Example Domain" });
+    if(u.endsWith("/task/answer")){ window.__h.answers.push(JSON.parse(o.body)); return J({ state:"running" }); }
+    return null; }; });
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn");
+  await p.fill("#helperCode", "wrong"); await p.click("#helperForm button[type=submit]"); await p.waitForTimeout(500);
+  check("a wrong pairing code is reported", /pairing code is wrong/.test(await p.locator("#helperStatus").textContent()));
+  await p.fill("#helperCode", " pair123 "); await p.click("#helperForm button[type=submit]");
+  await p.waitForFunction(() => /Working ✓/.test(document.getElementById("helperStatus").textContent), null, { timeout:8000 }).catch(() => {});
+  check("the right code is saved and the test shows it working (and books nothing)", /Working ✓ Claude read "Example Domain"/.test(await p.locator("#helperStatus").textContent()) && await p.evaluate(() => localStorage.getItem("jarvis.helperCode")) === '"pair123"' && await p.evaluate(() => window.__h.kind === "test" && window.__h.answers[0]?.yes === false), await p.locator("#helperStatus").textContent());
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 await browser.close(); server.close();
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

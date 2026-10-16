@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.10.16.2 — Bookings done for you, with one "yes"
+- **No more copy-paste:** with the new **computer helper** running on your Windows computer, "Jarvis, book me a table at Joe Beef Friday at 8" is done in your own Chrome. Claude (through the Claude in Chrome extension) finds the booking page, picks the best time in your window and fills in your details.
+- **You stay in charge:** it stops right before the final "Reserve" button. Jarvis reads the details out ("Ready to book: Joe Beef, Friday 8:15, two people. Shall I go ahead?"). Only your yes books it; no cancels. Then Jarvis tells you the confirmation.
+- **It never pays:** if a restaurant wants a card, a deposit or a no-show fee, it stops and Jarvis tells you to finish that one yourself. Same for "are you a robot?" checks and sign-ins.
+- **Setup:** once, about 10 minutes: install Claude Code, start "Start Jarvis helper (Windows)", paste its pairing code in ⚙ → Computer helper. Steps in local/HELPER.md.
+- If the helper isn't running, Jarvis falls back to the copy-and-paste way and says so.
+
 ## 2026.10.16 — Jarvis talks to your agent team
 - **"Jarvis, what did the agents find?"** Jarvis reads tonight's Brief from your agent team (the Jarvis HQ folder in Google Drive): the top 3 first, then details if you ask. You can also ask for one report: "what did the Deal Scout find?", "what did the analyst say?", "what's on the team's task list?"
 - **The evening briefing includes it:** the first time you open Jarvis after the team has run, the briefing starts with "Your team reports…" and its top 3.

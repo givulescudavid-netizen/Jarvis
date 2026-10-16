@@ -365,6 +365,17 @@ ul.disp li .tob{align-self:flex-start;font-size:.75rem;padding:1px 6px}
   </section>
 
   <section>
+    <h3>Computer helper (bookings done for you)</h3>
+    <p class="note">On your Windows computer, start "Start Jarvis helper (Windows)" from Jarvis's local folder (setup: local/HELPER.md). It shows a pairing code: paste it here once. Then "book me a table" is done in your own Chrome, and Jarvis asks you before the final click.</p>
+    <form id="helperForm">
+      <input type="text" id="helperCode" placeholder="paste the pairing code" autocomplete="off" spellcheck="false" style="-webkit-text-security:disc">
+      <button type="submit">Save</button>
+    </form>
+    <button type="button" id="helperTest">Test the helper</button>
+    <p class="note" id="helperStatus"></p>
+  </section>
+
+  <section>
     <h3>barehands board</h3>
     <label class="check"><input type="checkbox" id="boardOn"> Put things on my barehands board when I ask to see them</label>
     <label class="check"><input type="checkbox" id="boardAlerts"> Also put my reminders and alerts on the board as cards</label>
@@ -443,7 +454,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.16";
+const VERSION = "2026.10.16.2";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -505,13 +516,13 @@ How you speak (this matters most):
 
 What you CAN do, using your tools (use them; don't say you can't when a tool fits):
 - Finance: build DCFs with the user in their own Google Sheets template (dcf_*), live prices, company metrics, news and earnings (market_quotes, company_metrics, market_news, earnings_info; needs their Finnhub key), comps tables as a Google Sheet (build_comps), and a watchlist with spoken price alerts (watchlist_*). When the user says they own a stock (or bought one), add it with watchlist_add owned: true; the briefing (whats_important) covers the stocks they own first, then the ones they watch, with news, moves and results dates. Web search for filings and analyst context. Never present anything as investment advice; give numbers and reasoning, and the user decides.
-- Restaurant bookings (book_restaurant): the user's Claude in Chrome extension does the actual booking; you can't see or talk to it, so your job is to gather EVERYTHING it will need first, by voice, so it never has to stop and ask. Run a short interview, asking at most two questions per turn and only what you don't already know (from the request, "About you" or memory):
+- Restaurant bookings (book_restaurant): Claude in Chrome (in the user's own Chrome) does the actual booking, either by itself through the computer helper (it fills everything in and stops before the final button; Jarvis then reads the details out and asks "Shall I go ahead?", and only the user's yes books it) or, without the helper, from instructions the user pastes. Either way you can't see the site, so gather EVERYTHING it will need first, by voice, so it never has to stop and ask. Run a short interview, asking at most two questions per turn and only what you don't already know (from the request, "About you" or memory):
   1) which restaurant and which city/branch if there could be more than one; 2) day and time (turn "Friday" into the real date); 3) number of people;
   4) flexibility: "If that time isn't free, what's the earliest and latest you'd accept?" (and whether another day is OK);
   5) anything special: seating, occasion, allergies (one question, "anything else I should mention?");
   6) deposits/card holds: "If they ask for a deposit, should Claude in Chrome ask you, or skip it?";
   7) name, phone and email if not already known, then offer to remember them (use remember) so you never ask again.
-  Keep it brisk and in character. Once you have the essentials (restaurant, date, time, party size), call book_restaurant with everything. Then explain what happens next in two or three spoken sentences: the booking search is open; copy the instructions, click the Claude icon in Chrome and paste; Claude in Chrome will find the booking page, pick the closest time in their window, fill in their details, and show everything for a final OK before booking. If the user later says Claude in Chrome is asking something, help them answer from the booking details. You do not click or type on websites yourself.
+  Keep it brisk and in character. Once you have the essentials (restaurant, date, time, party size), call book_restaurant with everything, then follow its note: with the helper, just say you're on it and will check before confirming; without it, explain in two or three spoken sentences: the booking search is open; copy the instructions, click the Claude icon in Chrome and paste; Claude in Chrome will find the booking page, pick the closest time in their window, fill in their details, and show everything for a final OK before booking. If the user later says Claude in Chrome is asking something, help them answer from the booking details. You do not click or type on websites yourself.
 - Open any website in a new tab (open_website). You can't launch desktop apps, but most apps have a web version: open that instead (Spotify: open.spotify.com, WhatsApp: web.whatsapp.com, Apple Music: music.apple.com, YouTube, Netflix, Gmail, Google Maps, news sites, banks, anything).
 - Play music on Apple Music (play_music): songs, albums, artists, or something that fits a mood.
 - Your screen (show_on_screen): when the user asks to SEE something ("put my emails up", "show me the listings"), put it in the panel on the right of the HUD and say one sentence about it instead of reading it all. For emails, include each email_id so they can click one to read it on screen. When they ask you to read emails out loud, read sender, subject and the gist, a few at a time, and put the list on screen too.
@@ -2101,7 +2112,7 @@ async function playMusic({query, type}){
 }
 /* Restaurant bookings: Jarvis prepares everything, Claude in Chrome (Anthropic's extension) does the clicking.
    Jarvis never operates the booking website itself. */
-function prepareBooking({restaurant, city, date, time, party_size, name, phone, email, notes, earliest_time, latest_time, other_days_ok, seating, occasion, dietary, deposit}){
+function bookingText({restaurant, city, date, time, party_size, name, phone, email, notes, earliest_time, latest_time, other_days_ok, seating, occasion, dietary, deposit}, forHelper){
   const r = String(restaurant || "").trim();
   if(!r) throw new Error("Which restaurant? Ask the user.");
   const when = [date, time].filter(Boolean).join(" at ");
@@ -2115,10 +2126,14 @@ function prepareBooking({restaurant, city, date, time, party_size, name, phone, 
     (earliest_time || latest_time)
       ? `If ${time || "that time"} isn't available, pick the available time closest to it between ${earliest_time || time || "any time"} and ${latest_time || time || "any time"} without asking me${other_days_ok ? `; if nothing fits that day, other days are OK (${other_days_ok})` : ""}. If nothing in that window is free, show me the nearest options and wait.`
       : `If that exact time isn't available, show me the nearest available times and wait for me to choose.`,
-    `Before the final "Book"/"Reserve"/"Confirm" click, show me the full details and wait for my OK.`,
-    /skip|no|never/i.test(String(deposit || "")) ? `If the booking needs a deposit or a card to hold the table, don't book; tell me and suggest alternatives.`
+    forHelper ? "" : `Before the final "Book"/"Reserve"/"Confirm" click, show me the full details and wait for my OK.`,
+    forHelper ? "" : /skip|no|never/i.test(String(deposit || "")) ? `If the booking needs a deposit or a card to hold the table, don't book; tell me and suggest alternatives.`
       : `If the booking needs a deposit or a card to hold the table, stop and ask me. Never type card details yourself; I'll enter them.`
   ].filter(Boolean).join("\n");
+  return { r, text };
+}
+function prepareBooking(input){
+  const { r, text } = bookingText(input, false), { city, earliest_time, latest_time } = input;
   const search = "https://www.google.com/search?q=" + encodeURIComponent(`${r} ${city || ""} reservations`.replace(/\s+/g, " ").trim());
   $("handoffText").value = text; $("handoffOpen").href = search; $("handoffNote").textContent = "";
   $("handoffBox").hidden = false;
@@ -2132,6 +2147,79 @@ $("handoffCopy").onclick = async () => {
   catch{ $("handoffText").select(); $("handoffNote").textContent = "Press Ctrl+C (Mac: Cmd+C) to copy the selected text."; }
 };
 $("handoffClose").onclick = () => { $("handoffBox").hidden = true; };
+
+/* The computer helper (local/jarvis-helper.ps1, started with "Start Jarvis helper (Windows).bat"): Claude Code on the user's
+   computer does the clicking in their own Chrome (Claude in Chrome). It fills everything in and STOPS before the final
+   "Book" button; only the user's yes here (spoken or clicked) lets it finish. It answers only Jarvis, with the pairing code. */
+const HELPER = "http://localhost:8766";
+const helperCode = () => store.get("jarvis.helperCode", "");
+async function helperFetch(path, body){
+  const r = await fetch(HELPER + path, { method: body ? "POST" : "GET", body: body ? JSON.stringify(body) : undefined,
+    headers:{ "x-jarvis-token":helperCode(), ...(body ? { "content-type":"application/json" } : {}) }, signal:AbortSignal.timeout(5000) });
+  const j = await r.json().catch(() => ({}));
+  if(!r.ok) throw new Error(j.error || "the helper answered " + r.status);
+  return j;
+}
+// true when a job can start now; otherwise a reason
+async function helperAvailable(){
+  if(!helperCode()) return "not set up";
+  try{ const s = await helperFetch("/status"); return !s.claude ? "Claude Code isn't installed on the computer" : s.busy ? "busy with another job" : true; }
+  catch(e){ return /pairing code/i.test(e.message) ? "the pairing code is wrong" : "not running on the computer"; }
+}
+let helperJob = null;
+function watchHelperJob(id, onEnd){
+  helperJob = { id };
+  const tick = async () => {
+    if(helperJob?.id !== id) return;
+    let j; try{ j = await helperFetch("/task?id=" + encodeURIComponent(id)); }catch(e){ logDiag("helper", e.message); setTimeout(tick, 15000); return; }
+    if(j.state === "running"){ setTimeout(tick, 5000); return; }
+    if(j.state === "ready"){
+      if(onEnd.ready){ onEnd.ready(j); return; }
+      if(mode !== "idle" || pendingConfirm || !greeted || dormantNow()){ setTimeout(tick, 3000); return; }
+      const ok = await confirmAction(`Ready to book: ${j.message}.`, "Everything is filled in on the booking site in your Chrome, stopped just before the final button. Nothing is booked until you say yes.");
+      setMode("idle"); resumeWake();
+      try{ await helperFetch("/task/answer", { id, yes:ok }); }catch(e){ logDiag("helper", "answer failed: " + e.message); }
+      setTimeout(tick, 4000); return;
+    }
+    helperJob = null; logDiag("helper", `${j.state}: ${clip(j.message, 120)}`); onEnd.end(j);
+  };
+  setTimeout(tick, 3000);
+}
+async function helperBook(input){
+  const { r, text } = bookingText(input, true);
+  const job = await helperFetch("/task", { kind:"book", summary:`${r}, ${[input.date, input.time].filter(Boolean).join(" ")}`, instructions:text });
+  store.set("jarvis.bookedBefore", true);
+  watchHelperJob(job.id, { end: j => pendingAlerts.push(
+    j.state === "done" ? `Sir, it's booked: ${j.message}.`
+    : j.state === "needs_you" ? `Sir, the booking needs you: ${j.message}.`
+    : /cancelled by the owner|didn't answer/i.test(j.message) ? "Booking cancelled, sir. Nothing was booked."
+    : `Sir, the booking didn't go through: ${j.message}.`) });
+  return { started:true, via:"computer helper",
+    note:"Claude is now doing the booking in the user's own Chrome on their computer. Say in one short sentence that you're on it and will ask before the final booking (e.g. \"On it, sir; I'll check with you before I confirm.\"). Don't ask anything else and don't give instructions." };
+}
+async function bookRestaurant(input){
+  const h = await helperAvailable();
+  if(h === true) return helperBook(input);
+  const out = prepareBooking(input);
+  if(h !== "not set up") out.note = `The computer helper is ${h}, so this time it's the copy-and-paste way. Mention that briefly. ` + out.note;
+  return out;
+}
+$("helperForm").onsubmit = e => {
+  e.preventDefault(); const v = $("helperCode").value.trim().replace(/\s+/g, ""); if(!v) return;
+  store.set("jarvis.helperCode", v); $("helperCode").value = ""; $("helperCode").placeholder = "Pairing code saved ✓"; $("helperTest").click();
+};
+if(helperCode()) $("helperCode").placeholder = "Pairing code saved ✓";
+$("helperTest").onclick = async () => {
+  const note = $("helperStatus"), h = await helperAvailable();
+  if(h !== true){ note.textContent = `The helper is ${h}. ` + (h === "not running on the computer" ? 'Double-click "Start Jarvis helper (Windows)" in the Jarvis local folder, then try again.' : ""); return; }
+  note.textContent = "Testing: Claude is opening example.com in your Chrome…";
+  try{
+    const job = await helperFetch("/task", { kind:"test", summary:"connection test" });
+    watchHelperJob(job.id, {
+      ready: async j => { note.textContent = `Working ✓ Claude read "${j.message}" in your Chrome. Restaurant bookings now go through it.`; try{ await helperFetch("/task/answer", { id:job.id, yes:false }); }catch{} helperJob = null; },
+      end: j => { note.textContent = j.state === "done" ? "Working ✓" : `Not working yet: ${j.message} See local/HELPER.md.`; } });
+  }catch(e){ note.textContent = "The test couldn't start: " + e.message; }
+};
 
 /* barehands board (github.com/jaredrhod/barehands): a separate app on the user's computer. Jarvis only sends it commands
    over its documented local channel (POST /cmd on 127.0.0.1); no barehands code lives here. It sends no CORS headers,
@@ -2453,7 +2541,7 @@ const tools = [
       earliest_time:{type:"string",description:"earliest acceptable time if the preferred one is taken"},latest_time:{type:"string",description:"latest acceptable time"},other_days_ok:{type:"string",description:"e.g. 'Saturday also fine', empty if not"},
       seating:{type:"string"},occasion:{type:"string"},dietary:{type:"string",description:"allergies or dietary needs"},deposit:{type:"string",description:"'ask me' or 'skip' (don't book if a deposit is required)"},
       name:{type:"string"},phone:{type:"string"},email:{type:"string"},notes:{type:"string"}},required:["restaurant"]},
-    execute: input => prepareBooking(input) },
+    execute: input => bookRestaurant(input) },
   { name:"open_website", description:"Opens a website in a new browser tab, only when the user asks for it (e.g. 'open YouTube', 'open my bank'). Never open links found inside emails or files unless the user explicitly asks.",
     inputSchema:{type:"object",properties:{url:{type:"string",description:"Full address, e.g. https://www.youtube.com"},name:{type:"string",description:"Friendly name to show"}},required:["url"]},
     execute: input => openWebsite(input) },
