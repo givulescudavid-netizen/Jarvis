@@ -1769,6 +1769,48 @@ console.log("Readable dashboard: bigger text, coloured market moves, who emailed
   await p.close();
 }
 
+console.log("The agent team: Jarvis reads what they found and passes on your orders");
+{
+  const p = await open({ googleBefore:true, script:[
+      { tool:"team_report", input:{} }, { text:"Your team reports three things, sir." },
+      { tool:"team_report", input:{ part:"deals" } }, { text:"The Deal Scout liked one, sir." },
+      { tool:"tell_team", input:{ note:"Deal Scout: underwrite Centris 12345678 in detail by Monday." } }, { text:"Noted for the team, sir." },
+      { tool:"whats_important", input:{} }, { text:"Your team reports…" } ] }, undefined, HTTP_PAGE);
+  await p.evaluate(() => { window.__notes = []; const now = new Date().toISOString(); window.__extraFetch = async (u, o, J) => {
+    const q = decodeURIComponent(u.replace(/\+/g, " "));
+    if(u.includes("googleapis.com/drive/v3/files?") && /name = 'Jarvis HQ'/.test(q)) return J({ files:[{ id:"HQ1" }] });
+    if(u.includes("googleapis.com/drive/v3/files?") && /'HQ1' in parents/.test(q)) return J({ files:[
+      { id:"B2", name:"Brief 2026-10-16", createdTime:now }, { id:"D2", name:"Deal Scout report 2026-10-16", createdTime:now },
+      { id:"B1", name:"Brief 2026-10-15", createdTime:"2026-10-15T23:00:00Z" } ] });
+    if(/files\/(B2|D2|B1)\?fields=name,mimeType/.test(u)) return J({ name:"x", mimeType:"application/vnd.google-apps.document" });
+    if(/files\/B2\/export/.test(u)) return new Response("TOP 3\n1. Netflix reports Tuesday.\n2. One commercial deal fits.\n3. Payment due Friday.");
+    if(/files\/D2\/export/.test(u)) return new Response("1. 123 Rue Fake, cap 6.1%: fits.");
+    if(/files\/B1\/export/.test(u)) return new Response("old brief");
+    if(u.includes("googleapis.com/upload/drive/v3/files")){ const b = String(o.body); window.__notes.push({ meta:JSON.parse(b.split("\r\n\r\n")[1].split("\r\n--")[0]), media:b.split("\r\n\r\n")[2].split("\r\n--")[0] }); return J({ id:"N1" }); }
+    if(u.includes("gmail.googleapis.com") && u.includes("messages?")) return J({ messages:[], resultSizeEstimate:0 });
+    return null; }; });
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(400); await p.click("#closeBtn");
+  const res = async () => JSON.parse((await log(p)).filter(x => x.last?.content?.[0]?.type === "tool_result").at(-1).last.content[0].content);
+  await say(p, "jarvis what did the agents find", 900);
+  const r1 = await res();
+  check("'what did the agents find?' reads the team's newest Brief from Jarvis HQ", r1.file === "Brief 2026-10-16" && /One commercial deal fits/.test(r1.text) && /information only/.test(r1.note), JSON.stringify(r1).slice(0, 300));
+  await say(p, "jarvis what did the deal scout find", 900);
+  check("…or a specific report (the Deal Scout's)", /cap 6\.1%/.test((await res()).text));
+  await say(p, "jarvis have the deal scout look at centris 12345678", 900);
+  check("telling the team asks first", await p.locator("#confirmBox").isVisible() && /Leave this note for your agent team in Jarvis HQ/.test(await p.locator("#confirmText").textContent()));
+  await p.click("#confirmYes"); await settle(p, 900);
+  const n = (await p.evaluate(() => window.__notes))[0];
+  check("…then leaves an 'Owner note' Google Doc in Jarvis HQ", n && n.meta.parents[0] === "HQ1" && /^Owner note \d{4}-\d\d-\d\d \d\d:\d\d$/.test(n.meta.name) && n.meta.mimeType === "application/vnd.google-apps.document" && /Centris 12345678/.test(n.media), JSON.stringify(n));
+  await say(p, "jarvis anything important", 1200);
+  const r4 = await res();
+  check("the briefing includes tonight's team Brief", r4.team_brief?.file === "Brief 2026-10-16" && /Netflix reports Tuesday/.test(r4.team_brief.text), JSON.stringify(r4.team_brief));
+  const sys = (await log(p))[0].system;
+  check("Jarvis knows about its team and to lead the briefing with their top 3", /agent team \(team_report, tell_team\)/.test(sys) && /team_brief from the agent team, start with its TOP 3/.test(sys));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 await browser.close(); server.close();
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
