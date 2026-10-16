@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.10.16 — "About you" keeps itself up to date
+- **You don't have to type it any more:** when you tell Jarvis something about yourself (your job, where you live, your family, what to call you, how you like answers), Jarvis adds it to **About you** by itself, without asking. If something changes ("I moved to Montreal"), it updates that line instead of adding a second one.
+- **Your own writing stays as you wrote it:** Jarvis only adds new lines or swaps the exact words that changed. You can still edit or delete anything in ⚙ → About you.
+- **It also catches things you mentioned in passing:** when Jarvis looks back over recent conversations, facts about you go into About you too.
+- **Never kept there:** passwords, card or account numbers, or anything about skipping "Shall I go ahead?". Facts about other people and your work still go to Memory.
+
 ## 2026.10.15.2 — A dashboard you can read without squinting
 - **Bigger, brighter text:** the schedule, markets, inbox and everything Jarvis puts on screen are larger. The side panels are wider, and the grey secondary text is lighter.
 - **Markets at a glance:**

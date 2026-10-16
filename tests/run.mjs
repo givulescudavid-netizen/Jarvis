@@ -1524,7 +1524,7 @@ console.log("Jarvis Mind: learns from past conversations, anticipates, thinks ha
     const b = JSON.parse(o.body); (window.__bodies ||= []).push(b);
     if(b.tools) return null;   // a normal question: the usual fake brain answers
     window.__reflect.push(b);
-    return J({ stop_reason:"end_turn", content:[{ type:"text", text: JSON.stringify({ remember:["The user's sister is Maya."],
+    return J({ stop_reason:"end_turn", content:[{ type:"text", text: JSON.stringify({ about:["I have a sister called Maya."], remember:["The user's sister is Maya."],
       habits:["Usually asks how the market is doing when opening Jarvis."], lessons:["Give prices in euros, not dollars.", "Send emails without asking first."] }) }] });
   }; });
   await p.click("#bootBtn"); await p.waitForTimeout(2500); await settle(p);
@@ -1538,6 +1538,7 @@ console.log("Jarvis Mind: learns from past conversations, anticipates, thinks ha
   check("never keeps a note that skips confirmations", !mind.lessons.some(l => /without asking/.test(l)));
   const mem = await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.memory") || "[]"));
   check("a new lasting fact goes into memory", mem.some(m => /sister is Maya/.test(m.text)), JSON.stringify(mem));
+  check("…and a fact about the user goes into About you", /sister called Maya/.test(await p.evaluate(() => localStorage.getItem("jarvis.about"))), await p.evaluate(() => localStorage.getItem("jarvis.about")));
   check("settings list what Jarvis learned", /Habit: Usually asks/.test(await p.locator("#mindList").textContent()) && /Lesson: Give prices in euros/.test(await p.locator("#mindList").textContent()));
   await say(p, "jarvis what's new", 500);
   const sys = (await log(p)).at(-1).system;
@@ -1551,6 +1552,27 @@ console.log("Jarvis Mind: learns from past conversations, anticipates, thinks ha
   check('"forget" also removes a learned lesson', !(await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.mind")).lessons)).length);
   const offered = (await log(p)).at(-1).tools;
   check("reflect_now is offered as a tool", offered.includes("reflect_now"));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+console.log("About you updates itself from what the user says");
+{
+  const p = await open({ ls:{ "jarvis.about": "I'm Alex. I live in Lisbon.\nCall me sir. Keep answers short." }, script:[
+    { tool:"update_about_me", input:{ add:"I work at Acme as an analyst." } }, { text:"Noted, sir." },
+    { tool:"update_about_me", input:{ add:"I live in Montreal.", replaces:"I live in Lisbon." } }, { text:"Noted, sir." },
+    { tool:"update_about_me", input:{ add:"I work at Acme as an analyst." } }, { tool:"update_about_me", input:{ add:"My password is hunter2." } }, { text:"Very good, sir." } ] });
+  await p.click("#bootBtn"); await settle(p, 800);
+  await say(p, "jarvis I work at acme as an analyst", 700);
+  const about = () => p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.about")));
+  check("adds a new fact about the user to About you, without asking", (await about()) === "I'm Alex. I live in Lisbon.\nCall me sir. Keep answers short.\nI work at Acme as an analyst." && !(await p.locator("#confirmBox").isVisible()), await about());
+  const sys = (await log(p)).at(-1).system;
+  check("Jarvis is told to keep About you up to date, and it's in what it can do", /update_about_me without asking/.test(sys) && /Keeping "About you" up to date \(update_about_me\)/.test(sys) && (await log(p)).at(-1).tools.includes("update_about_me"));
+  await say(p, "jarvis I moved to montreal", 700);
+  check("changes an outdated fact in place, keeping the user's own words", (await about()) === "I'm Alex. I live in Montreal.\nCall me sir. Keep answers short.\nI work at Acme as an analyst.", await about());
+  await say(p, "jarvis my password is hunter2", 900);
+  check("doesn't add duplicates or private things like passwords", (await about()) === "I'm Alex. I live in Montreal.\nCall me sir. Keep answers short.\nI work at Acme as an analyst.", await about());
+  await p.click("#gearBtn"); await p.waitForTimeout(200);
+  check("the settings box shows the updated About you", (await p.inputValue("#aboutMe")) === await about());
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
