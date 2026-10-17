@@ -1,6 +1,6 @@
 # Jarvis helper: lets the Jarvis web page hand an errand (booking a restaurant, looking something up, filling in a form) to Claude Code on this computer,
 # which does the clicking in your own Chrome through the Claude in Chrome extension.
-# Start it with "Start Jarvis helper (Windows).bat" and keep its window open. Works with Windows PowerShell 5.1.
+# Start it with "Jarvis helper (Windows).bat" and keep its window open. Works with Windows PowerShell 5.1.
 #
 # You stay in charge of the one step that can't be undone: Claude fills everything in, then STOPS before the final
 # "Book" / "Reserve" / "Confirm" / "Submit" button and reports the exact details. Jarvis reads them to you and asks

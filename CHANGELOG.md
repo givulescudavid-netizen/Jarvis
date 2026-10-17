@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.10.17.2 — The computer helper is now one file
+- The helper used to be two files that had to sit in the same folder ("…the -File parameter does not exist" if they didn't). Now it's **one file: "Jarvis helper (Windows).bat"**. Download it from the `local` folder on GitHub, put it anywhere (e.g. your Desktop) and double-click it.
+- Your pairing code stays the same; you can delete the old "Start Jarvis helper (Windows)" and "jarvis-helper.ps1".
+
 ## 2026.10.17 — Errands in Chrome, not just restaurants
 - **Ask Jarvis to do things in your Chrome** (with the computer helper running on your Windows computer):
   - **Look-ups** come straight back as an answer: "is the Dyson in stock at the Costco on Marché Central?", "cheapest flight to Miami on the 20th?", "what time does my dentist close Saturday?"
