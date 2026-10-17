@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.10.17.3 — No more "Jarvis" every time, and errands that finish the job
+- **You don't have to say "Jarvis" before every sentence any more.** After Jarvis answers, it keeps listening for **2 minutes** (it was 10 seconds). In ⚙ → Voice you can pick 10 s, 1 min, 2 min, 5 min or **Always**: Always means it listens from the moment you press Initialize until you say "that's all" (then say "Jarvis" to wake it again).
+- **Contacting a broker (or any website's contact form) now goes all the way.** Say e.g. "Jarvis, contact the broker on Centris listing 12345678 and ask if it's still available." Claude fills the form in your Chrome, Jarvis reads you the whole message and asks "Shall I go ahead?", and your yes presses "Envoyer" for you. Emails, texts, social posts, payments and money stay off-limits.
+- **The tab with the filled form isn't lost any more.** Claude keeps it open until you answer; if it was closed anyway, it reopens the page, fills it in exactly as you approved and sends it (or asks again if anything changed).
+- **Results now reach Jarvis.** What an errand finds is spoken, saved, and Jarvis can tell you again later ("Jarvis, what did the errand find?"). If Jarvis reloads (e.g. an update) while Claude is still working, it picks the job back up instead of losing the answer.
+- After merging: download "Jarvis helper (Windows).bat" again from the `local` folder and replace the old one (your pairing code stays the same).
+
 ## 2026.10.17.2 — The computer helper is now one file
 - The helper used to be two files that had to sit in the same folder ("…the -File parameter does not exist" if they didn't). Now it's **one file: "Jarvis helper (Windows).bat"**. Download it from the `local` folder on GitHub, put it anywhere (e.g. your Desktop) and double-click it.
 - Your pairing code stays the same; you can delete the old "Start Jarvis helper (Windows)" and "jarvis-helper.ps1".
