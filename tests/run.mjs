@@ -1874,6 +1874,45 @@ console.log("Computer helper: bookings done in your own Chrome, with your yes be
   await p.close();
 }
 
+console.log("Errands in Chrome: look-ups come back, changes wait for your yes, money and messages are off-limits");
+{
+  const p = await open({ script:[
+      { tool:"do_in_chrome", input:{ task:"Check if the Costco at Marché Central has the Dyson V15 in stock" } }, { text:"On it, sir." },
+      { tool:"do_in_chrome", input:{ task:"Book a haircut at Barbier Rouge on Saturday morning, name David" } }, { text:"On it, sir; I'll check before confirming." },
+      { tool:"do_in_chrome", input:{ task:"Buy the Dyson V15 on amazon.ca" } }, { text:"I can't buy things, sir, but I can fill the cart." } ],
+    ls:{ "jarvis.helperCode":"pair123" } }, undefined, HTTP_PAGE);
+  await p.evaluate(() => { window.__h = { jobs:[], answers:[], state:"running", n:0 }; window.__extraFetch = async (u, o, J) => {
+    if(!u.startsWith("http://localhost:8766")) return null;
+    const h = window.__h;
+    if(u.endsWith("/status")) return J({ ok:true, claude:true, busy:false });
+    if(u.endsWith("/task") && o.method === "POST"){ const b = JSON.parse(o.body); h.jobs.push(b); h.n++; h.state = "running";
+      setTimeout(() => { h.state = /haircut/.test(b.instructions) ? "ready" : "lookup"; }, 300); return J({ id:"E" + h.n, state:"running" }); }
+    if(u.includes("/task?id=")) return J(h.state === "lookup" ? { state:"done", message:"Yes: 4 in stock at Costco Marché Central, $599.99 (costco.ca)" }
+      : h.state === "ready" ? { state:"ready", message:"Haircut at Barbier Rouge, Sat 18 Oct 10:30 am, name David, $35 paid in store" }
+      : h.state === "booked" ? { state:"done", message:"Booked Barbier Rouge, Sat 18 Oct 10:30 am" } : { state:"running" });
+    if(u.endsWith("/task/answer")){ const a = JSON.parse(o.body); h.answers.push(a); h.state = "running"; setTimeout(() => { h.state = "booked"; }, 300); return J({ state:"running" }); }
+    return null; }; });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis does the costco at marche central have the dyson v15", 900);
+  check("a look-up errand goes to the helper as an errand", (await p.evaluate(() => window.__h.jobs))[0]?.kind === "errand");
+  await p.waitForFunction(() => window.__spoken.some(t => /4 in stock at Costco/.test(t)), null, { timeout:15000 }).catch(() => {});
+  check("…and the answer is spoken, with no confirmation needed", (await p.evaluate(() => window.__spoken)).some(t => /Sir, done: Yes: 4 in stock at Costco Marché Central/.test(t)) && !(await p.evaluate(() => window.__h.answers.length)));
+  await settle(p);
+  await say(p, "jarvis book me a haircut at barbier rouge saturday morning", 900);
+  await p.waitForFunction(() => !document.getElementById("confirmBox").hidden, null, { timeout:12000 }).catch(() => {});
+  check("an errand that changes something stops and asks first", /^Ready: Haircut at Barbier Rouge, Sat 18 Oct 10:30 am/.test(await p.locator("#confirmText").textContent()));
+  await p.click("#confirmYes");
+  await p.waitForFunction(() => window.__spoken.some(t => /Booked Barbier Rouge/.test(t)), null, { timeout:15000 }).catch(() => {});
+  check("…and your yes finishes it", (await p.evaluate(() => window.__h.answers))[0]?.yes === true && (await p.evaluate(() => window.__spoken)).some(t => /Booked Barbier Rouge/.test(t)));
+  await settle(p);
+  await say(p, "jarvis buy the dyson on amazon", 900);
+  const res = JSON.stringify((await log(p)).filter(x => x.last).at(-1).last.content);
+  check("buying (or paying, messaging, posting…) is refused before anything starts", /Refused/.test(res) && (await p.evaluate(() => window.__h.jobs.length)) === 2, res.slice(0, 200));
+  check("Jarvis knows what errands it can and can't do", /Errands in Chrome \(do_in_chrome/.test((await log(p))[0].system) && (await log(p))[0].tools.includes("do_in_chrome"));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 await browser.close(); server.close();
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
