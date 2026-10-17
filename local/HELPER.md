@@ -1,4 +1,6 @@
-# Jarvis helper: bookings done for you (Windows)
+# Jarvis helper: bookings and errands done for you (Windows)
+
+Besides restaurants, you can ask for other errands in Chrome: look-ups (stock, prices, flights, opening hours) come straight back; bookings, appointments, forms and carts stop before the final button and Jarvis asks you first. It never pays or buys, sends messages or posts, moves money, trades, deletes, or changes accounts.
 
 With the helper running, "Jarvis, book me a table at Joe Beef Friday at 8" works like this:
 

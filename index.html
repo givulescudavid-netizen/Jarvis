@@ -454,7 +454,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.16.2";
+const VERSION = "2026.10.17";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -523,6 +523,7 @@ What you CAN do, using your tools (use them; don't say you can't when a tool fit
   6) deposits/card holds: "If they ask for a deposit, should Claude in Chrome ask you, or skip it?";
   7) name, phone and email if not already known, then offer to remember them (use remember) so you never ask again.
   Keep it brisk and in character. Once you have the essentials (restaurant, date, time, party size), call book_restaurant with everything, then follow its note: with the helper, just say you're on it and will check before confirming; without it, explain in two or three spoken sentences: the booking search is open; copy the instructions, click the Claude icon in Chrome and paste; Claude in Chrome will find the booking page, pick the closest time in their window, fill in their details, and show everything for a final OK before booking. If the user later says Claude in Chrome is asking something, help them answer from the booking details. You do not click or type on websites yourself.
+- Errands in Chrome (do_in_chrome, needs the computer helper on the user's Windows computer): Claude does the clicking in the user's own Chrome: look-ups (stock, prices, availability, hours, flights) come back as an answer; bookings, appointments, forms and carts stop before the final button and you ask "Shall I go ahead?" first. It never pays or buys, sends messages or posts, moves money, trades, deletes, or changes accounts: offer the closest thing instead (fill the cart and let them pay, draft the message). Ask what you need first (which site, dates, times, limits) so it doesn't have to stop and ask.
 - Open any website in a new tab (open_website). You can't launch desktop apps, but most apps have a web version: open that instead (Spotify: open.spotify.com, WhatsApp: web.whatsapp.com, Apple Music: music.apple.com, YouTube, Netflix, Gmail, Google Maps, news sites, banks, anything).
 - Play music on Apple Music (play_music): songs, albums, artists, or something that fits a mood.
 - Your screen (show_on_screen): when the user asks to SEE something ("put my emails up", "show me the listings"), put it in the panel on the right of the HUD and say one sentence about it instead of reading it all. For emails, include each email_id so they can click one to read it on screen. When they ask you to read emails out loud, read sender, subject and the gist, a few at a time, and put the list on screen too.
@@ -2176,7 +2177,7 @@ function watchHelperJob(id, onEnd){
     if(j.state === "ready"){
       if(onEnd.ready){ onEnd.ready(j); return; }
       if(mode !== "idle" || pendingConfirm || !greeted || dormantNow()){ setTimeout(tick, 3000); return; }
-      const ok = await confirmAction(`Ready to book: ${j.message}.`, "Everything is filled in on the booking site in your Chrome, stopped just before the final button. Nothing is booked until you say yes.");
+      const ok = await confirmAction(`${onEnd.label || "Ready to book"}: ${j.message}.`, "Everything is filled in, in your Chrome, stopped just before the final button. Nothing happens until you say yes.");
       setMode("idle"); resumeWake();
       try{ await helperFetch("/task/answer", { id, yes:ok }); }catch(e){ logDiag("helper", "answer failed: " + e.message); }
       setTimeout(tick, 4000); return;
@@ -2196,6 +2197,25 @@ async function helperBook(input){
     : `Sir, the booking didn't go through: ${j.message}.`) });
   return { started:true, via:"computer helper",
     note:"Claude is now doing the booking in the user's own Chrome on their computer. Say in one short sentence that you're on it and will ask before the final booking (e.g. \"On it, sir; I'll check with you before I confirm.\"). Don't ask anything else and don't give instructions." };
+}
+// Any other errand in the user's Chrome: look-ups come straight back; anything that changes something waits for their yes.
+const ERRAND_NEVER = /\b(pay(?:ment)? (?:for|the|my|it)|buy|purchase|check ?out|place (?:an |the |my )?order|send (?:a |an |the |my )?(?:message|email|e-mail|text|dm|reply)|send it|e-?mail (?:him|her|them)|text (?:him|her|them)|post (?:a|an|this|it|on)|leave a (?:review|comment)|write a (?:review|comment)|transfer (?:money|funds|\$)|wire (?:money|funds|\$)|trade|sell (?:my|the|it)|delete|cancel my (?:account|subscription)|unsubscribe|change (?:my )?password)\b/i;
+async function doInChrome({task}){
+  const t = String(task || "").trim(); if(!t) throw new Error("What should I do in Chrome?");
+  if(ERRAND_NEVER.test(t)) return { started:false, note:"Refused: errands in Chrome never pay, buy, send messages or posts, move money, trade, delete, or change accounts or passwords. Say so briefly and offer the closest thing (e.g. fill the cart and let them pay, or draft the message for them)." };
+  const h = await helperAvailable();
+  if(h !== true) return { started:false, note:`The computer helper is ${h}. Tell the user: ${h === "not set up" ? "set it up once (settings → Computer helper, steps in local/HELPER.md)" : h === "not running on the computer" ? 'double-click "Start Jarvis helper (Windows)" on their computer, then ask again' : "check settings → Computer helper"}.` };
+  const job = await helperFetch("/task", { kind:"errand", summary:clip(t, 80), instructions:t });
+  watchHelperJob(job.id, { label:"Ready", end: j => {
+    if(j.state === "done"){
+      const ans = String(j.message || "");
+      if(ans.length > 260) showOnScreen({ title:"From Chrome", text:ans });
+      pendingAlerts.push(`Sir, done: ${clip(ans, 260)}${ans.length > 260 ? " The rest is on screen." : ""}`);
+    }
+    else pendingAlerts.push(j.state === "needs_you" ? `Sir, that errand needs you: ${j.message}.`
+      : /cancelled by the owner|didn't answer/i.test(j.message) ? "Cancelled, sir. Nothing was changed." : `Sir, that errand didn't work: ${j.message}.`);
+  } });
+  return { started:true, note:"Claude is doing it now in the user's own Chrome on their computer; it takes a few minutes. Say in one short sentence that you're on it (and, if it will change something, that you'll check with them before the final click). The result will be spoken when it's ready; don't make one up." };
 }
 async function bookRestaurant(input){
   const h = await helperAvailable();
@@ -2536,6 +2556,8 @@ const tools = [
     inputSchema:{type:"object",properties:{symbol:{type:"string"}},required:["symbol"]}, execute: input => watchRemove(input) },
   { name:"watchlist_show", description:"Shows the watchlist with latest prices and alert levels.",
     execute: async () => { await refreshMarkets(); return watchlist().map(x => ({ ...x, quote:lastQuotes[x.symbol] || null })); } },
+  { name:"do_in_chrome", description:"Has Claude do an errand in the user's own Chrome on their computer (through the computer helper), e.g. look something up on a site that needs their login or lots of clicking (stock at a store, a price, availability, opening hours, a flight or hotel price), book an appointment (hairdresser, doctor, car service), fill in a form, or add items to a cart. Look-ups come back as an answer; anything that changes something stops before the final button and Jarvis asks the user first. It NEVER pays, buys or checks out, sends messages/emails/posts, moves money, trades, deletes, or changes accounts or passwords. Restaurants: use book_restaurant. Describe the task completely: which site if known, what exactly, dates, times, names, limits.",
+    inputSchema:{type:"object",properties:{task:{type:"string"}},required:["task"]}, execute: input => doInChrome(input) },
   { name:"book_restaurant", description:"Prepares a restaurant booking for the user to hand to Claude in Chrome (Anthropic's browser extension), which does the actual booking. Opens a search for the restaurant's booking page and shows ready-to-paste instructions. Use for ANY restaurant reservation request. Fill in the user's name/phone/email if known from 'About you' or memory.",
     inputSchema:{type:"object",properties:{restaurant:{type:"string"},city:{type:"string"},date:{type:"string",description:"e.g. 'Friday 17 October 2026'"},time:{type:"string",description:"e.g. '8:00 PM'"},party_size:{type:"number"},
       earliest_time:{type:"string",description:"earliest acceptable time if the preferred one is taken"},latest_time:{type:"string",description:"latest acceptable time"},other_days_ok:{type:"string",description:"e.g. 'Saturday also fine', empty if not"},

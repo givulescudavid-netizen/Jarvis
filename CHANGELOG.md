@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026.10.17 — Errands in Chrome, not just restaurants
+- **Ask Jarvis to do things in your Chrome** (with the computer helper running on your Windows computer):
+  - **Look-ups** come straight back as an answer: "is the Dyson in stock at the Costco on Marché Central?", "cheapest flight to Miami on the 20th?", "what time does my dentist close Saturday?"
+  - **Bookings and forms** (a haircut, a doctor's or car-service appointment, a form, adding things to a cart) stop right before the final button: Jarvis reads the details and asks "Shall I go ahead?". Only your yes finishes it.
+  - Longer answers also appear on Jarvis's screen.
+- **Off-limits, always:** paying or buying, sending messages, emails or posts, moving money, trading, deleting, or changing accounts and passwords. Jarvis refuses before anything starts and offers the closest thing (e.g. it fills the cart, you pay).
+- **To use it:** restart the helper with the new version of the two files in the `local` folder (download them again from GitHub).
+
 ## 2026.10.16.2 — Bookings done for you, with one "yes"
 - **No more copy-paste:** with the new **computer helper** running on your Windows computer, "Jarvis, book me a table at Joe Beef Friday at 8" is done in your own Chrome. Claude (through the Claude in Chrome extension) finds the booking page, picks the best time in your window and fills in your details.
 - **You stay in charge:** it stops right before the final "Reserve" button. Jarvis reads the details out ("Ready to book: Joe Beef, Friday 8:15, two people. Shall I go ahead?"). Only your yes books it; no cancels. Then Jarvis tells you the confirmation.
