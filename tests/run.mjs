@@ -1913,6 +1913,66 @@ console.log("Errands in Chrome: look-ups come back, changes wait for your yes, m
   await p.close();
 }
 
+console.log("Errands: website contact forms after your yes, results Jarvis can recall, jobs survive a reload");
+{
+  const p = await open({ script:[
+      { tool:"do_in_chrome", input:{ task:"On Centris listing 12345678, contact the broker and send: Hello, is this building still available? Could you send the rent roll?" } }, { text:"On it, sir." },
+      { tool:"chrome_results", input:{} }, { text:"The broker form was sent, sir." },
+      { tool:"do_in_chrome", input:{ task:"Send an email to the broker saying I'm interested" } }, { text:"I'll draft the email instead, sir." } ],
+    ls:{ "jarvis.helperCode":"pair123", "jarvis.helperJob":{ id:"OLD1", kind:"errand", label:"Ready", summary:"Look up 123 Main St on Centris" } } }, undefined, HTTP_PAGE);
+  await p.evaluate(() => { window.__h = { jobs:[], answers:[], state:"running", n:0 }; window.__extraFetch = async (u, o, J) => {
+    if(!u.startsWith("http://localhost:8766")) return null;
+    const h = window.__h;
+    if(u.endsWith("/status")) return J({ ok:true, claude:true, busy:false });
+    if(u.includes("/task?id=OLD1")) return J({ state:"done", message:"123 Main St: listed at $1,250,000, 6 units" });
+    if(u.endsWith("/task") && o.method === "POST"){ const b = JSON.parse(o.body); h.jobs.push(b); h.n++; h.state = "running"; setTimeout(() => { h.state = "ready"; }, 300); return J({ id:"C" + h.n, state:"running" }); }
+    if(u.includes("/task?id=")) return J(h.state === "ready" ? { state:"ready", message:"Message to the broker for Centris 12345678: Hello, is this building still available? Could you send the rent roll?" }
+      : h.state === "sent" ? { state:"done", message:"Sent the message to the broker (Centris 12345678)" } : { state:"running" });
+    if(u.endsWith("/task/answer")){ const a = JSON.parse(o.body); h.answers.push(a); h.state = "running"; setTimeout(() => { h.state = "sent"; }, 300); return J({ state:"running" }); }
+    return null; }; });
+  await p.click("#bootBtn"); await settle(p);
+  await p.waitForFunction(() => window.__spoken.some(t => /123 Main St: listed/.test(t)), null, { timeout:15000 }).catch(() => {});
+  check("an errand still running when the page reloaded is picked up again, and its result is spoken", (await p.evaluate(() => window.__spoken)).some(t => /Sir, done: 123 Main St: listed at \$1,250,000/.test(t)) && await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.helperJob")) === null));
+  await settle(p);
+  await say(p, "jarvis contact the broker on centris 12345678 and ask if it's still available and for the rent roll", 900);
+  check("a website contact form (Centris broker) is allowed as an errand", /contact the broker/.test((await p.evaluate(() => window.__h.jobs))[0]?.instructions || ""));
+  await p.waitForFunction(() => !document.getElementById("confirmBox").hidden, null, { timeout:12000 }).catch(() => {});
+  check("…the full message is read out before anything is sent", /^Ready: Message to the broker.*Could you send the rent roll/.test(await p.locator("#confirmText").textContent()) && !(await p.evaluate(() => window.__h.answers.length)));
+  await p.click("#confirmYes");
+  await p.waitForFunction(() => window.__spoken.some(t => /Sent the message to the broker/.test(t)), null, { timeout:15000 }).catch(() => {});
+  check("…and your yes sends it", (await p.evaluate(() => window.__h.answers))[0]?.yes === true && (await p.evaluate(() => window.__spoken)).some(t => /Sent the message to the broker/.test(t)));
+  await settle(p);
+  await say(p, "jarvis what did the errands find", 900);
+  const res = JSON.stringify((await log(p)).filter(x => x.last).at(-1).last.content);
+  check("Jarvis can recall what errands found (chrome_results)", /123 Main St: listed/.test(res) && /Sent the message to the broker/.test(res), res.slice(0, 300));
+  check("…and they're in the journal too", await p.evaluate(() => JSON.stringify(JSON.parse(localStorage.getItem("jarvis.journal") || "[]")).includes("Sent the message to the broker")));
+  await settle(p);
+  await say(p, "jarvis email the broker", 900);
+  const res2 = JSON.stringify((await log(p)).filter(x => x.last).at(-1).last.content);
+  check("emails, texts and posts are still refused in Chrome", /Refused/.test(res2) && (await p.evaluate(() => window.__h.jobs.length)) === 1, res2.slice(0, 200));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+{
+  const ps1 = fs.readFileSync(path.join(root, "local", "jarvis-helper.ps1"), "utf8");
+  check("the helper's rules: contact forms only after READY with the full message, never close the tab, refill if it was closed", /contact form.*READY first, with the full message/.test(ps1) && /never close it before the owner has answered/.test(ps1) && /tab is gone or the form was emptied/.test(ps1) && /send an email, text, social-media post/.test(ps1));
+}
+
+console.log("Conversation stays open: no need to say 'Jarvis' every time");
+{
+  const p = await open({ script:[{ text:"It is noon." }, { text:"Tomorrow is clear." }], ls:{ "jarvis.convoMs":0 } });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "what time is it", 900);
+  check("'Always' mode: Jarvis listens without the name right after Initialize", (await log(p)).length === 1);
+  await say(p, "that's all", 400);
+  await say(p, "and tomorrow", 400);
+  check("…until you say 'that's all'", (await log(p)).length === 1);
+  await p.click("#gearBtn");
+  check("the setting is in ⚙ Voice, 2 minutes by default", await p.locator("#convoMs option").count() >= 5 && await p.evaluate(() => { localStorage.removeItem("jarvis.convoMs"); return true; }));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("The one-file Windows helper carries the current helper code");
 {
   const { buildHelperBat } = await import(pathToFileURL(path.join(root, "local", "build-helper.mjs")).href);

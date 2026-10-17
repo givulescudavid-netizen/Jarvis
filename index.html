@@ -310,7 +310,13 @@ ul.disp li .tob{align-self:flex-start;font-size:.75rem;padding:1px 6px}
       <button type="button" id="elRemove" hidden>Remove ElevenLabs key (use computer voices)</button>
     </div>
     <button type="button" id="testVoice">Test voice</button>
-    <p class="note">Say "Jarvis" once, then keep talking. Stay quiet for 10 seconds or say "that's all" to end. You can also tap the reactor to talk, or tap it while Jarvis speaks to stop it.</p>
+    <label for="convoMs" class="note">After you say "Jarvis", keep listening without the name for:</label>
+    <select id="convoMs">
+      <option value="10000">10 seconds of quiet</option><option value="60000">1 minute of quiet</option>
+      <option value="120000">2 minutes of quiet</option><option value="300000">5 minutes of quiet</option>
+      <option value="0">Always (until I say "that's all")</option>
+    </select>
+    <p class="note">Say "Jarvis" once, then keep talking. It stops listening for requests after the quiet time you picked, or when you say "that's all". You can also tap the reactor to talk, or tap it while Jarvis speaks to stop it.</p>
   </section>
 
   <section>
@@ -454,7 +460,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.17.2";
+const VERSION = "2026.10.17.3";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -523,7 +529,7 @@ What you CAN do, using your tools (use them; don't say you can't when a tool fit
   6) deposits/card holds: "If they ask for a deposit, should Claude in Chrome ask you, or skip it?";
   7) name, phone and email if not already known, then offer to remember them (use remember) so you never ask again.
   Keep it brisk and in character. Once you have the essentials (restaurant, date, time, party size), call book_restaurant with everything, then follow its note: with the helper, just say you're on it and will check before confirming; without it, explain in two or three spoken sentences: the booking search is open; copy the instructions, click the Claude icon in Chrome and paste; Claude in Chrome will find the booking page, pick the closest time in their window, fill in their details, and show everything for a final OK before booking. If the user later says Claude in Chrome is asking something, help them answer from the booking details. You do not click or type on websites yourself.
-- Errands in Chrome (do_in_chrome, needs the computer helper on the user's Windows computer): Claude does the clicking in the user's own Chrome: look-ups (stock, prices, availability, hours, flights) come back as an answer; bookings, appointments, forms and carts stop before the final button and you ask "Shall I go ahead?" first. It never pays or buys, sends messages or posts, moves money, trades, deletes, or changes accounts: offer the closest thing instead (fill the cart and let them pay, draft the message). Ask what you need first (which site, dates, times, limits) so it doesn't have to stop and ask.
+- Errands in Chrome (do_in_chrome, needs the computer helper on the user's Windows computer): Claude does the clicking in the user's own Chrome: look-ups (stock, prices, availability, hours, flights) come back as an answer; bookings, appointments, forms, website contact forms (e.g. contacting a Centris broker: put the full message in the task) and carts stop before the final button and you ask "Shall I go ahead?" first; their yes sends or books it. "What did it find?" about an earlier errand → chrome_results. It never pays or buys, sends emails, texts or social posts, moves money, trades, deletes, or changes accounts: offer the closest thing instead (fill the cart and let them pay, draft the email). Ask what you need first (which site, dates, times, limits) so it doesn't have to stop and ask.
 - Open any website in a new tab (open_website). You can't launch desktop apps, but most apps have a web version: open that instead (Spotify: open.spotify.com, WhatsApp: web.whatsapp.com, Apple Music: music.apple.com, YouTube, Netflix, Gmail, Google Maps, news sites, banks, anything).
 - Play music on Apple Music (play_music): songs, albums, artists, or something that fits a mood.
 - Your screen (show_on_screen): when the user asks to SEE something ("put my emails up", "show me the listings"), put it in the panel on the right of the HUD and say one sentence about it instead of reading it all. For emails, include each email_id so they can click one to read it on screen. When they ask you to read emails out loud, read sender, subject and the gist, a few at a time, and put the list on screen too.
@@ -2168,53 +2174,62 @@ async function helperAvailable(){
   catch(e){ return /pairing code/i.test(e.message) ? "the pairing code is wrong" : "not running on the computer"; }
 }
 let helperJob = null;
-function watchHelperJob(id, onEnd){
+// meta: { kind:"book"|"errand"|"test", summary, label }. Saved, so a reload (or an update) doesn't lose the job.
+function watchHelperJob(id, meta, hooks = {}){
   helperJob = { id };
+  if(meta.kind !== "test") store.set("jarvis.helperJob", { id, ...meta });
   const tick = async () => {
     if(helperJob?.id !== id) return;
-    let j; try{ j = await helperFetch("/task?id=" + encodeURIComponent(id)); }catch(e){ logDiag("helper", e.message); setTimeout(tick, 15000); return; }
+    let j; try{ j = await helperFetch("/task?id=" + encodeURIComponent(id)); }
+    catch(e){ logDiag("helper", e.message); if(/No such job/i.test(e.message)){ helperJob = null; store.set("jarvis.helperJob", null); return; } setTimeout(tick, 15000); return; }
     if(j.state === "running"){ setTimeout(tick, 5000); return; }
     if(j.state === "ready"){
-      if(onEnd.ready){ onEnd.ready(j); return; }
+      if(hooks.ready){ hooks.ready(j); return; }
       if(mode !== "idle" || pendingConfirm || !greeted || dormantNow()){ setTimeout(tick, 3000); return; }
-      const ok = await confirmAction(`${onEnd.label || "Ready to book"}: ${j.message}.`, "Everything is filled in, in your Chrome, stopped just before the final button. Nothing happens until you say yes.");
+      const ok = await confirmAction(`${meta.label || "Ready"}: ${j.message}.`, "Everything is filled in, in your Chrome, stopped just before the final button. Nothing is sent or booked until you say yes.");
       setMode("idle"); resumeWake();
       try{ await helperFetch("/task/answer", { id, yes:ok }); }catch(e){ logDiag("helper", "answer failed: " + e.message); }
       setTimeout(tick, 4000); return;
     }
-    helperJob = null; logDiag("helper", `${j.state}: ${clip(j.message, 120)}`); onEnd.end(j);
+    helperJob = null; store.set("jarvis.helperJob", null); logDiag("helper", `${j.state}: ${clip(j.message, 120)}`);
+    (hooks.end || (x => helperFinish(meta, x)))(j);
   };
   setTimeout(tick, 3000);
 }
+// Says how a job ended, and remembers it so Jarvis can answer "what did it find?" later
+function helperFinish(meta, j){
+  const book = meta.kind === "book", msg = String(j.message || "");
+  const all = store.get("jarvis.errands", []);
+  all.push({ t:Date.now(), kind:meta.kind, task:clip(meta.summary || "", 120), state:j.state, result:msg.slice(0, 1500) });
+  store.set("jarvis.errands", all.slice(-10));
+  journalAdd(`(${book ? "booking" : "errand"} in Chrome) ${meta.summary || ""}`, `${j.state}: ${msg}`);
+  if(j.state === "done"){
+    if(msg.length > 260) showOnScreen({ title:book ? "Booking" : "From Chrome", text:msg });
+    pendingAlerts.push(`${book ? "Sir, it's booked" : "Sir, done"}: ${clip(msg, 260)}${msg.length > 260 ? " The rest is on screen." : ""}`);
+  }
+  else pendingAlerts.push(j.state === "needs_you" ? `Sir, that ${book ? "booking" : "errand"} needs you: ${msg}.`
+    : /cancelled by the owner|didn't answer/i.test(msg) ? (book ? "Booking cancelled, sir. Nothing was booked." : "Cancelled, sir. Nothing was sent or changed.")
+    : `Sir, that ${book ? "booking" : "errand"} didn't work: ${msg}.`);
+}
+// a job that was still running when the page reloaded
+setTimeout(() => { const m = store.get("jarvis.helperJob", null); if(m?.id && helperCode()) watchHelperJob(m.id, m); }, 2500);
 async function helperBook(input){
   const { r, text } = bookingText(input, true);
   const job = await helperFetch("/task", { kind:"book", summary:`${r}, ${[input.date, input.time].filter(Boolean).join(" ")}`, instructions:text });
   store.set("jarvis.bookedBefore", true);
-  watchHelperJob(job.id, { end: j => pendingAlerts.push(
-    j.state === "done" ? `Sir, it's booked: ${j.message}.`
-    : j.state === "needs_you" ? `Sir, the booking needs you: ${j.message}.`
-    : /cancelled by the owner|didn't answer/i.test(j.message) ? "Booking cancelled, sir. Nothing was booked."
-    : `Sir, the booking didn't go through: ${j.message}.`) });
+  watchHelperJob(job.id, { kind:"book", label:"Ready to book", summary:`${r}, ${[input.date, input.time].filter(Boolean).join(" ")}` });
   return { started:true, via:"computer helper",
     note:"Claude is now doing the booking in the user's own Chrome on their computer. Say in one short sentence that you're on it and will ask before the final booking (e.g. \"On it, sir; I'll check with you before I confirm.\"). Don't ask anything else and don't give instructions." };
 }
 // Any other errand in the user's Chrome: look-ups come straight back; anything that changes something waits for their yes.
-const ERRAND_NEVER = /\b(pay(?:ment)? (?:for|the|my|it)|buy|purchase|check ?out|place (?:an |the |my )?order|send (?:a |an |the |my )?(?:message|email|e-mail|text|dm|reply)|send it|e-?mail (?:him|her|them)|text (?:him|her|them)|post (?:a|an|this|it|on)|leave a (?:review|comment)|write a (?:review|comment)|transfer (?:money|funds|\$)|wire (?:money|funds|\$)|trade|sell (?:my|the|it)|delete|cancel my (?:account|subscription)|unsubscribe|change (?:my )?password)\b/i;
+const ERRAND_NEVER = /\b(pay(?:ment)? (?:for|the|my|it)|buy|purchase|check ?out|place (?:an |the |my )?order|send (?:a |an |the |my )?(?:e-?mail|text|sms|dm)|e-?mail (?:him|her|them)|text (?:him|her|them)|post (?:a|an|this|it|on)|tweet|leave a (?:review|comment)|write a (?:review|comment)|transfer (?:money|funds|\$)|wire (?:money|funds|\$)|trade|sell (?:my|the|it)|delete|cancel my (?:account|subscription)|unsubscribe|change (?:my )?password)\b/i;
 async function doInChrome({task}){
   const t = String(task || "").trim(); if(!t) throw new Error("What should I do in Chrome?");
-  if(ERRAND_NEVER.test(t)) return { started:false, note:"Refused: errands in Chrome never pay, buy, send messages or posts, move money, trade, delete, or change accounts or passwords. Say so briefly and offer the closest thing (e.g. fill the cart and let them pay, or draft the message for them)." };
+  if(ERRAND_NEVER.test(t)) return { started:false, note:"Refused: errands in Chrome never pay, buy, send emails, texts or social posts, move money, trade, delete, or change accounts or passwords. (A website's contact form, e.g. contacting a broker on Centris, IS allowed: it's sent only after the user's yes.) Say so briefly and offer the closest thing (fill the cart and let them pay, or draft the email with draft_email)." };
   const h = await helperAvailable();
   if(h !== true) return { started:false, note:`The computer helper is ${h}. Tell the user: ${h === "not set up" ? "set it up once (settings → Computer helper, steps in local/HELPER.md)" : h === "not running on the computer" ? 'double-click "Jarvis helper (Windows)" on their computer, then ask again' : "check settings → Computer helper"}.` };
   const job = await helperFetch("/task", { kind:"errand", summary:clip(t, 80), instructions:t });
-  watchHelperJob(job.id, { label:"Ready", end: j => {
-    if(j.state === "done"){
-      const ans = String(j.message || "");
-      if(ans.length > 260) showOnScreen({ title:"From Chrome", text:ans });
-      pendingAlerts.push(`Sir, done: ${clip(ans, 260)}${ans.length > 260 ? " The rest is on screen." : ""}`);
-    }
-    else pendingAlerts.push(j.state === "needs_you" ? `Sir, that errand needs you: ${j.message}.`
-      : /cancelled by the owner|didn't answer/i.test(j.message) ? "Cancelled, sir. Nothing was changed." : `Sir, that errand didn't work: ${j.message}.`);
-  } });
+  watchHelperJob(job.id, { kind:"errand", label:"Ready", summary:clip(t, 120) });
   return { started:true, note:"Claude is doing it now in the user's own Chrome on their computer; it takes a few minutes. Say in one short sentence that you're on it (and, if it will change something, that you'll check with them before the final click). The result will be spoken when it's ready; don't make one up." };
 }
 async function bookRestaurant(input){
@@ -2235,7 +2250,7 @@ $("helperTest").onclick = async () => {
   note.textContent = "Testing: Claude is opening example.com in your Chrome…";
   try{
     const job = await helperFetch("/task", { kind:"test", summary:"connection test" });
-    watchHelperJob(job.id, {
+    watchHelperJob(job.id, { kind:"test" }, {
       ready: async j => { note.textContent = `Working ✓ Claude read "${j.message}" in your Chrome. Restaurant bookings now go through it.`; try{ await helperFetch("/task/answer", { id:job.id, yes:false }); }catch{} helperJob = null; },
       end: j => { note.textContent = j.state === "done" ? "Working ✓" : `Not working yet: ${j.message} See local/HELPER.md.`; } });
   }catch(e){ note.textContent = "The test couldn't start: " + e.message; }
@@ -2556,8 +2571,10 @@ const tools = [
     inputSchema:{type:"object",properties:{symbol:{type:"string"}},required:["symbol"]}, execute: input => watchRemove(input) },
   { name:"watchlist_show", description:"Shows the watchlist with latest prices and alert levels.",
     execute: async () => { await refreshMarkets(); return watchlist().map(x => ({ ...x, quote:lastQuotes[x.symbol] || null })); } },
-  { name:"do_in_chrome", description:"Has Claude do an errand in the user's own Chrome on their computer (through the computer helper), e.g. look something up on a site that needs their login or lots of clicking (stock at a store, a price, availability, opening hours, a flight or hotel price), book an appointment (hairdresser, doctor, car service), fill in a form, or add items to a cart. Look-ups come back as an answer; anything that changes something stops before the final button and Jarvis asks the user first. It NEVER pays, buys or checks out, sends messages/emails/posts, moves money, trades, deletes, or changes accounts or passwords. Restaurants: use book_restaurant. Describe the task completely: which site if known, what exactly, dates, times, names, limits.",
+  { name:"do_in_chrome", description:"Has Claude do an errand in the user's own Chrome on their computer (through the computer helper), e.g. look something up on a site that needs their login or lots of clicking (stock at a store, a price, availability, opening hours, a flight or hotel price), book an appointment (hairdresser, doctor, car service), fill in a form, or add items to a cart. Look-ups come back as an answer; anything that changes something stops before the final button and Jarvis asks the user first. It can also send a message through a website's contact form (e.g. 'contact the broker' on a Centris listing): write the message in the task; it's read out to the user and sent only after their yes. It NEVER pays, buys or checks out, sends emails, texts or social posts, moves money, trades, deletes, or changes accounts or passwords. Restaurants: use book_restaurant. Describe the task completely: which site if known, what exactly, dates, times, names, limits.",
     inputSchema:{type:"object",properties:{task:{type:"string"}},required:["task"]}, execute: input => doInChrome(input) },
+  { name:"chrome_results", description:"The results of the user's recent errands and bookings in Chrome (newest last): what each found or did. Use when they ask what an errand found, or whether something went through.",
+    execute: () => { const e = store.get("jarvis.errands", []); return e.length ? e.slice(-5).map(x => ({ when:new Date(x.t).toLocaleString(), task:x.task, state:x.state, result:x.result })) : "No errands in Chrome yet."; } },
   { name:"book_restaurant", description:"Prepares a restaurant booking for the user to hand to Claude in Chrome (Anthropic's browser extension), which does the actual booking. Opens a search for the restaurant's booking page and shows ready-to-paste instructions. Use for ANY restaurant reservation request. Fill in the user's name/phone/email if known from 'About you' or memory.",
     inputSchema:{type:"object",properties:{restaurant:{type:"string"},city:{type:"string"},date:{type:"string",description:"e.g. 'Friday 17 October 2026'"},time:{type:"string",description:"e.g. '8:00 PM'"},party_size:{type:"number"},
       earliest_time:{type:"string",description:"earliest acceptable time if the preferred one is taken"},latest_time:{type:"string",description:"latest acceptable time"},other_days_ok:{type:"string",description:"e.g. 'Saturday also fine', empty if not"},
@@ -3176,11 +3193,13 @@ function handleInterrupt({ heard, text, ack }){
   ask(text, text, heard);
 }
 
-// Continuous: listens for "Jarvis", then stays in conversation mode
-// (no wake word needed) until ~10 s of silence or "that's all".
-const CONVO_MS = 10000;
+// Continuous: listens for "Jarvis", then stays in conversation mode (no wake word needed) until a stretch of
+// silence (⚙ Voice: 10 s to 5 min, default 2 min) or "that's all". "Always" keeps it open until "that's all".
+const convoMs = () => Number(store.get("jarvis.convoMs", 120000)) || 0;   // 0 = always
 const END_CONVO = /^(?:ok(?:ay)?[, ]+)?(?:that'?s all|that is all|that'?ll be all|that will be all|goodbye|bye|stop listening|never ?mind|nothing(?: else)?|no(?:,)? that'?s it|that'?s it|we'?re done|go to sleep)\b/i;
-function armConvoTimer(){ clearTimeout(awaitTimer); awaitTimer = setTimeout(endConvo, CONVO_MS); }
+function armConvoTimer(){ clearTimeout(awaitTimer); if(convoMs()) awaitTimer = setTimeout(endConvo, convoMs()); }
+// "Always" mode: open the conversation as soon as Jarvis is up, and again after "that's all" + "Jarvis"
+function openConvo(){ if(!wakeOn || dormant) return; convoOpen = true; awaiting = true; if(mode === "idle") setMode("idle", "Listening, sir"); }
 function endConvo(){
   if(pendingConfirm){ armConvoTimer(); return; }
   clearTimeout(awaitTimer);
@@ -3633,7 +3652,7 @@ $("alertsOn").onchange = () => store.set("jarvis.alerts", $("alertsOn").checked)
 $("autoBrief").onchange = () => store.set("jarvis.autoBrief", $("autoBrief").checked);
 renderMemories();
 const BRIEF = "Give me my briefing.";
-function runBriefing(){ greeted = true; store.set("jarvis.lastBrief", new Date().toDateString()); convo = false; ask(BRIEF, "Briefing"); }
+function runBriefing(){ greeted = true; store.set("jarvis.lastBrief", new Date().toDateString()); convo = false; if(!convoMs()) convoOpen = true; ask(BRIEF, "Briefing"); }
 $("briefBtn").onclick = () => { openDrawer(false); runBriefing(); };
 const applyTextSize = v => { document.documentElement.style.setProperty("--ts", String(v)); $("textSize").value = String(v); };
 applyTextSize(store.get("jarvis.textSize", 1));
@@ -3754,7 +3773,10 @@ $("bootBtn").onclick = async () => {
   const hi = welcomeLine();
   addMsg("j", hi); await speak(hi);
   greeted = true; checkReminders();   // meeting alerts wait until Jarvis has said hello
+  if(!convoMs()) openConvo();
 };
+$("convoMs").value = String(convoMs());
+$("convoMs").onchange = e => { store.set("jarvis.convoMs", Number(e.target.value)); if(!convoMs()) openConvo(); else if(awaiting) armConvoTimer(); };
 $("testVoice").onclick = () => { const t = "Voice check complete, sir. You're hearing me loud and clear."; addMsg("j", t); speak(t); };
 
 /* settings drawer */
