@@ -23,14 +23,14 @@ It never pays: if a restaurant wants a card, a deposit or a no-show fee, Jarvis 
 
    `[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$env:USERPROFILE\.local\bin", "User")`
 3. **Sign Claude Code in:** in the new PowerShell, type `claude` and press Enter. It opens your browser: sign in with the **same Claude account** as the extension. (Don't use an API key: with a key, the Chrome connection stays off.) Then type `/chrome`, check it says the extension is connected, and type `/exit`.
-4. **Get the helper:** make a folder, e.g. `Documents\Jarvis helper`. From https://github.com/givulescudavid-netizen/Jarvis/tree/main/local download **jarvis-helper.ps1** and **Start Jarvis helper (Windows).bat** into it (open each file, then the download button). Keep both files in the same folder.
-5. **Start the helper:** double-click **Start Jarvis helper (Windows)**. A window opens with a **pairing code**. Keep that window open (you can minimise it).
+4. **Get the helper (one file):** open https://github.com/givulescudavid-netizen/Jarvis/blob/main/local/Jarvis%20helper%20(Windows).bat and click the **download** button (arrow pointing down, top right). Put it wherever you like, e.g. your Desktop. If Chrome warns about the download, choose **Keep**.
+5. **Start the helper:** double-click **Jarvis helper (Windows)**. If a blue "Windows protected your PC" box appears, click **More info**, then **Run anyway** (it's because the file came from the internet). A window opens with a **pairing code**. Keep that window open (you can minimise it).
 6. **Pair Jarvis:** in Jarvis, open ⚙ → **Computer helper**, paste the pairing code, click **Save**. Jarvis runs a test: Claude opens example.com in your Chrome and Jarvis shows "Working ✓".
    - If Chrome asks whether Jarvis may access devices on your local network, click **Allow**.
 
 ## Every day
 
-- Double-click **Start Jarvis helper (Windows)** when you want bookings done for you (or put a shortcut to it in your Startup folder so it starts with Windows).
+- Double-click **Jarvis helper (Windows)** when you want bookings done for you (or put a shortcut to it in your Startup folder so it starts with Windows).
 - Keep Chrome open.
 - If the helper isn't running, Jarvis falls back to the copy-and-paste way and tells you so.
 

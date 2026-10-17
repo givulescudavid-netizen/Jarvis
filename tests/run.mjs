@@ -1913,6 +1913,15 @@ console.log("Errands in Chrome: look-ups come back, changes wait for your yes, m
   await p.close();
 }
 
+console.log("The one-file Windows helper carries the current helper code");
+{
+  const { buildHelperBat } = await import(pathToFileURL(path.join(root, "local", "build-helper.mjs")).href);
+  const ps1 = fs.readFileSync(path.join(root, "local", "jarvis-helper.ps1"), "utf8");
+  const bat = fs.readFileSync(path.join(root, "local", "Jarvis helper (Windows).bat"), "utf8");
+  check("'Jarvis helper (Windows).bat' is up to date with jarvis-helper.ps1 (run: node local/build-helper.mjs)", bat === buildHelperBat(ps1));
+  check("…and it runs only what's below its marker, read via an environment variable (safe with any folder name)", /set "JARVIS_HELPER_FILE=%~f0"/.test(bat) && bat.split("#JARVIS-HELPER-BELOW").length === 2);
+}
+
 await browser.close(); server.close();
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

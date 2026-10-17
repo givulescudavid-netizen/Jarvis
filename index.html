@@ -366,7 +366,7 @@ ul.disp li .tob{align-self:flex-start;font-size:.75rem;padding:1px 6px}
 
   <section>
     <h3>Computer helper (bookings done for you)</h3>
-    <p class="note">On your Windows computer, start "Start Jarvis helper (Windows)" from Jarvis's local folder (setup: local/HELPER.md). It shows a pairing code: paste it here once. Then "book me a table" is done in your own Chrome, and Jarvis asks you before the final click.</p>
+    <p class="note">On your Windows computer, start "Jarvis helper (Windows)" (one file, downloaded from Jarvis's GitHub page; setup: local/HELPER.md). It shows a pairing code: paste it here once. Then "book me a table" is done in your own Chrome, and Jarvis asks you before the final click.</p>
     <form id="helperForm">
       <input type="text" id="helperCode" placeholder="paste the pairing code" autocomplete="off" spellcheck="false" style="-webkit-text-security:disc">
       <button type="submit">Save</button>
@@ -454,7 +454,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.17";
+const VERSION = "2026.10.17.2";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -2149,7 +2149,7 @@ $("handoffCopy").onclick = async () => {
 };
 $("handoffClose").onclick = () => { $("handoffBox").hidden = true; };
 
-/* The computer helper (local/jarvis-helper.ps1, started with "Start Jarvis helper (Windows).bat"): Claude Code on the user's
+/* The computer helper (local/jarvis-helper.ps1, started with "Jarvis helper (Windows).bat"): Claude Code on the user's
    computer does the clicking in their own Chrome (Claude in Chrome). It fills everything in and STOPS before the final
    "Book" button; only the user's yes here (spoken or clicked) lets it finish. It answers only Jarvis, with the pairing code. */
 const HELPER = "http://localhost:8766";
@@ -2204,7 +2204,7 @@ async function doInChrome({task}){
   const t = String(task || "").trim(); if(!t) throw new Error("What should I do in Chrome?");
   if(ERRAND_NEVER.test(t)) return { started:false, note:"Refused: errands in Chrome never pay, buy, send messages or posts, move money, trade, delete, or change accounts or passwords. Say so briefly and offer the closest thing (e.g. fill the cart and let them pay, or draft the message for them)." };
   const h = await helperAvailable();
-  if(h !== true) return { started:false, note:`The computer helper is ${h}. Tell the user: ${h === "not set up" ? "set it up once (settings → Computer helper, steps in local/HELPER.md)" : h === "not running on the computer" ? 'double-click "Start Jarvis helper (Windows)" on their computer, then ask again' : "check settings → Computer helper"}.` };
+  if(h !== true) return { started:false, note:`The computer helper is ${h}. Tell the user: ${h === "not set up" ? "set it up once (settings → Computer helper, steps in local/HELPER.md)" : h === "not running on the computer" ? 'double-click "Jarvis helper (Windows)" on their computer, then ask again' : "check settings → Computer helper"}.` };
   const job = await helperFetch("/task", { kind:"errand", summary:clip(t, 80), instructions:t });
   watchHelperJob(job.id, { label:"Ready", end: j => {
     if(j.state === "done"){
@@ -2231,7 +2231,7 @@ $("helperForm").onsubmit = e => {
 if(helperCode()) $("helperCode").placeholder = "Pairing code saved ✓";
 $("helperTest").onclick = async () => {
   const note = $("helperStatus"), h = await helperAvailable();
-  if(h !== true){ note.textContent = `The helper is ${h}. ` + (h === "not running on the computer" ? 'Double-click "Start Jarvis helper (Windows)" in the Jarvis local folder, then try again.' : ""); return; }
+  if(h !== true){ note.textContent = `The helper is ${h}. ` + (h === "not running on the computer" ? 'Double-click "Jarvis helper (Windows)" in the Jarvis local folder, then try again.' : ""); return; }
   note.textContent = "Testing: Claude is opening example.com in your Chrome…";
   try{
     const job = await helperFetch("/task", { kind:"test", summary:"connection test" });
