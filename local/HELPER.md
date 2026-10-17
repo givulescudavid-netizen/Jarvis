@@ -17,6 +17,9 @@ It never pays: if a restaurant wants a card, a deposit or a no-show fee, Jarvis 
    `irm https://claude.ai/install.ps1 | iex`
 
    When it finishes, close PowerShell and open a new one.
+   If it says `...\.local\bin is not in your PATH`, paste this line too, press Enter, then close and reopen PowerShell:
+
+   `[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$env:USERPROFILE\.local\bin", "User")`
 3. **Sign Claude Code in:** in the new PowerShell, type `claude` and press Enter. It opens your browser: sign in with the **same Claude account** as the extension. (Don't use an API key: with a key, the Chrome connection stays off.) Then type `/chrome`, check it says the extension is connected, and type `/exit`.
 4. **Get the helper:** make a folder, e.g. `Documents\Jarvis helper`. From https://github.com/givulescudavid-netizen/Jarvis/tree/main/local download **jarvis-helper.ps1** and **Start Jarvis helper (Windows).bat** into it (open each file, then the download button). Keep both files in the same folder.
 5. **Start the helper:** double-click **Start Jarvis helper (Windows)**. A window opens with a **pairing code**. Keep that window open (you can minimise it).

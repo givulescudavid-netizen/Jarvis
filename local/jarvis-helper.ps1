@@ -35,6 +35,8 @@ Remove-Item Env:ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
 # Find Claude Code (the test harness can point to a stand-in with JARVIS_HELPER_CLAUDE)
 $Claude = $env:JARVIS_HELPER_CLAUDE
 if (-not $Claude) { $c = Get-Command claude -ErrorAction SilentlyContinue; if ($c) { $Claude = $c.Source } }
+# The Windows installer puts it here; it may not be on the PATH yet
+if (-not $Claude -and $env:USERPROFILE) { $p = Join-Path $env:USERPROFILE ".local\bin\claude.exe"; if (Test-Path $p) { $Claude = $p } }
 
 $Rules = @"
 You are working for the owner of this computer, in their own Chrome browser (Claude in Chrome), on ONE job from their assistant Jarvis. The job is below.
