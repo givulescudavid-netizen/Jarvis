@@ -1958,6 +1958,98 @@ console.log("Errands: website contact forms after your yes, results Jarvis can r
   check("the helper's rules: contact forms only after READY with the full message, never close the tab, refill if it was closed", /contact form.*READY first, with the full message/.test(ps1) && /never close it before the owner has answered/.test(ps1) && /tab is gone or the form was emptied/.test(ps1) && /send an email, text, social-media post/.test(ps1));
 }
 
+console.log("Deals: analyse a property with your own numbers, log it, read Centris listings, and follow up with brokers");
+{
+  const p = await open({ googleBefore:true, script:[
+      { tool:"deal_settings", input:{ down_pct:25, rate_pct:5, min_cap_pct:6, max_per_door:150000 } }, { text:"Saved, sir." },
+      { tool:"analyze_deal", input:{ name:"123 Main St", centris:"12345678", price:1000000, units:6, gross_income:90000, expenses:30000 } }, { text:"A 5.7% cap rate, sir, below your 6%." },
+      { tool:"analyze_deal", input:{ name:"9 Oak Ave", price:800000, units:4, gross_income:70000, taxes:9000 } }, { text:"Tight, sir." } ] }, undefined, HTTP_PAGE);
+  await p.evaluate(() => { window.__up = []; window.__app = []; window.__extraFetch = async (u, o, J) => {
+    if(u.includes("upload/drive/v3/files") && o?.method === "POST"){ window.__up.push(o.body); return J({ id:"DS1", webViewLink:"https://docs.google.com/x" }); }
+    if(u.includes("sheets.googleapis.com") && u.includes(":append")){ window.__app.push(JSON.parse(o.body).values[0]); return J({}); }
+    return null; }; });
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(400); await p.click("#closeBtn");
+  await say(p, "jarvis my standard is 25 percent down at 5 percent, minimum 6 cap, max 150k a door", 900);
+  check("your deal criteria are saved", await p.evaluate(() => { const r = JSON.parse(localStorage.getItem("jarvis.dealRules")); return r.down_pct === 25 && r.rate_pct === 5 && r.min_cap_pct === 6 && r.max_per_door === 150000; }));
+  await sayNow(p, "jarvis analyse 123 main st, a million, 6 units, 90k rents, 30k expenses");
+  await p.waitForFunction(() => !document.getElementById("confirmBox").hidden, null, { timeout:8000 }).catch(() => {});
+  check("the first time, Jarvis asks before starting a Jarvis Deals sheet", /Start a "Jarvis Deals" sheet/.test(await p.locator("#confirmText").textContent()));
+  await p.click("#confirmYes"); await settle(p, 900);
+  const res = JSON.parse((await log(p)).filter(x => x.last?.content?.[0]?.type === "tool_result").at(-1).last.content[0].content);
+  check("the maths: NOI after 3% vacancy, cap rate, price per door", res.noi === "$57,300" && res.cap_rate === "5.73%" && res.price_per_door === "$166,667", JSON.stringify(res).slice(0, 400));
+  check("…mortgage at your terms, cash flow and debt coverage", res.down_payment === "$250,000 (25%)" && /at 5% over 25 years/.test(res.loan) && res.yearly_payments === "$52,613" && res.cash_flow_per_year === "$4,687" && res.debt_coverage === "1.09", JSON.stringify(res).slice(0, 600));
+  check("…flags against your criteria (cap rate, price per door, weak debt coverage)", res.flags.length === 3 && /below your minimum of 6%/.test(res.flags[0]) && /per door above/.test(res.flags[1]) && /at least 1.2/.test(res.flags[2]), JSON.stringify(res.flags));
+  check("…it's on screen, with 'not investment advice'", /Deal: 123 Main St/.test(await p.locator("#dispTitle").textContent()) && /not investment advice/.test(await p.locator("#dispText").textContent()));
+  const app = await p.evaluate(() => window.__app);
+  check("…and logged as a row in the Jarvis Deals sheet Jarvis made", (await p.evaluate(() => window.__up.length)) === 1 && app[0]?.[1] === "123 Main St" && app[0][9] === "5.73%" && await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.myFiles")).some(f => f.id === "DS1" && f.kind === "deals")), JSON.stringify(app));
+  await say(p, "jarvis and 9 oak, 800k, 4 units, 70k rents, taxes 9k", 900);
+  const res2 = JSON.parse((await log(p)).filter(x => x.last?.content?.[0]?.type === "tool_result").at(-1).last.content[0].content);
+  check("the next one goes straight into the same sheet (no second question)", (await p.evaluate(() => window.__app.length)) === 2 && (await p.evaluate(() => window.__up.length)) === 1);
+  check("only taxes known: Jarvis says real expenses are probably higher", /probably higher/.test(res2.estimates[0]) && res2.expenses === "$9,000");
+  const L0 = (await log(p))[0];
+  check("Jarvis knows about deals and follow-ups", /Deals \(income real estate\)/.test(L0.system) && ["analyze_deal", "analyze_listing", "deal_settings", "track_followup", "followups"].every(t => L0.tools.includes(t)));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+{
+  // A Centris number: Claude reads the listing in Chrome, then Jarvis analyses it by itself; contacting the broker starts a follow-up
+  const p = await open({ script:[
+      { tool:"analyze_listing", input:{ listing:"12345678" } }, { text:"On it, sir." },
+      { tool:"analyze_deal", input:{ name:"55 Rue King", centris:"12345678", price:1200000, units:8, gross_income:110000, expenses:38000 } }, { text:"Sir, 55 Rue King comes out at a 5.9% cap rate." },
+      { tool:"do_in_chrome", input:{ task:"On Centris listing 12345678, contact the broker and send: Hello, is it still available?", follow_up:{ who:"Marie Tremblay", about:"8-plex at 55 Rue King", listing:"12345678", days:3 } } }, { text:"On it, sir." } ],
+    ls:{ "jarvis.helperCode":"pair123" } }, undefined, HTTP_PAGE);
+  await p.evaluate(() => { window.__h = { jobs:[], n:0, state:"running" }; window.__extraFetch = async (u, o, J) => {
+    if(!u.startsWith("http://localhost:8766")) return null;
+    const h = window.__h;
+    if(u.endsWith("/status")) return J({ ok:true, claude:true, busy:false });
+    if(u.endsWith("/task") && o.method === "POST"){ const b = JSON.parse(o.body); h.jobs.push(b); h.n++; h.state = "running"; setTimeout(() => { h.state = /contact the broker/.test(b.instructions) ? "ready" : "listing"; }, 300); return J({ id:"L" + h.n, state:"running" }); }
+    if(u.includes("/task?id=")) return J(h.state === "listing" ? { state:"done", message:"55 Rue King, Montreal: asking $1,200,000, 8 units, gross revenue $110,000/yr, taxes $14,000, insurance $6,000. Broker: Marie Tremblay." }
+      : h.state === "ready" ? { state:"ready", message:"Message to Marie Tremblay: Hello, is it still available?" } : h.state === "sent" ? { state:"done", message:"Sent the message to Marie Tremblay" } : { state:"running" });
+    if(u.endsWith("/task/answer")){ h.state = "running"; setTimeout(() => { h.state = "sent"; }, 300); return J({ state:"running" }); }
+    return null; }; });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis analyse centris 12345678", 900);
+  check("a Centris number is read in Chrome, read-only", /listing number 12345678/.test((await p.evaluate(() => window.__h.jobs))[0]?.instructions) && /don't contact anyone/.test((await p.evaluate(() => window.__h.jobs))[0].instructions));
+  await p.waitForFunction(() => window.__spoken.some(t => /5.9% cap rate/.test(t)), null, { timeout:15000 }).catch(() => {});
+  const L = await log(p), auto = L.find(x => JSON.stringify(x.last?.content || "").includes("came back from Chrome"));
+  check("when the numbers come back, Jarvis analyses them by itself and tells you", !!auto && /110,000/.test(JSON.stringify(auto.last.content)) && (await p.evaluate(() => window.__spoken)).some(t => /5.9% cap rate/.test(t)) && await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.deals")).length === 1));
+  await settle(p);
+  await say(p, "jarvis contact the broker and ask if it's still available", 900);
+  await p.waitForFunction(() => !document.getElementById("confirmBox").hidden, null, { timeout:12000 }).catch(() => {});
+  await p.click("#confirmYes");
+  await p.waitForFunction(() => window.__spoken.some(t => /Sent the message to Marie/.test(t)), null, { timeout:15000 }).catch(() => {});
+  check("after the message is sent, Jarvis starts watching for the broker's reply", (await p.evaluate(() => window.__spoken)).some(t => /Sent the message to Marie Tremblay\. I'll watch for a reply and remind you in 3 days/.test(t)) && await p.evaluate(() => { const f = JSON.parse(localStorage.getItem("jarvis.followups")); return f.length === 1 && f[0].who === "Marie Tremblay" && f[0].listing === "12345678" && f[0].state === "waiting"; }));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+{
+  // Follow-ups: a reply is spotted in Gmail; no reply after the days → Jarvis brings it up and offers a follow-up
+  const day = 864e5, now = Date.now();
+  const p = await open({ googleBefore:true, script:[{ text:"Sir, Marie Tremblay hasn't replied about the 8-plex since Tuesday. Shall I draft a follow-up?" }, { tool:"followups", input:{ close:"marie" } }, { text:"Closed, sir." }],
+    ls:{ "jarvis.followups":[
+      { id:"a", who:"Marie Tremblay", about:"8-plex at 55 Rue King", email:"", listing:"12345678", sent:now - 4 * day, due:now - day, state:"waiting" },
+      { id:"b", who:"Jean Roy", about:"duplex on Rue Ontario", email:"jean@example.com", listing:"", sent:now - day, due:now + 2 * day, state:"waiting" } ] } }, undefined, HTTP_PAGE);
+  await p.evaluate(() => { window.__gq = []; window.__extraFetch = async (u, o, J) => {
+    if(u.includes("gmail.googleapis.com") && u.includes("messages?")){ const q = decodeURIComponent(new URL(u).searchParams.get("q") || ""); window.__gq.push(q);
+      return J(/jean@example.com/.test(q) ? { messages:[{ id:"r1" }], resultSizeEstimate:1 } : { messages:[], resultSizeEstimate:0 }); }
+    if(u.includes("gmail.googleapis.com") && /messages\/r1/.test(u)) return J({ id:"r1", snippet:"", labelIds:["UNREAD"], payload:{ headers:[{ name:"From", value:"Jean Roy <jean@example.com>" }, { name:"Subject", value:"Re: duplex on Rue Ontario" }, { name:"Date", value:new Date().toUTCString() }] } });
+    return null; }; });
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(400); await p.click("#closeBtn");
+  await p.waitForFunction(() => window.__spoken.some(t => /draft a follow-up/.test(t)), null, { timeout:40000 }).catch(() => {});   // checked within ~20 s of opening
+  const q = (await p.evaluate(() => window.__gq)).filter(x => /-from:me/.test(x));
+  check("Jarvis searches Gmail for a reply since you contacted them (not your own or Centris's emails)", q.length === 2 && q.every(x => /^after:\d{4}\/\d+\/\d+ -from:me .*-from:centris\.ca/.test(x)) && q.some(x => /"Marie Tremblay"/.test(x) && /"12345678"/.test(x)), JSON.stringify(q));
+  check("a reply is announced", (await p.evaluate(() => window.__spoken)).some(t => /Jean Roy replied about duplex on Rue Ontario: "Re: duplex on Rue Ontario"/.test(t)), (await p.evaluate(() => window.__spoken)).join(" | "));
+  check("no reply after 3 days: Jarvis brings it up and offers to draft a follow-up (doesn't do it by itself)", (await log(p)).some(x => /follow-up tracker/.test(JSON.stringify(x.last?.content || "")) && /Do neither until they say so/.test(JSON.stringify(x.last.content))) && (await p.evaluate(() => window.__spoken)).some(t => /draft a follow-up/.test(t)));
+  check("…only once", await p.evaluate(() => { const f = JSON.parse(localStorage.getItem("jarvis.followups")); return !!f[0].nudged && f[1].state === "replied"; }));
+  await settle(p);
+  await say(p, "jarvis marie called me back", 900);
+  check("'she called back' closes it", await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.followups"))[0].state === "done"));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("Conversation stays open: no need to say 'Jarvis' every time");
 {
   const p = await open({ script:[{ text:"It is noon." }, { text:"Tomorrow is clear." }], ls:{ "jarvis.convoMs":0 } });

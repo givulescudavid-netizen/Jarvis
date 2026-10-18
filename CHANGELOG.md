@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.10.18 — Deal analyser and broker follow-ups
+- **Analyse a property by voice.** Say "Jarvis, analyse Centris 12345678": Claude reads the listing in your Chrome (read-only, with the computer helper running), and Jarvis gives you the verdict: cap rate, price per door, cash flow after the mortgage, debt coverage and red flags. You can also just give the numbers: "a million, 6 units, 90k rents, 30k expenses".
+- **Your own numbers.** Tell Jarvis your standard once, e.g. "25% down at 5%, 25 years, minimum 6 cap, max 150k a door", and every deal is judged against it.
+- **Every deal is kept** in a "Jarvis Deals" sheet in your Jarvis Library (Jarvis asks once before making it), so you build a comparison list without trying. The full breakdown also shows on screen.
+- **Broker follow-ups.** When Jarvis contacts a broker for you (or you say "I emailed the broker for 55 King"), it watches your Gmail for their reply and tells you when it comes. No reply after 3 days? Jarvis brings it up and offers to draft a follow-up; nothing is sent without you. "Marie called me back" closes it.
+- Information, not investment advice.
+
 ## 2026.10.17.3 — No more "Jarvis" every time, and errands that finish the job
 - **You don't have to say "Jarvis" before every sentence any more.** After Jarvis answers, it keeps listening for **2 minutes** (it was 10 seconds). In ⚙ → Voice you can pick 10 s, 1 min, 2 min, 5 min or **Always**: Always means it listens from the moment you press Initialize until you say "that's all" (then say "Jarvis" to wake it again).
 - **Contacting a broker (or any website's contact form) now goes all the way.** Say e.g. "Jarvis, contact the broker on Centris listing 12345678 and ask if it's still available." Claude fills the form in your Chrome, Jarvis reads you the whole message and asks "Shall I go ahead?", and your yes presses "Envoyer" for you. Emails, texts, social posts, payments and money stay off-limits.
