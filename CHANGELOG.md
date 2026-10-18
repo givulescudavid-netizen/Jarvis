@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.18.2 — Jarvis as an app: its own window, no Initialize click
+- The start screen now offers **"Install as an app"**. Once installed, Jarvis has its own icon and opens in its own window, and it starts talking straight away without the Initialize click.
+- To have it open by itself when your computer starts: in Chrome go to `chrome://apps`, right-click Jarvis and tick **"Start app when you sign in"**.
+- One click is still needed after a restart to reconnect Gmail and Calendar (Google requires it). Jarvis asks for it on screen.
+
 ## 2026.10.18 — Deal analyser and broker follow-ups
 - **Analyse a property by voice.** Say "Jarvis, analyse Centris 12345678": Claude reads the listing in your Chrome (read-only, with the computer helper running), and Jarvis gives you the verdict: cap rate, price per door, cash flow after the mortgage, debt coverage and red flags. You can also just give the numbers: "a million, 6 units, 90k rents, 30k expenses".
 - **Your own numbers.** Tell Jarvis your standard once, e.g. "25% down at 5%, 25 years, minimum 6 cap, max 150k a door", and every deal is judged against it.

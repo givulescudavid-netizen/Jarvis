@@ -97,6 +97,7 @@ form{display:flex;gap:8px;margin:6px 0 8px}
 .boot{position:fixed;inset:0;z-index:70;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
   background:radial-gradient(circle at 50% 45%,rgba(10,40,60,.55),rgba(1,5,9,.92) 60%);backdrop-filter:blur(3px);text-align:center;padding-inline:16px}
 .boot button{font-size:.9rem;padding:18px 30px;letter-spacing:.3em;box-shadow:0 0 30px rgba(95,220,255,.35);animation:pulse 2s ease-in-out infinite}
+.boot #bootInstall{font-size:.72rem;padding:10px 18px;letter-spacing:.12em;box-shadow:none;animation:none}
 .boot p{font-family:var(--f-mono);font-size:.78rem;color:var(--dim);letter-spacing:.08em;margin:0}
 @keyframes pulse{50%{box-shadow:0 0 50px rgba(95,220,255,.6)}}
 @media (prefers-reduced-motion:reduce){.boot button{animation:none}}
@@ -266,6 +267,7 @@ ul.disp li .tob{align-self:flex-start;font-size:.75rem;padding:1px 6px}
 <div class="boot" id="boot">
   <button type="button" id="bootBtn">Initialize J.A.R.V.I.S.</button>
   <p id="bootNote">One click so your browser lets Jarvis speak and listen.</p>
+  <button type="button" id="bootInstall" hidden>Install as an app: own window, no click needed</button>
 </div>
 
 <div class="drawer" id="drawer" hidden>
@@ -342,7 +344,7 @@ ul.disp li .tob{align-self:flex-start;font-size:.75rem;padding:1px 6px}
 
   <section id="installBox">
     <h3>Keep Jarvis listening</h3>
-    <p class="note">Chrome stops listening in tabs you aren't looking at. Give Jarvis its own window instead: use ⧉ Pop out (top right), or install it as an app with its own icon. Keep at least a corner of the window visible.</p>
+    <p class="note">Chrome stops listening in tabs you aren't looking at. Give Jarvis its own window instead: install it as an app (best: it opens in its own window and starts talking without the Initialize click, and can start with your computer), or use ⧉ Pop out (top right). Keep at least a corner of the window visible.</p>
     <div class="row">
       <button type="button" id="popBtn2">⧉ Pop out now</button>
       <button type="button" id="installBtn" hidden>Install Jarvis as an app</button>
@@ -460,7 +462,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.18";
+const VERSION = "2026.10.18.2";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -3198,8 +3200,10 @@ function popOut(){
   if(!w){ const a = $("openLink"); a.href = base + "?mini=1"; a.target = "_blank"; a.textContent = "⧉ Open Jarvis in its own window"; a.hidden = false; }
 }
 let installEvt = null;
-addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; $("installBtn").hidden = false; });
-addEventListener("appinstalled", () => { $("installBtn").hidden = true; $("installNote").textContent = "Installed. Open Jarvis from its icon from now on."; });
+// Installed, Jarvis opens in its own window and Chrome lets it talk straight away (no Initialize click)
+addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; $("installBtn").hidden = false; if(!isPopout) $("bootInstall").hidden = false; });
+const INSTALLED_TIP = 'Installed ✓ From now on open Jarvis from its icon: it starts in its own window by itself. To have it open when your computer starts: in Chrome go to chrome://apps, right-click Jarvis, tick "Start app when you sign in".';
+addEventListener("appinstalled", () => { $("installBtn").hidden = true; $("bootInstall").hidden = true; $("installNote").textContent = INSTALLED_TIP; $("bootNote").textContent = INSTALLED_TIP; });
 // Remember how long the tab was hidden, so we can explain why Jarvis didn't hear you
 let hiddenSince = 0, toldAboutTabs = false;
 document.addEventListener("visibilitychange", () => {
@@ -3928,7 +3932,9 @@ $("micChip").onclick = () => { openDrawer(true); refreshMicCheck(); initMicMeter
 $("mcTest").onclick = async () => { micAnalyser = null; $("mcErr").textContent = "none"; await initMicMeter(); refreshMicCheck(); runLevelBar(); if(micAnalyser && wakeOn && !recOn && mode === "idle") startWake(); };
 $("popBtn").onclick = popOut;
 $("popBtn2").onclick = () => { openDrawer(false); popOut(); };
-$("installBtn").onclick = async () => { if(!installEvt) return; installEvt.prompt(); const r = await installEvt.userChoice.catch(() => null); if(r?.outcome === "accepted") $("installBtn").hidden = true; installEvt = null; };
+async function installApp(){ if(!installEvt) return; installEvt.prompt(); const r = await installEvt.userChoice.catch(() => null); if(r?.outcome === "accepted"){ $("installBtn").hidden = true; $("bootInstall").hidden = true; $("installNote").textContent = $("bootNote").textContent = INSTALLED_TIP; } installEvt = null; }
+$("installBtn").onclick = installApp;
+$("bootInstall").onclick = e => { e.stopPropagation(); installApp(); };
 if(window.claude){ $("installBox").hidden = true; $("popBtn").hidden = true; }
 if(isPopout) $("popBtn").hidden = true;   // already in its own window (even when made full screen)   // not available inside claude.ai
 $("closeBtn").onclick = () => openDrawer(false);

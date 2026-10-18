@@ -2050,6 +2050,27 @@ console.log("Deals: analyse a property with your own numbers, log it, read Centr
   await p.close();
 }
 
+console.log("Install as an app from the start screen (own window, starts by itself)");
+{
+  const p = await open({}, undefined, HTTP_PAGE);
+  check("no install button until Chrome offers it", await p.locator("#bootInstall").isHidden());
+  await p.evaluate(() => { const e = new Event("beforeinstallprompt"); e.prompt = () => { window.__prompted = true; }; e.userChoice = Promise.resolve({ outcome:"accepted" }); dispatchEvent(e); });
+  check("the start screen offers to install Jarvis as an app", await p.locator("#bootInstall").isVisible());
+  await p.click("#bootInstall"); await p.waitForTimeout(200);
+  check("…which asks Chrome to install it, without starting Jarvis in the tab", await p.evaluate(() => window.__prompted === true) && await p.locator("#boot").isVisible());
+  check("…then says how to open it from its icon and start it with the computer", /Start app when you sign in/.test(await p.locator("#bootNote").textContent()) && await p.locator("#bootInstall").isHidden());
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+{
+  // Opened as the app: no Initialize click
+  const p = await open({ script:[] }, undefined, HTTP_PAGE + (HTTP_PAGE.includes("?") ? "&" : "?") + "app=1");
+  await p.waitForTimeout(1500);
+  check("opened as the app, Jarvis starts and greets by itself", await p.locator("#boot").isHidden() && (await p.evaluate(() => window.__spoken)).length >= 1);
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("Conversation stays open: no need to say 'Jarvis' every time");
 {
   const p = await open({ script:[{ text:"It is noon." }, { text:"Tomorrow is clear." }], ls:{ "jarvis.convoMs":0 } });
