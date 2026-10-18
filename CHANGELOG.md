@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026.10.18.3 — Hand gestures can't cut you off any more
+- A pinch no longer "presses" the reactor. Scratching your nose or adjusting your headset sometimes looked like a pinch on the reactor, which stopped Jarvis listening mid-sentence. You can still tap the reactor with the mouse.
+- Everything else stays: pinch to click buttons, pinch-and-hold to drag Jarvis's window to another screen, palm, fist, thumbs and swipes.
+
 ## 2026.10.18.2 — Jarvis as an app: its own window, no Initialize click
 - The start screen now offers **"Install as an app"**. Once installed, Jarvis has its own icon and opens in its own window, and it starts talking straight away without the Initialize click.
 - To have it open by itself when your computer starts: in Chrome go to `chrome://apps`, right-click Jarvis and tick **"Start app when you sign in"**.
