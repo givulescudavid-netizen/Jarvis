@@ -97,6 +97,7 @@ form{display:flex;gap:8px;margin:6px 0 8px}
 .boot{position:fixed;inset:0;z-index:70;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
   background:radial-gradient(circle at 50% 45%,rgba(10,40,60,.55),rgba(1,5,9,.92) 60%);backdrop-filter:blur(3px);text-align:center;padding-inline:16px}
 .boot button{font-size:.9rem;padding:18px 30px;letter-spacing:.3em;box-shadow:0 0 30px rgba(95,220,255,.35);animation:pulse 2s ease-in-out infinite}
+.boot #bootInstall{font-size:.72rem;padding:10px 18px;letter-spacing:.12em;box-shadow:none;animation:none}
 .boot p{font-family:var(--f-mono);font-size:.78rem;color:var(--dim);letter-spacing:.08em;margin:0}
 @keyframes pulse{50%{box-shadow:0 0 50px rgba(95,220,255,.6)}}
 @media (prefers-reduced-motion:reduce){.boot button{animation:none}}
@@ -266,6 +267,7 @@ ul.disp li .tob{align-self:flex-start;font-size:.75rem;padding:1px 6px}
 <div class="boot" id="boot">
   <button type="button" id="bootBtn">Initialize J.A.R.V.I.S.</button>
   <p id="bootNote">One click so your browser lets Jarvis speak and listen.</p>
+  <button type="button" id="bootInstall" hidden>Install as an app: own window, no click needed</button>
 </div>
 
 <div class="drawer" id="drawer" hidden>
@@ -342,7 +344,7 @@ ul.disp li .tob{align-self:flex-start;font-size:.75rem;padding:1px 6px}
 
   <section id="installBox">
     <h3>Keep Jarvis listening</h3>
-    <p class="note">Chrome stops listening in tabs you aren't looking at. Give Jarvis its own window instead: use ⧉ Pop out (top right), or install it as an app with its own icon. Keep at least a corner of the window visible.</p>
+    <p class="note">Chrome stops listening in tabs you aren't looking at. Give Jarvis its own window instead: install it as an app (best: it opens in its own window and starts talking without the Initialize click, and can start with your computer), or use ⧉ Pop out (top right). Keep at least a corner of the window visible.</p>
     <div class="row">
       <button type="button" id="popBtn2">⧉ Pop out now</button>
       <button type="button" id="installBtn" hidden>Install Jarvis as an app</button>
@@ -363,7 +365,7 @@ ul.disp li .tob{align-self:flex-start;font-size:.75rem;padding:1px 6px}
   <section>
     <h3>Hand gestures</h3>
     <label class="check"><input type="checkbox" id="gestOn"> Control Jarvis with your hand (webcam)</label>
-    <p class="note" id="gestHelp">✋ Hold an open palm: wake Jarvis · ✊ Fist: stop talking · 👍 / 👎: yes / no to "Shall I go ahead?" · ✌️ Peace: focus mode (hide the side panels) · 🤟 Rock on: play music you like · ☝️ Point to move the cursor, pinch thumb and finger to click · 🤏 Pinch and hold on an empty spot to grab Jarvis's window, move your hand to drag it to another screen, let go to drop it (pop-out or installed app only) · 👆 / 👇 Swipe up / down: make Jarvis's window bigger (full screen) or smaller (a small orb in the corner), pop-out or installed app only · 👋 Swipe sideways: close what's open. The video never leaves your computer.</p>
+    <p class="note" id="gestHelp">✋ Hold an open palm: wake Jarvis · ✊ Fist: stop talking · 👍 / 👎: yes / no to "Shall I go ahead?" · ✌️ Peace: focus mode (hide the side panels) · 🤟 Rock on: play music you like · ☝️ Point to move the cursor, pinch thumb and finger to click a button (not the reactor, so touching your face can't cut you off) · 🤏 Pinch and hold on an empty spot to grab Jarvis's window, move your hand to drag it to another screen, let go to drop it (pop-out or installed app only) · 👆 / 👇 Swipe up / down: make Jarvis's window bigger (full screen) or smaller (a small orb in the corner), pop-out or installed app only · 👋 Swipe sideways: close what's open. The video never leaves your computer.</p>
     <p class="note">Moving between screens (pinch-drag, or say "Jarvis, move to the other screen") needs Chrome's OK once: <button type="button" id="screensBtn">Allow moving between screens</button></p>
     <p class="note" id="screensStatus"></p>
     <label class="check"><input type="checkbox" id="gestBoardPause"> While barehands is running, ignore my hands unless I hold up a pointing finger ☝️ first (so moving cards on the board doesn't click things in Jarvis)</label>
@@ -460,7 +462,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.18";
+const VERSION = "2026.10.18.3";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -549,7 +551,7 @@ What you CAN do, using your tools (use them; don't say you can't when a tool fit
 - Weather anywhere, now and for the next days (get_weather), and travel times between places by car, on foot or by bike (travel_time). Driving times don't include live traffic: say "usually about 25 minutes" and offer to open Google Maps for live traffic. If the user says "home", "the office" or a person's place and you don't know the address, ask once, then remember it.
 - Uber price and pickup estimates for a ride right now (uber_estimate). You can't book: the user books in the Uber app. On the website version it opens Uber with the trip filled in.
 - Hotels from Tripadvisor (find_hotels, and hotel_info for one hotel): give two or three good options with price per night, rating and area, not the whole list. You can't book; offer to open the hotel's page. On the website version, find_hotels opens Tripadvisor and you suggest options from web search.
-- Hand gestures (if switched on in settings, website in Chrome), for when they ask how they work: open palm wakes you, fist stops you talking, thumbs up/down answer "Shall I go ahead?", peace sign toggles focus mode, "rock on" (🤟) asks you for music they like, pointing moves a cursor and a pinch clicks; pinch and hold on an empty spot drags your window to another monitor; in your own window a swipe up makes you bigger and down smaller. While barehands is running you ignore their hands until they hold up a pointing finger for a second (they can untick that in settings → Hand gestures).
+- Hand gestures (if switched on in settings, website in Chrome), for when they ask how they work: open palm wakes you, fist stops you talking, thumbs up/down answer "Shall I go ahead?", peace sign toggles focus mode, "rock on" (🤟) asks you for music they like, pointing moves a cursor and a pinch clicks buttons (never the reactor: they tap it with the mouse); pinch and hold on an empty spot drags your window to another monitor; in your own window a swipe up makes you bigger and down smaller. While barehands is running you ignore their hands until they hold up a pointing finger for a second (they can untick that in settings → Hand gestures).
 - The barehands board (show_on_board, build_3d_model, edit_3d_model, save_3d_to_drive): a hand-tracked glass board on the user's computer. When they ask to see something or put it on the board, put up a short card and say in one sentence what you put up; it only shows things and can't show you what's on it. 3D: build it with build_3d_model, then change it live by voice ("add a spoiler", "make the wheels red") with edit_3d_model (call it with just the name first if you need the parts). "Show it in pieces" / "put it back together" is show_on_board explode / assemble with the board_title the build or edit returned. Items on your screen panel have a "→ board" button. A DCF goes up with dcf_show_on_board. You can't start barehands itself: they start it on their computer.
 - See through the user's webcam (look_at_camera), only when they ask you to look; answer briefly about what they asked.
 - Move your own window to another monitor (move_window) and make it bigger or smaller (resize_window: "expand", "full screen", "minimize", "shrink", "back to normal"). "Minimize" shrinks you to a small orb in the corner, because you have to stay visible to hear.
@@ -3198,8 +3200,10 @@ function popOut(){
   if(!w){ const a = $("openLink"); a.href = base + "?mini=1"; a.target = "_blank"; a.textContent = "⧉ Open Jarvis in its own window"; a.hidden = false; }
 }
 let installEvt = null;
-addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; $("installBtn").hidden = false; });
-addEventListener("appinstalled", () => { $("installBtn").hidden = true; $("installNote").textContent = "Installed. Open Jarvis from its icon from now on."; });
+// Installed, Jarvis opens in its own window and Chrome lets it talk straight away (no Initialize click)
+addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; $("installBtn").hidden = false; if(!isPopout) $("bootInstall").hidden = false; });
+const INSTALLED_TIP = 'Installed ✓ From now on open Jarvis from its icon: it starts in its own window by itself. To have it open when your computer starts: in Chrome go to chrome://apps, right-click Jarvis, tick "Start app when you sign in".';
+addEventListener("appinstalled", () => { $("installBtn").hidden = true; $("bootInstall").hidden = true; $("installNote").textContent = INSTALLED_TIP; $("bootNote").textContent = INSTALLED_TIP; });
 // Remember how long the tab was hidden, so we can explain why Jarvis didn't hear you
 let hiddenSince = 0, toldAboutTabs = false;
 document.addEventListener("visibilitychange", () => {
@@ -3714,7 +3718,9 @@ function onHand(r){
 function clickable(p){
   if(!p) return null;
   const el = document.elementFromPoint(p.x, p.y);
-  return el?.closest?.("button, a[href], [role=button], #reactor, label.check, summary") || null;
+  // never the reactor: a hand near the face (scratching, fixing a headset) looked like a pinch and cut you off mid-sentence
+  if(!el || el.closest?.("#reactor")) return null;
+  return el.closest?.("button, a[href], [role=button], label.check, summary") || null;
 }
 function onGesture(name){
   logDiag("gesture", name);
@@ -3928,7 +3934,9 @@ $("micChip").onclick = () => { openDrawer(true); refreshMicCheck(); initMicMeter
 $("mcTest").onclick = async () => { micAnalyser = null; $("mcErr").textContent = "none"; await initMicMeter(); refreshMicCheck(); runLevelBar(); if(micAnalyser && wakeOn && !recOn && mode === "idle") startWake(); };
 $("popBtn").onclick = popOut;
 $("popBtn2").onclick = () => { openDrawer(false); popOut(); };
-$("installBtn").onclick = async () => { if(!installEvt) return; installEvt.prompt(); const r = await installEvt.userChoice.catch(() => null); if(r?.outcome === "accepted") $("installBtn").hidden = true; installEvt = null; };
+async function installApp(){ if(!installEvt) return; installEvt.prompt(); const r = await installEvt.userChoice.catch(() => null); if(r?.outcome === "accepted"){ $("installBtn").hidden = true; $("bootInstall").hidden = true; $("installNote").textContent = $("bootNote").textContent = INSTALLED_TIP; } installEvt = null; }
+$("installBtn").onclick = installApp;
+$("bootInstall").onclick = e => { e.stopPropagation(); installApp(); };
 if(window.claude){ $("installBox").hidden = true; $("popBtn").hidden = true; }
 if(isPopout) $("popBtn").hidden = true;   // already in its own window (even when made full screen)   // not available inside claude.ai
 $("closeBtn").onclick = () => openDrawer(false);

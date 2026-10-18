@@ -805,6 +805,11 @@ console.log("Hand gestures (pretend camera hand)");
   await show("Victory", 1200);
   check("✌️ peace sign: focus mode hides the side panels", await p.evaluate(() => document.documentElement.classList.contains("focus")) && !(await p.locator(".side.left").isVisible()));
   await away();
+  const rb = await p.locator("#reactor").boundingBox(), rx = rb.x + rb.width / 2, ry = rb.y + rb.height / 2;
+  const modeBefore = await p.locator("#mode").textContent();
+  await show(null, 800, rx, ry); await show(null, 600, rx, ry, { pinch:true }); await show(null, 300, rx, ry);
+  check("🤏 a pinch on the reactor does nothing (touching your face can't cut you off)", await p.locator("#mode").textContent() === modeBefore && !/CLICK/.test(await p.locator("#gestToast").textContent()) && !(await p.evaluate(() => document.getElementById("airCursor").classList.contains("over"))), await p.locator("#mode").textContent());
+  await away();
   const g = await p.locator("#gearBtn").boundingBox(), gx = g.x + g.width / 2, gy = g.y + g.height / 2;
   await show(null, 1500, gx, gy);
   check("☝️ pointing at a button highlights it", await p.evaluate(() => document.getElementById("airCursor").classList.contains("over")));
@@ -2046,6 +2051,27 @@ console.log("Deals: analyse a property with your own numbers, log it, read Centr
   await settle(p);
   await say(p, "jarvis marie called me back", 900);
   check("'she called back' closes it", await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.followups"))[0].state === "done"));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Install as an app from the start screen (own window, starts by itself)");
+{
+  const p = await open({}, undefined, HTTP_PAGE);
+  check("no install button until Chrome offers it", await p.locator("#bootInstall").isHidden());
+  await p.evaluate(() => { const e = new Event("beforeinstallprompt"); e.prompt = () => { window.__prompted = true; }; e.userChoice = Promise.resolve({ outcome:"accepted" }); dispatchEvent(e); });
+  check("the start screen offers to install Jarvis as an app", await p.locator("#bootInstall").isVisible());
+  await p.click("#bootInstall"); await p.waitForTimeout(200);
+  check("…which asks Chrome to install it, without starting Jarvis in the tab", await p.evaluate(() => window.__prompted === true) && await p.locator("#boot").isVisible());
+  check("…then says how to open it from its icon and start it with the computer", /Start app when you sign in/.test(await p.locator("#bootNote").textContent()) && await p.locator("#bootInstall").isHidden());
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+{
+  // Opened as the app: no Initialize click
+  const p = await open({ script:[] }, undefined, HTTP_PAGE + (HTTP_PAGE.includes("?") ? "&" : "?") + "app=1");
+  await p.waitForTimeout(1500);
+  check("opened as the app, Jarvis starts and greets by itself", await p.locator("#boot").isHidden() && (await p.evaluate(() => window.__spoken)).length >= 1);
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
