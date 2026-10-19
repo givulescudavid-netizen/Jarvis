@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.10.19 — Property folders in the Jarvis Library, and PDFs Jarvis can read
+- **Folders inside the Jarvis Library now work.** Make a folder per property (e.g. "470-472 Rue St-Dominique") and put its listing sheets, PDFs and notes in it. Ask "Jarvis, what do I have on 470 St-Dominique?" or "what's in the Fontaine folder?" and it finds the folder (the address doesn't have to be typed exactly) and reads the files. Before, Jarvis only saw files sitting directly in the Library and skipped anything in a folder.
+- **Jarvis reads PDFs** on the website version too (before, only Google Docs, Sheets and text files). Each PDF is read once and remembered until it changes.
+- **"Jarvis, put the PDFs from my email into folders for each property."** Jarvis finds the emails with PDF attachments (Centris, brokers…), groups them by property address, asks you once, then saves them into a folder per property in your Jarvis Library. Existing folders are reused and files already there aren't copied twice. Nothing is sent or deleted. (Website version only: the claude.ai version can't open email attachments.)
+- Deals that didn't go through stay in their folders, so Jarvis can use them as market comparables later.
+
 ## 2026.10.18.3 — Hand gestures can't cut you off any more
 - A pinch no longer "presses" the reactor. Scratching your nose or adjusting your headset sometimes looked like a pinch on the reactor, which stopped Jarvis listening mid-sentence. You can still tap the reactor with the mouse.
 - Everything else stays: pinch to click buttons, pinch-and-hold to drag Jarvis's window to another screen, palm, fist, thumbs and swipes.
