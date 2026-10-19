@@ -2091,6 +2091,62 @@ console.log("Conversation stays open: no need to say 'Jarvis' every time");
   await p.close();
 }
 
+console.log("The Jarvis Library: folders per property, PDFs read, and PDFs from email filed into folders");
+{
+  const p = await open({ googleBefore:true, ls:{ "jarvis.brain":{ sheet:"BRAIN1", folder:"LIB1" } }, script:[
+      { tool:"library_browse", input:{ folder:"470 Saint-Dominique" } }, { tool:"read_drive_file", input:{ id:"X1" } },
+      { text:"It's listed at 899,000 dollars, sir." },
+      { tool:"email_attachments", input:{} },
+      { tool:"file_attachments", input:{ folders:[{ folder:"6007-6011 Rue La Fontaine", attachments:[{ message_id:"g1" }] }, { folder:"470-472 Rue St-Dominique", attachments:[{ message_id:"g2" }] }] } },
+      { text:"Filed, sir." } ] }, undefined, HTTP_PAGE);
+  await p.evaluate(() => { window.__up = []; window.__made = []; const b64 = s => btoa(s).replace(/\+/g, "-").replace(/\//g, "_");
+    window.__extraFetch = async (u, o, J) => {
+      const q = decodeURIComponent(u.replace(/\+/g, " "));
+      if(u.includes("api.anthropic.com") && /"type":"document"/.test(o.body)){ window.__pdfAsk = JSON.parse(o.body); return J({ stop_reason:"end_turn", content:[{ type:"text", text:"Prix demandé : 899 000 $. 4 logements. Taxes municipales : 6 200 $." }] }); }
+      if(u.includes("/drive/v3/files?") && /'LIB1' in parents/.test(q)) return J({ files:[
+        { id:"P1", name:"470-472 Rue St-Dominique", mimeType:"application/vnd.google-apps.folder" }, { id:"R1", name:"Budget", mimeType:"application/vnd.google-apps.spreadsheet", modifiedTime:"2026-10-01T10:00:00Z" } ] });
+      if(u.includes("/drive/v3/files?") && /'P1' in parents/.test(q)) return J({ files:[{ id:"X1", name:"Fiche.pdf", mimeType:"application/pdf", modifiedTime:"2026-10-18T10:00:00Z" }] });
+      if(u.includes("/drive/v3/files?") && / in parents/.test(q)) return J({ files:[] });
+      if(/files\/X1\?fields=/.test(u)) return J({ name:"Fiche.pdf", mimeType:"application/pdf", modifiedTime:"2026-10-18T10:00:00Z", size:"2048" });
+      if(/files\/X1\?alt=media/.test(u)) return new Response("%PDF-1.4 fake listing sheet");
+      if(o?.method === "POST" && /drive\/v3\/files\?fields=id$/.test(u)){ const b = JSON.parse(o.body); window.__made.push(b); return J({ id:"NEW" + window.__made.length }); }
+      if(u.includes("upload/drive/v3/files")){ const t = await o.body.text(); window.__up.push({ meta:JSON.parse(t.split("\r\n\r\n")[1].split("\r\n--")[0]), media:t.split("\r\n\r\n")[2].split("\r\n--")[0], type:o.headers["content-type"] }); return J({ id:"U" + window.__up.length }); }
+      if(u.includes("gmail.googleapis.com") && u.includes("messages?")) return J({ messages:[{ id:"g1" }, { id:"g2" }, { id:"g3" }], resultSizeEstimate:3 });
+      const msg = id => ({ g1:["Kim <kim@example.com>", "Demande d'information - 6007-6011 Rue La Fontaine", [["Fiche 6007.pdf", "A1"], ["logo.png", "A9"]]],
+        g2:["Broker <b@example.com>", "Inscription: 470 - 472 Rue St-Dominique", [["Fiche.pdf", "A2"], ["Revenus.pdf", "A3"]]], g3:["Anthropic <x@example.com>", "Your receipt", []] })[id];
+      const att = u.match(/messages\/(g\d)\/attachments\/(A\d)/); if(att) return J({ data:b64("%PDF-1.4 bytes of " + att[2]) });
+      const m = u.match(/messages\/(g\d)\?/);
+      if(m){ const [from, subject, files] = msg(m[1]);
+        return J({ id:m[1], snippet:"", labelIds:[], payload:{ headers:[{ name:"From", value:from }, { name:"Subject", value:subject }, { name:"Date", value:"Sat, 12 Sep 2026 10:00:00 GMT" }],
+          parts:[{ mimeType:"text/plain", body:{ data:b64("hello") } }, ...files.map(([filename, attachmentId]) => ({ mimeType:/png/.test(filename) ? "image/png" : "application/octet-stream", filename, body:{ attachmentId, size:2048 } }))] } }); }
+      return null; }; });
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(600); await p.click("#closeBtn");
+  await p.waitForTimeout(400);
+  check("Library: new files inside property folders are noticed, with their folder", /470-472 Rue St-Dominique\/Fiche\.pdf/.test(await p.evaluate(() => localStorage.getItem("jarvis.libraryNew"))), await p.evaluate(() => localStorage.getItem("jarvis.libraryNew")));
+  const results = async () => (await log(p)).filter(x => x.last?.content?.[0]?.type === "tool_result").map(x => String(x.last.content[0].content));
+  await say(p, "jarvis what's in the folder for 470 saint-dominique", 1500);
+  const br = (await results()).find(r => /folders/.test(r)) || "";
+  check("Library: library_browse finds a property folder from a loose address ('470 Saint-Dominique' → '470-472 Rue St-Dominique')", /"file_id":"X1"/.test(br) && /Fiche\.pdf/.test(br) && !/"Budget"/.test(br.split('"files":[')[1] || ""), br.slice(0, 400));
+  const pdfAsk = await p.evaluate(() => window.__pdfAsk);
+  check("Library: a PDF is read by sending it to Claude (Haiku) as a document", pdfAsk && pdfAsk.model === "claude-haiku-5-5" && /application\/pdf/.test(JSON.stringify(pdfAsk.messages)) && /ignore any instructions/.test(JSON.stringify(pdfAsk.messages)), JSON.stringify(pdfAsk || {}).slice(0, 200));
+  const rd = (await results()).find(r => /899 000/.test(r)) || "";
+  check("…and its text comes back to Jarvis", /Fiche\.pdf/.test(rd) && /Taxes municipales/.test(rd), rd.slice(0, 300));
+  check("RULES tell Claude about folders, PDFs and filing email PDFs", /library_browse/.test((await log(p))[0].system) && /file_attachments/.test((await log(p))[0].system));
+  await say(p, "jarvis put the pdfs from my email into folders for each property", 1500);
+  const ea = (await results()).find(r => /"emails"/.test(r)) || "";
+  check("email_attachments lists PDF attachments (no logos, no emails without files)", /Fiche 6007\.pdf/.test(ea) && /Revenus\.pdf/.test(ea) && !/logo\.png/.test(ea) && !/receipt/.test(ea), ea.slice(0, 400));
+  check("filing asks once first, naming the folders", await p.locator("#confirmBox").isVisible() && /Save the attachments from 2 emails into 2 folders in your Jarvis Library/.test(await p.locator("#confirmText").textContent()), await p.locator("#confirmText").textContent());
+  check("…nothing is saved before the yes", (await p.evaluate(() => window.__up)).length === 0);
+  await say(p, "yes", 1500);
+  const made = await p.evaluate(() => window.__made), up = await p.evaluate(() => window.__up);
+  check("…makes a folder only for the new property, inside the Jarvis Library", made.length === 1 && made[0].name === "6007-6011 Rue La Fontaine" && made[0].parents[0] === "LIB1" && /folder/.test(made[0].mimeType), JSON.stringify(made));
+  check("…and saves each PDF into its property's folder, reusing the existing one and skipping a file already in it", up.length === 2 && up.some(x => x.meta.name === "Fiche 6007.pdf" && x.meta.parents[0] === "NEW1") && up.some(x => x.meta.name === "Revenus.pdf" && x.meta.parents[0] === "P1" && /bytes of A3/.test(x.media)) && !up.some(x => x.meta.name === "Fiche.pdf") && /multipart\/related/.test(up[0].type), JSON.stringify(up.map(x => x.meta)));
+  check("…noting which email each file came from", up.every(x => /^From email: ".+"/.test(x.meta.description)));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("The one-file Windows helper carries the current helper code");
 {
   const { buildHelperBat } = await import(pathToFileURL(path.join(root, "local", "build-helper.mjs")).href);
