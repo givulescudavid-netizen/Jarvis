@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026.10.20.2 — DuProprio alerts too
+- When you ask "Jarvis, any good deals?" (or about DuProprio), Jarvis now reads your **DuProprio alert emails** as well as Centris. It opens each listing's duproprio.com page for the numbers, analyses it the same way, and saves it as a comparable. DuProprio account emails (security codes, sign-up) are ignored.
+
 ## 2026.10.20 — Market comparables and price drops
 - **Jarvis now keeps every property it sees as a comparable,** whether you liked it or passed: from Centris pages, broker emails and the PDFs in your Library property folders. Every analysis is saved automatically.
 - **"How does this compare?"** Jarvis checks the comps in the same area and size and compares price per door, cap rate and gross rent multiplier against them, naming the closest ones. Try "what are triplexes going for in Rosemont?".

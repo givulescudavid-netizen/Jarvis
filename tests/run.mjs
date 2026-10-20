@@ -1447,7 +1447,7 @@ console.log("Centris deals and the on-screen panel");
   const diag = JSON.stringify(await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.diag") || "[]")));
   check("problem reports say which listing pages opened and which failed, and why", /couldn't open consumersharingqc\.centris\.ca\/api\/Retrieve\/abc\/\?id=25265270: url_not_accessible/.test(diag) && /opened www\.centris\.ca\/fr\/plex~a-vendre~montreal\/21808900/.test(diag) && !/899 000/.test(diag), diag.slice(-600));
   const wf = L[0].server.find(t => t.name === "web_fetch");
-  check("Centris: Claude can open listing pages (web fetch, centris.ca only) and is told to read price, rents, taxes and utilities there", !!wf && /^web_fetch_2026/.test(wf.type) && JSON.stringify(wf.allowed_domains) === '["centris.ca"]' && wf.max_uses > 0
+  check("Centris: Claude can open listing pages (web fetch, centris.ca and duproprio.com only) and is told to read price, rents, taxes and utilities there", !!wf && /^web_fetch_2026/.test(wf.type) && JSON.stringify(wf.allowed_domains) === '["centris.ca","duproprio.com"]' && wf.max_uses > 0
     && /web_fetch/.test(L[0].system) && /taxes/.test(L[0].system) && /energy/.test(L[0].system), JSON.stringify(wf));
   check("…reads the whole email with the listing link (and drops other links) plus the saved criteria", /Potential gross revenue \$72,000/.test(sent) && /centris\.ca\/en\/4plex~for-sale~montreal-rosemont\/12345678/.test(sent) && !/evil\.example/.test(sent) && /min_cap_rate/.test(sent), sent.slice(0, 600));
   check("deal numbers: cap rate, Canadian mortgage payment, cash flow, verdict", /\\"cap_rate_pct\\":5\.92/.test(sent) && /\\"mortgage_monthly\\":3981/.test(sent) && /\\"cash_flow_monthly\\":453/.test(sent) && /\\"price_per_door\\":224750/.test(sent) && /\\"verdict\\":\\"good\\"/.test(sent), sent.slice(-900));
@@ -2193,6 +2193,33 @@ console.log("Market comparables and price drops");
   const pd = await res();
   check("comps: price drops, with how much and the history", pd.matching === 1 && pd.comps[0].price_change_pct === -5.7 && pd.comps[0].price_history.length === 2, JSON.stringify(pd).slice(0, 400));
   check("RULES explain comps and price drops", /comp_add/.test((await log(p))[0].system) && /price_drops/.test((await log(p))[0].system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("DuProprio alert emails are read alongside Centris");
+{
+  const b64 = t => Buffer.from(t).toString("base64").replace(/\+/g, "-").replace(/\//g, "_");
+  const html = `<html><body><p>New properties match your search</p>
+    <a href="https://duproprio.com/fr/montreal/rosemont/triplex-a-vendre/hab-1234-rue-fake-1098765">Triplex à vendre - 1234 Rue Fake, Montréal - 749 000 $</a>
+    <a href="https://duproprio.com/fr/montreal/rosemont/triplex-a-vendre/hab-1234-rue-fake-1098765">Voir</a>
+    <a href="https://duproprio.com/fr/desabonnement?x=1">Se désabonner de cette alerte</a></body></html>`;
+  const p = await open({ script:[ { tool:"centris_listings", input:{} }, { text:"One DuProprio triplex, sir." } ] });
+  await p.evaluate(({ html }) => { window.__gq = []; window.__extraFetch = async (u, o, J) => {
+    if(!u.includes("gmail.googleapis.com")) return;
+    if(/messages\?/.test(u)){ const q = decodeURIComponent(u.split("q=")[1]); window.__gq.push(q); return J(/duproprio/.test(q) ? { messages:[{ id:"d1" }, { id:"d2" }], resultSizeEstimate:2 } : { messages:[], resultSizeEstimate:0 }); }
+    const m = u.match(/messages\/(d\d)/); if(!m) return;
+    const subject = m[1] === "d1" ? "Nouvelles propriétés pour votre alerte" : "Email Address Verification";
+    return J({ id:m[1], snippet:"", payload:{ headers:[{ name:"From", value:"DuProprio <noreply@duproprio.com>" }, { name:"Subject", value:subject }, { name:"Date", value:"Tue, 20 Oct 2026" }], mimeType:"text/html", body:{ data:html } } });
+  }; }, { html:b64(html) });
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(400); await p.click("#closeBtn");
+  await say(p, "jarvis any new listings", 1200);
+  const L = await log(p), r = String(L.filter(x => x.last?.content?.[0]?.type === "tool_result").at(-1)?.last.content[0].content || "");
+  check("DuProprio: its alert emails are searched too", (await p.evaluate(() => window.__gq)).some(q => /^from:duproprio/.test(q)));
+  check("…each listing comes with its duproprio.com page (unsubscribe links and account emails left out)", /"site":"DuProprio"/.test(r) && /Triplex à vendre - 1234 Rue Fake/.test(r) && (r.match(/hab-1234-rue-fake-1098765/g) || []).length >= 1 && !/"listing":"[^"]*désabonner/i.test(r) && !/Verification/.test(r), r.slice(0, 500));
+  const fetchTool = L.find(x => x.server?.length)?.server.find(t => /web_fetch/.test(t.type));
+  check("…and Claude may open duproprio.com pages (still nothing else)", fetchTool && JSON.stringify(fetchTool.allowed_domains) === '["centris.ca","duproprio.com"]', JSON.stringify(fetchTool));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
