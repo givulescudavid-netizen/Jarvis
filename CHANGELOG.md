@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026.10.20.2 — DuProprio alerts too
+- When you ask "Jarvis, any good deals?" (or about DuProprio), Jarvis now reads your **DuProprio alert emails** as well as Centris. It opens each listing's duproprio.com page for the numbers, analyses it the same way, and saves it as a comparable. DuProprio account emails (security codes, sign-up) are ignored.
+
+## 2026.10.20 — Market comparables and price drops
+- **Jarvis now keeps every property it sees as a comparable,** whether you liked it or passed: from Centris pages, broker emails and the PDFs in your Library property folders. Every analysis is saved automatically.
+- **"How does this compare?"** Jarvis checks the comps in the same area and size and compares price per door, cap rate and gross rent multiplier against them, naming the closest ones. Try "what are triplexes going for in Rosemont?".
+- **Price drops.** When a listing Jarvis has seen comes back cheaper (a "Prix réduit" alert, a broker's "baisse de prix" email, a new price on the page), it tells you how much and since when. Ask "any price drops?" or "what's been sitting for a while?".
+- **A "Jarvis Comps" sheet** in your Jarvis Library lists them all with their price history (Jarvis asks once before making it).
+- Days on market count from when Jarvis first saw a listing, unless it read the listing date.
+
 ## 2026.10.19 — Property folders in the Jarvis Library, and PDFs Jarvis can read
 - **Folders inside the Jarvis Library now work.** Make a folder per property (e.g. "470-472 Rue St-Dominique") and put its listing sheets, PDFs and notes in it. Ask "Jarvis, what do I have on 470 St-Dominique?" or "what's in the Fontaine folder?" and it finds the folder (the address doesn't have to be typed exactly) and reads the files. Before, Jarvis only saw files sitting directly in the Library and skipped anything in a folder.
 - **Jarvis reads PDFs** on the website version too (before, only Google Docs, Sheets and text files). Each PDF is read once and remembered until it changes.

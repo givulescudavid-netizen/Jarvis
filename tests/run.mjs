@@ -1447,7 +1447,7 @@ console.log("Centris deals and the on-screen panel");
   const diag = JSON.stringify(await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.diag") || "[]")));
   check("problem reports say which listing pages opened and which failed, and why", /couldn't open consumersharingqc\.centris\.ca\/api\/Retrieve\/abc\/\?id=25265270: url_not_accessible/.test(diag) && /opened www\.centris\.ca\/fr\/plex~a-vendre~montreal\/21808900/.test(diag) && !/899 000/.test(diag), diag.slice(-600));
   const wf = L[0].server.find(t => t.name === "web_fetch");
-  check("Centris: Claude can open listing pages (web fetch, centris.ca only) and is told to read price, rents, taxes and utilities there", !!wf && /^web_fetch_2026/.test(wf.type) && JSON.stringify(wf.allowed_domains) === '["centris.ca"]' && wf.max_uses > 0
+  check("Centris: Claude can open listing pages (web fetch, centris.ca and duproprio.com only) and is told to read price, rents, taxes and utilities there", !!wf && /^web_fetch_2026/.test(wf.type) && JSON.stringify(wf.allowed_domains) === '["centris.ca","duproprio.com"]' && wf.max_uses > 0
     && /web_fetch/.test(L[0].system) && /taxes/.test(L[0].system) && /energy/.test(L[0].system), JSON.stringify(wf));
   check("…reads the whole email with the listing link (and drops other links) plus the saved criteria", /Potential gross revenue \$72,000/.test(sent) && /centris\.ca\/en\/4plex~for-sale~montreal-rosemont\/12345678/.test(sent) && !/evil\.example/.test(sent) && /min_cap_rate/.test(sent), sent.slice(0, 600));
   check("deal numbers: cap rate, Canadian mortgage payment, cash flow, verdict", /\\"cap_rate_pct\\":5\.92/.test(sent) && /\\"mortgage_monthly\\":3981/.test(sent) && /\\"cash_flow_monthly\\":453/.test(sent) && /\\"price_per_door\\":224750/.test(sent) && /\\"verdict\\":\\"good\\"/.test(sent), sent.slice(-900));
@@ -2143,6 +2143,83 @@ console.log("The Jarvis Library: folders per property, PDFs read, and PDFs from 
   check("…makes a folder only for the new property, inside the Jarvis Library", made.length === 1 && made[0].name === "6007-6011 Rue La Fontaine" && made[0].parents[0] === "LIB1" && /folder/.test(made[0].mimeType), JSON.stringify(made));
   check("…and saves each PDF into its property's folder, reusing the existing one and skipping a file already in it", up.length === 2 && up.some(x => x.meta.name === "Fiche 6007.pdf" && x.meta.parents[0] === "NEW1") && up.some(x => x.meta.name === "Revenus.pdf" && x.meta.parents[0] === "P1" && /bytes of A3/.test(x.media)) && !up.some(x => x.meta.name === "Fiche.pdf") && /multipart\/related/.test(up[0].type), JSON.stringify(up.map(x => x.meta)));
   check("…noting which email each file came from", up.every(x => /^From email: ".+"/.test(x.meta.description)));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Market comparables and price drops");
+{
+  const html = `<html><body><div>Prix réduit</div><div>470 - 472, Rue Saint-Dominique, Montréal (Le Plateau-Mont-Royal) - No Centris 9578091</div><a href="https://consumersharingqc.centris.ca/x?id=9578091">Voir la propriété</a></body></html>`;
+  const b64 = t => Buffer.from(t).toString("base64").replace(/\+/g, "-").replace(/\//g, "_");
+  const p = await open({ googleBefore:true, script:[
+      { tool:"analyze_property", input:{ address:"470-472 Rue St-Dominique, Montréal", centris_no:"9578091", area:"Plateau, Montreal", price:900000, units:4, gross_revenue:60000, taxes:7000 } }, { text:"Done." },
+      { tool:"comp_add", input:{ address:"5272-5280 Papineau, Montréal", area:"Plateau, Montreal", type:"5-plex", units:5, price:1100000, gross_revenue:70000, assessment:1000000, source:"broker email" } }, { text:"Saved." },
+      { tool:"comp_add", input:{ address:"9465 Lajeunesse, Montréal", area:"Ahuntsic, Montreal", units:6, price:1300000 } }, { text:"Saved." },
+      { tool:"centris_listings", input:{} }, { text:"Done." },
+      { tool:"analyze_property", input:{ address:"470 - 472, Rue Saint-Dominique, Montréal", centris_no:"9578091", price:849000, units:4, gross_revenue:60000, taxes:7000 } }, { text:"It dropped 5.7%, sir." },
+      { tool:"comps", input:{ area:"plateau", exclude:"9578091" } }, { text:"Done." },
+      { tool:"comps", input:{ price_drops:true } }, { text:"Done." } ] }, undefined, HTTP_PAGE);
+  await p.evaluate(({ html }) => { window.__sheet = []; window.__extraFetch = async (u, o, J) => {
+    if(u.includes("upload/drive/v3/files")){ window.__sheet.push({ create:String(o.body).includes("Jarvis Comps") }); return J({ id:"COMPS1" }); }
+    if(u.includes("sheets.googleapis.com")){ window.__sheet.push({ u, body:o?.body ? JSON.parse(o.body) : null }); return J({}); }
+    if(!u.includes("gmail.googleapis.com")) return;
+    if(/messages\?/.test(u)) return J({ messages:[{ id:"c1" }], resultSizeEstimate:1 });
+    if(u.includes("/messages/c1")) return J({ snippet:"", payload:{ headers:[{ name:"From", value:"Centris <alertes@centris.ca>" }, { name:"Subject", value:"Prix réduit" }, { name:"Date", value:"Mon, 19 Oct 2026" }], mimeType:"text/html", body:{ data:html } } });
+  }; }, { html:b64(html) });
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(400); await p.click("#closeBtn");
+  const res = async () => JSON.parse((await log(p)).filter(x => x.last?.content?.[0]?.type === "tool_result").at(-1).last.content[0].content);
+  const comps = () => p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.comps") || "[]"));
+  await say(p, "jarvis analyse 470 saint-dominique", 900);
+  const c1 = await comps();
+  check("comps: an analysis saves the property as a comparable by itself, without asking", c1.length === 1 && c1[0].centris_no === "9578091" && c1[0].prices[0].price === 900000 && c1[0].area === "Plateau, Montreal" && c1[0].cap_rate_pct > 0 && !(await p.locator("#confirmBox").isVisible()), JSON.stringify(c1));
+  await say(p, "jarvis save papineau as a comp", 800);
+  check("comps: saving a comp by hand offers a Jarvis Comps sheet, once", await p.locator("#confirmBox").isVisible() && /Jarvis Comps/.test(await p.locator("#confirmText").textContent()));
+  await say(p, "yes", 2500);
+  const sh = await p.evaluate(() => window.__sheet);
+  check("…makes the sheet and writes every comp into it", sh.some(x => x.create) && sh.some(x => /COMPS1\/values:batchUpdate/.test(x.u || "") && /Papineau/.test(JSON.stringify(x.body)) && /St-Dominique/.test(JSON.stringify(x.body))), JSON.stringify(sh).slice(0, 300));
+  await say(p, "jarvis save lajeunesse too", 1500);
+  check("…and doesn't ask again", !(await p.locator("#confirmBox").isVisible()) && (await comps()).length === 3);
+  await say(p, "jarvis any new centris listings", 900);
+  const cl = JSON.stringify(await res());
+  check("Centris alerts: a listing Jarvis has seen comes with its last price, and a 'Prix réduit' asks for the new price", /"seen_before":\{"last_price":900000/.test(cl) && /Its price changed/.test(cl), cl.slice(0, 500));
+  await say(p, "jarvis what's the new price on it", 900);
+  const a2 = await res(), c2 = (await comps()).find(c => c.centris_no === "9578091");
+  check("comps: a new price goes into the history and the drop is reported (same listing, address written differently)", (await comps()).length === 3 && c2.prices.length === 2 && a2.price_change?.pct === -5.7 && a2.price_change.from === 900000, JSON.stringify(a2.price_change));
+  await say(p, "jarvis how does it compare to the plateau", 900);
+  const cp = await res();
+  check("comps: by area, leaving out the deal itself, with medians", cp.matching === 1 && cp.comps[0].address.includes("Papineau") && cp.medians.price_per_door === 220000 && cp.comps[0].price_vs_assessment_pct === 110, JSON.stringify(cp).slice(0, 400));
+  await say(p, "jarvis any price drops", 900);
+  const pd = await res();
+  check("comps: price drops, with how much and the history", pd.matching === 1 && pd.comps[0].price_change_pct === -5.7 && pd.comps[0].price_history.length === 2, JSON.stringify(pd).slice(0, 400));
+  check("RULES explain comps and price drops", /comp_add/.test((await log(p))[0].system) && /price_drops/.test((await log(p))[0].system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("DuProprio alert emails are read alongside Centris");
+{
+  const b64 = t => Buffer.from(t).toString("base64").replace(/\+/g, "-").replace(/\//g, "_");
+  const html = `<html><body><p>New properties match your search</p>
+    <a href="https://duproprio.com/fr/montreal/rosemont/triplex-a-vendre/hab-1234-rue-fake-1098765">Triplex à vendre - 1234 Rue Fake, Montréal - 749 000 $</a>
+    <a href="https://duproprio.com/fr/montreal/rosemont/triplex-a-vendre/hab-1234-rue-fake-1098765">Voir</a>
+    <a href="https://duproprio.com/fr/desabonnement?x=1">Se désabonner de cette alerte</a></body></html>`;
+  const p = await open({ script:[ { tool:"centris_listings", input:{} }, { text:"One DuProprio triplex, sir." } ] });
+  await p.evaluate(({ html }) => { window.__gq = []; window.__extraFetch = async (u, o, J) => {
+    if(!u.includes("gmail.googleapis.com")) return;
+    if(/messages\?/.test(u)){ const q = decodeURIComponent(u.split("q=")[1]); window.__gq.push(q); return J(/duproprio/.test(q) ? { messages:[{ id:"d1" }, { id:"d2" }], resultSizeEstimate:2 } : { messages:[], resultSizeEstimate:0 }); }
+    const m = u.match(/messages\/(d\d)/); if(!m) return;
+    const subject = m[1] === "d1" ? "Nouvelles propriétés pour votre alerte" : "Email Address Verification";
+    return J({ id:m[1], snippet:"", payload:{ headers:[{ name:"From", value:"DuProprio <noreply@duproprio.com>" }, { name:"Subject", value:subject }, { name:"Date", value:"Tue, 20 Oct 2026" }], mimeType:"text/html", body:{ data:html } } });
+  }; }, { html:b64(html) });
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(400); await p.click("#closeBtn");
+  await say(p, "jarvis any new listings", 1200);
+  const L = await log(p), r = String(L.filter(x => x.last?.content?.[0]?.type === "tool_result").at(-1)?.last.content[0].content || "");
+  check("DuProprio: its alert emails are searched too", (await p.evaluate(() => window.__gq)).some(q => /^from:duproprio/.test(q)));
+  check("…each listing comes with its duproprio.com page (unsubscribe links and account emails left out)", /"site":"DuProprio"/.test(r) && /Triplex à vendre - 1234 Rue Fake/.test(r) && (r.match(/hab-1234-rue-fake-1098765/g) || []).length >= 1 && !/"listing":"[^"]*désabonner/i.test(r) && !/Verification/.test(r), r.slice(0, 500));
+  const fetchTool = L.find(x => x.server?.length)?.server.find(t => /web_fetch/.test(t.type));
+  check("…and Claude may open duproprio.com pages (still nothing else)", fetchTool && JSON.stringify(fetchTool.allowed_domains) === '["centris.ca","duproprio.com"]', JSON.stringify(fetchTool));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
