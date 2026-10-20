@@ -2147,6 +2147,56 @@ console.log("The Jarvis Library: folders per property, PDFs read, and PDFs from 
   await p.close();
 }
 
+console.log("Market comparables and price drops");
+{
+  const html = `<html><body><div>Prix réduit</div><div>470 - 472, Rue Saint-Dominique, Montréal (Le Plateau-Mont-Royal) - No Centris 9578091</div><a href="https://consumersharingqc.centris.ca/x?id=9578091">Voir la propriété</a></body></html>`;
+  const b64 = t => Buffer.from(t).toString("base64").replace(/\+/g, "-").replace(/\//g, "_");
+  const p = await open({ googleBefore:true, script:[
+      { tool:"analyze_property", input:{ address:"470-472 Rue St-Dominique, Montréal", centris_no:"9578091", area:"Plateau, Montreal", price:900000, units:4, gross_revenue:60000, taxes:7000 } }, { text:"Done." },
+      { tool:"comp_add", input:{ address:"5272-5280 Papineau, Montréal", area:"Plateau, Montreal", type:"5-plex", units:5, price:1100000, gross_revenue:70000, assessment:1000000, source:"broker email" } }, { text:"Saved." },
+      { tool:"comp_add", input:{ address:"9465 Lajeunesse, Montréal", area:"Ahuntsic, Montreal", units:6, price:1300000 } }, { text:"Saved." },
+      { tool:"centris_listings", input:{} }, { text:"Done." },
+      { tool:"analyze_property", input:{ address:"470 - 472, Rue Saint-Dominique, Montréal", centris_no:"9578091", price:849000, units:4, gross_revenue:60000, taxes:7000 } }, { text:"It dropped 5.7%, sir." },
+      { tool:"comps", input:{ area:"plateau", exclude:"9578091" } }, { text:"Done." },
+      { tool:"comps", input:{ price_drops:true } }, { text:"Done." } ] }, undefined, HTTP_PAGE);
+  await p.evaluate(({ html }) => { window.__sheet = []; window.__extraFetch = async (u, o, J) => {
+    if(u.includes("upload/drive/v3/files")){ window.__sheet.push({ create:String(o.body).includes("Jarvis Comps") }); return J({ id:"COMPS1" }); }
+    if(u.includes("sheets.googleapis.com")){ window.__sheet.push({ u, body:o?.body ? JSON.parse(o.body) : null }); return J({}); }
+    if(!u.includes("gmail.googleapis.com")) return;
+    if(/messages\?/.test(u)) return J({ messages:[{ id:"c1" }], resultSizeEstimate:1 });
+    if(u.includes("/messages/c1")) return J({ snippet:"", payload:{ headers:[{ name:"From", value:"Centris <alertes@centris.ca>" }, { name:"Subject", value:"Prix réduit" }, { name:"Date", value:"Mon, 19 Oct 2026" }], mimeType:"text/html", body:{ data:html } } });
+  }; }, { html:b64(html) });
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(400); await p.click("#closeBtn");
+  const res = async () => JSON.parse((await log(p)).filter(x => x.last?.content?.[0]?.type === "tool_result").at(-1).last.content[0].content);
+  const comps = () => p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.comps") || "[]"));
+  await say(p, "jarvis analyse 470 saint-dominique", 900);
+  const c1 = await comps();
+  check("comps: an analysis saves the property as a comparable by itself, without asking", c1.length === 1 && c1[0].centris_no === "9578091" && c1[0].prices[0].price === 900000 && c1[0].area === "Plateau, Montreal" && c1[0].cap_rate_pct > 0 && !(await p.locator("#confirmBox").isVisible()), JSON.stringify(c1));
+  await say(p, "jarvis save papineau as a comp", 800);
+  check("comps: saving a comp by hand offers a Jarvis Comps sheet, once", await p.locator("#confirmBox").isVisible() && /Jarvis Comps/.test(await p.locator("#confirmText").textContent()));
+  await say(p, "yes", 2500);
+  const sh = await p.evaluate(() => window.__sheet);
+  check("…makes the sheet and writes every comp into it", sh.some(x => x.create) && sh.some(x => /COMPS1\/values:batchUpdate/.test(x.u || "") && /Papineau/.test(JSON.stringify(x.body)) && /St-Dominique/.test(JSON.stringify(x.body))), JSON.stringify(sh).slice(0, 300));
+  await say(p, "jarvis save lajeunesse too", 1500);
+  check("…and doesn't ask again", !(await p.locator("#confirmBox").isVisible()) && (await comps()).length === 3);
+  await say(p, "jarvis any new centris listings", 900);
+  const cl = JSON.stringify(await res());
+  check("Centris alerts: a listing Jarvis has seen comes with its last price, and a 'Prix réduit' asks for the new price", /"seen_before":\{"last_price":900000/.test(cl) && /Its price changed/.test(cl), cl.slice(0, 500));
+  await say(p, "jarvis what's the new price on it", 900);
+  const a2 = await res(), c2 = (await comps()).find(c => c.centris_no === "9578091");
+  check("comps: a new price goes into the history and the drop is reported (same listing, address written differently)", (await comps()).length === 3 && c2.prices.length === 2 && a2.price_change?.pct === -5.7 && a2.price_change.from === 900000, JSON.stringify(a2.price_change));
+  await say(p, "jarvis how does it compare to the plateau", 900);
+  const cp = await res();
+  check("comps: by area, leaving out the deal itself, with medians", cp.matching === 1 && cp.comps[0].address.includes("Papineau") && cp.medians.price_per_door === 220000 && cp.comps[0].price_vs_assessment_pct === 110, JSON.stringify(cp).slice(0, 400));
+  await say(p, "jarvis any price drops", 900);
+  const pd = await res();
+  check("comps: price drops, with how much and the history", pd.matching === 1 && pd.comps[0].price_change_pct === -5.7 && pd.comps[0].price_history.length === 2, JSON.stringify(pd).slice(0, 400));
+  check("RULES explain comps and price drops", /comp_add/.test((await log(p))[0].system) && /price_drops/.test((await log(p))[0].system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("The one-file Windows helper carries the current helper code");
 {
   const { buildHelperBat } = await import(pathToFileURL(path.join(root, "local", "build-helper.mjs")).href);
