@@ -2224,6 +2224,19 @@ console.log("DuProprio alert emails are read alongside Centris");
   await p.close();
 }
 
+console.log("Judging a deal: the same six steps as the Deal Scout");
+{
+  const p = await open({ script:[
+    { tool:"analyze_property", input:{ address:"1 Rue Test", price:1300000, units:4, gross_revenue:60000, revenue_source:"potential (seller)", taxes:7000, expenses:9000, assessment:900000 } }, { text:"Pass, sir." } ] });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis what do you think of 1 rue test", 900);
+  const L = await log(p), r = JSON.parse(L.filter(x => x.last?.content?.[0]?.type === "tool_result").at(-1).last.content[0].content);
+  check("RULES: Jarvis judges a property in six steps and ends with pursue / watch / pass", /six steps/.test(L[0].system) && /Data inconsistencies and hidden assumptions/.test(L[0].system) && /PURSUE/.test(L[0].system) && /Distress and pricing gaps/.test(L[0].system));
+  check("analysis flags seller expenses far below a realistic budget, 'potential' revenue, and a price far above the assessment", r.data_checks?.length === 3 && /below a realistic budget/.test(r.data_checks[0]) && /rent roll/.test(r.data_checks[1]) && r.price_vs_assessment_pct === 144, JSON.stringify(r.data_checks));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("The one-file Windows helper carries the current helper code");
 {
   const { buildHelperBat } = await import(pathToFileURL(path.join(root, "local", "build-helper.mjs")).href);
