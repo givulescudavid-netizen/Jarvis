@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.21 — Jarvis judges a deal the way your agents do
+- When you ask Jarvis about a property ("what do you think of 470 St-Dominique?"), it now works through the same six steps as the Deal Scout: the right comparables, NOI and value, inconsistencies and hidden assumptions in the seller's numbers, signs of distress and pricing gaps, risks and opportunities, then a decision (pursue, watch or pass, with a target price when the numbers support one).
+- Out loud you get the decision and the key numbers in a few sentences; the full breakdown goes on screen.
+- The analysis now flags by itself when the seller's expenses are far below a realistic budget, when the revenue is only "potential", and when the asking price is well above the municipal assessment.
+
 ## 2026.10.20.2 — DuProprio alerts too
 - When you ask "Jarvis, any good deals?" (or about DuProprio), Jarvis now reads your **DuProprio alert emails** as well as Centris. It opens each listing's duproprio.com page for the numbers, analyses it the same way, and saves it as a comparable. DuProprio account emails (security codes, sign-up) are ignored.
 
