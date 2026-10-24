@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.10.24 — Jarvis searches Centris and DuProprio for you, not just your emails
+- **"Jarvis, find me triplexes in Rosemont under 900k"** or **"what's for sale in Laval?"**: Jarvis now searches Centris and DuProprio itself, opens the listings that fit, runs its usual analysis, ranks the best ones and puts them on screen. You no longer need an alert email for a property to be looked at.
+- With no area or price given, it uses your saved deal criteria (areas, units, max price). If you haven't saved an area yet, it asks you.
+- It tells you which results are **new** and which it has already seen, and whether a price changed since.
+- Other sites (realtor.ca, Kijiji, LesPAC) can show up in the search, but Jarvis can only read their search summary, not the full page, and it says so.
+- "Any good deals?" still starts with your alert emails, and Jarvis now offers to search the sites too.
+
 ## 2026.10.21 — Jarvis judges a deal the way your agents do
 - When you ask Jarvis about a property ("what do you think of 470 St-Dominique?"), it now works through the same six steps as the Deal Scout: the right comparables, NOI and value, inconsistencies and hidden assumptions in the seller's numbers, signs of distress and pricing gaps, risks and opportunities, then a decision (pursue, watch or pass, with a target price when the numbers support one).
 - Out loud you get the decision and the key numbers in a few sentences; the full breakdown goes on screen.

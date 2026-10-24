@@ -1395,6 +1395,25 @@ console.log("Reminders, weather, travel times, Uber and hotels (website version)
   await p.close();
 }
 
+console.log("Finding deals on Centris and DuProprio directly, not only in the emails");
+{
+  const p = await open({ ls:{ "jarvis.dealCriteria":{ areas:"Rosemont, Villeray", min_units:3, max_price:900000 },
+    "jarvis.comps":[{ key:"123 rue fake", address:"123 Rue Fake, Montréal (Rosemont)", area:"Rosemont", centris_no:"12345678", first_seen:"2026-10-01", last_seen:"2026-10-01", prices:[{ date:"2026-10-01", price:899000 }], status:"for sale" }] }, script:[
+    { tool:"find_listings", input:{ type:"triplex" } }, { text:"Searching, sir." },
+    { tool:"find_listings", input:{ area:"Laval", max_price:"750000" } }, { text:"Searching, sir." } ]});
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis find me triplexes for sale", 900);
+  const L = await log(p), r = JSON.parse(L.at(-1).last.content[0].content);
+  check("find_listings is offered and Claude is told to search the sites, not only the emails", L[0].tools.includes("find_listings") && /find_listings/.test(L[0].system) && /Don't say you can only see their emails/.test(L[0].system));
+  check("…uses the saved areas, units and price, with a Centris and a DuProprio search per area", JSON.stringify(r.searching_for.areas) === '["Rosemont","Villeray"]' && r.searching_for.type === "triplex" && r.searching_for.max_price === 900000
+    && r.searches.length === 4 && /^centris\.ca triplex à vendre Rosemont 3 logements$/.test(r.searches[0]) && /^duproprio triplex à vendre Rosemont$/.test(r.searches[1]) && /web_fetch/.test(r.how) && /comp_add/.test(r.how), JSON.stringify(r).slice(0, 600));
+  check("…and lists what Jarvis has already seen there, so new listings stand out", r.already_seen?.listings?.length === 1 && r.already_seen.listings[0].centris_no === "12345678" && r.already_seen.listings[0].price === 899000, JSON.stringify(r.already_seen));
+  await say(p, "jarvis what's for sale in laval under 750k", 900);
+  const r2 = JSON.parse((await log(p)).at(-1).last.content[0].content);
+  check("…an area and price asked for override the saved ones", JSON.stringify(r2.searching_for.areas) === '["Laval"]' && r2.searching_for.max_price === 750000 && r2.already_seen === "none yet in these areas: every result is new", JSON.stringify(r2).slice(0, 400));
+  await p.close();
+}
+
 console.log("Centris deals and the on-screen panel");
 {
   const html = `<html><body><h1>3 new properties match your search</h1>
