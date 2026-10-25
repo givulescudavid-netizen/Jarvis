@@ -150,7 +150,6 @@ html.mini .side{display:none}
 html.focus .side{display:none}
 #airCursor{position:fixed;left:0;top:0;width:26px;height:26px;margin:-13px 0 0 -13px;border-radius:50%;border:2px solid var(--cyan);box-shadow:var(--glow);pointer-events:none;z-index:60;transition:width .12s,height .12s,margin .12s,background .12s}
 #airCursor.pinch{width:14px;height:14px;margin:-7px 0 0 -7px;background:var(--cyan)}
-#airCursor.grab{width:34px;height:34px;margin:-17px 0 0 -17px;border-style:dashed;background:rgba(95,220,255,.25)}
 #airCursor.over{border-color:var(--amber);box-shadow:0 0 8px rgba(255,174,52,.8)}
 #handHud{position:fixed;left:16px;bottom:16px;width:150px;height:112px;border:1px solid var(--line);background:rgba(1,5,9,.6);z-index:5;pointer-events:none}
 #gestToast{position:fixed;left:50%;top:18%;transform:translateX(-50%);font-family:var(--f-mono);font-size:1rem;letter-spacing:.12em;color:var(--ice);text-shadow:var(--glow);border:1px solid var(--line-hi);padding:6px 14px;background:rgba(1,5,9,.75);z-index:61;pointer-events:none;opacity:0;transition:opacity .25s}
@@ -365,8 +364,8 @@ ul.disp li .tob{align-self:flex-start;font-size:.75rem;padding:1px 6px}
   <section>
     <h3>Hand gestures</h3>
     <label class="check"><input type="checkbox" id="gestOn"> Control Jarvis with your hand (webcam)</label>
-    <p class="note" id="gestHelp">✋ Hold an open palm: wake Jarvis · ✊ Fist: stop talking · 👍 / 👎: yes / no to "Shall I go ahead?" · ✌️ Peace: focus mode (hide the side panels) · 🤟 Rock on: play music you like · ☝️ Point to move the cursor, pinch thumb and finger to click a button (not the reactor, so touching your face can't cut you off) · 🤏 Pinch and hold on an empty spot to grab Jarvis's window, move your hand to drag it to another screen, let go to drop it (pop-out or installed app only) · 👆 / 👇 Swipe up / down: make Jarvis's window bigger (full screen) or smaller (a small orb in the corner), pop-out or installed app only · 👋 Swipe sideways: close what's open. The video never leaves your computer.</p>
-    <p class="note">Moving between screens (pinch-drag, or say "Jarvis, move to the other screen") needs Chrome's OK once: <button type="button" id="screensBtn">Allow moving between screens</button></p>
+    <p class="note" id="gestHelp">✋ Hold an open palm: wake Jarvis · ✊ Fist: stop talking · 👍 / 👎: yes / no to "Shall I go ahead?" · ✌️ Peace: focus mode (hide the side panels) · 🤟 Rock on: play music you like · ☝️ Point to move the cursor, pinch thumb and finger to click a button (not the reactor, so touching your face can't cut you off) · 👆 / 👇 Swipe up / down: make Jarvis's window bigger (full screen) or smaller (a small orb in the corner), pop-out or installed app only · 👋 Swipe sideways: close what's open. The video never leaves your computer.</p>
+    <p class="note">Moving between screens (say "Jarvis, move to the other screen") needs Chrome's OK once: <button type="button" id="screensBtn">Allow moving between screens</button></p>
     <p class="note" id="screensStatus"></p>
     <label class="check"><input type="checkbox" id="gestBoardPause"> While barehands is running, ignore my hands unless I hold up a pointing finger ☝️ first (so moving cards on the board doesn't click things in Jarvis)</label>
     <p class="note" id="gestStatus"></p>
@@ -462,7 +461,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.10.25";
+const VERSION = "2026.10.25.2";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -556,7 +555,7 @@ What you CAN do, using your tools (use them; don't say you can't when a tool fit
 - Weather anywhere, now and for the next days (get_weather), and travel times between places by car, on foot or by bike (travel_time). Driving times don't include live traffic: say "usually about 25 minutes" and offer to open Google Maps for live traffic. If the user says "home", "the office" or a person's place and you don't know the address, ask once, then remember it.
 - Uber price and pickup estimates for a ride right now (uber_estimate). You can't book: the user books in the Uber app. On the website version it opens Uber with the trip filled in.
 - Hotels from Tripadvisor (find_hotels, and hotel_info for one hotel): give two or three good options with price per night, rating and area, not the whole list. You can't book; offer to open the hotel's page. On the website version, find_hotels opens Tripadvisor and you suggest options from web search.
-- Hand gestures (if switched on in settings, website in Chrome), for when they ask how they work: open palm wakes you, fist stops you talking, thumbs up/down answer "Shall I go ahead?", peace sign toggles focus mode, "rock on" (🤟) asks you for music they like, pointing moves a cursor and a pinch clicks buttons (never the reactor: they tap it with the mouse); pinch and hold on an empty spot drags your window to another monitor; in your own window a swipe up makes you bigger and down smaller. While barehands is running you ignore their hands until they hold up a pointing finger for a second (they can untick that in settings → Hand gestures).
+- Hand gestures (if switched on in settings, website in Chrome), for when they ask how they work: open palm wakes you, fist stops you talking, thumbs up/down answer "Shall I go ahead?", peace sign toggles focus mode, "rock on" (🤟) asks you for music they like, pointing moves a cursor and a pinch clicks buttons (never the reactor: they tap it with the mouse); to move your window to another monitor they ask you by voice (there's no hand gesture for it); in your own window a swipe up makes you bigger and down smaller. While barehands is running you ignore their hands until they hold up a pointing finger for a second (they can untick that in settings → Hand gestures).
 - The barehands board (show_on_board, build_3d_model, edit_3d_model, save_3d_to_drive): a hand-tracked glass board on the user's computer. When they ask to see something or put it on the board, put up a short card and say in one sentence what you put up; it only shows things and can't show you what's on it. 3D: build it with build_3d_model, then change it live by voice ("add a spoiler", "make the wheels red") with edit_3d_model (call it with just the name first if you need the parts). "Show it in pieces" / "put it back together" is show_on_board explode / assemble with the board_title the build or edit returned. Items on your screen panel have a "→ board" button. A DCF goes up with dcf_show_on_board. You can't start barehands itself: they start it on their computer.
 - See through the user's webcam (look_at_camera), only when they ask you to look; answer briefly about what they asked.
 - Move your own window to another monitor (move_window) and make it bigger or smaller (resize_window: "expand", "full screen", "minimize", "shrink", "back to normal"). "Minimize" shrinks you to a small orb in the corner, because you have to stay visible to hear.
@@ -3851,7 +3850,6 @@ async function screenList(){
   catch(e){ logDiag("screens", e?.message || String(e)); return null; }
 }
 const sameScreen = (a, b) => a && b && a.left === b.left && a.top === b.top;
-function screenAt(list, x, y){ return list.find(s => x >= s.left && x < s.left + s.width && y >= s.top && y < s.top + s.height) || list.find(s => sameScreen(s, scr.details.currentScreen)) || list[0]; }
 // Puts the window on screen s; fx / fy (0..1) say where, so it keeps its spot (e.g. top right) from the old screen.
 function placeOn(s, fx, fy){
   const w = Math.min(outerWidth, s.availWidth), h = Math.min(outerHeight, s.availHeight);
@@ -3888,35 +3886,6 @@ $("screensBtn").onclick = async () => {
   st.textContent = !list ? "Chrome said no. Click the icon at the left of the address bar, allow \"Window management\", then try again."
     : `Allowed. I can see ${list.length} screen${list.length === 1 ? "" : "s"}.` + (canMoveWindow() ? "" : " Pop me out with ⧉ (top right) to move me between them.");
 };
-// Pinch-drag: while grabbed, the window follows the hand. The whole camera view stands for the whole row of screens.
-async function grabStart(hx, hy){
-  const mine = gest.grab = { pending:true };
-  const why = await cantMove();
-  if(gest.grab !== mine) return;   // let go (or grabbed again) while we were checking
-  if(why){ gest.grab = null; toast("🤏 CAN'T MOVE"); addMsg("sys", why); return; }
-  const list = await screenList();
-  if(gest.grab !== mine) return;
-  const box = list.reduce((b, s) => ({ l:Math.min(b.l, s.left), t:Math.min(b.t, s.top), r:Math.max(b.r, s.left + s.width), b:Math.max(b.b, s.top + s.height) }), { l:Infinity, t:Infinity, r:-Infinity, b:-Infinity });
-  gest.grab = { list, box, hx, hy, x0:screenX, y0:screenY, x:screenX, y:screenY, at:0 };
-  $("airCursor").classList.add("grab"); toast("🤏 GRABBED");
-  logDiag("gesture", "grab window");
-}
-function grabMove(hx, hy){
-  const g = gest.grab; if(!g || g.pending) return;
-  const k = 1.5;   // a bit of extra reach, so you don't have to lean out of the camera's view
-  const { box } = g;
-  g.x = Math.round(Math.max(box.l, Math.min(box.r - outerWidth, g.x0 + (hx - g.hx) * (box.r - box.l) * k)));
-  g.y = Math.round(Math.max(box.t, Math.min(box.b - outerHeight, g.y0 + (hy - g.hy) * (box.b - box.t) * k)));
-  window.moveTo(g.x, g.y);
-}
-function grabEnd(){
-  const g = gest.grab; gest.grab = null; $("airCursor").classList.remove("grab");
-  if(!g || g.pending) return;
-  // drop it on the screen its middle is over, fully inside that screen
-  const s = screenAt(g.list, g.x + outerWidth / 2, g.y + outerHeight / 2);
-  placeOn(s, ...spotOn(s, g.x, g.y));
-  toast(`🖥 SCREEN ${g.list.indexOf(s) + 1}`); logDiag("gesture", `drop window on screen ${g.list.indexOf(s) + 1}`);
-}
 // Bigger / smaller, in steps: small orb in the corner → the normal pop-out → full screen with the whole dashboard.
 // A page can't truly minimize its window (and Jarvis must stay visible to hear you), so "small" is the closest thing.
 const WIN_SIZES = ["small", "normal", "big"];
@@ -3970,7 +3939,7 @@ async function lookAtCamera({ question = "" } = {}){
 const MP = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.35";
 const GMODEL = "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task";
 const HAND_LINKS = [[0,1],[1,2],[2,3],[3,4],[0,5],[5,6],[6,7],[7,8],[5,9],[9,10],[10,11],[11,12],[9,13],[13,14],[14,15],[15,16],[13,17],[0,17],[17,18],[18,19],[19,20]];
-const gest = { on:false, rec:null, stream:null, timer:null, held:null, since:0, fired:false, pinch:false, pinchAt:0, grab:null, downAt:0, downY:0, paused:false, wakeUntil:0, pointSince:0, cur:null, trail:[], lastSwipe:0, lastFire:0 };
+const gest = { on:false, rec:null, stream:null, timer:null, held:null, since:0, fired:false, pinch:false, downAt:0, downY:0, paused:false, wakeUntil:0, pointSince:0, cur:null, trail:[], lastSwipe:0, lastFire:0 };
 const GEST_HOLD = { Open_Palm:700, Closed_Fist:350, Thumb_Up:600, Thumb_Down:600, Victory:600, ILoveYou:700 };
 function toast(text){ const t = $("gestToast"); t.textContent = text; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 1300); }
 async function loadRecognizer(){
@@ -4002,7 +3971,7 @@ async function gesturesOn(){
   }
 }
 function gesturesOff(save = true){
-  gest.on = false; clearTimeout(gest.timer); gest.grab = null; gest.downAt = 0; pauseGestures(false); $("airCursor").classList.remove("grab");
+  gest.on = false; clearTimeout(gest.timer); gest.downAt = 0; pauseGestures(false);
   gest.stream?.getTracks().forEach(t => t.stop()); gest.stream = null;
   $("gestChip").hidden = true; $("handHud").hidden = true; $("airCursor").hidden = true;
   if(save){ store.set("jarvis.gestures", false); $("gestStatus").textContent = "Off. The camera is closed."; }
@@ -4017,15 +3986,15 @@ function gestLoop(){
 }
 // barehands (the hand-tracked board) watches the same hands through the same camera. While it's running, Jarvis ignores
 // your hands (or every move on the board would also point, pinch and click inside Jarvis) until you hold up a pointing
-// finger ☝️ for a second: then Jarvis takes your hand for a few seconds, e.g. to pinch-drag its window to another screen.
+// finger ☝️ for a second: then Jarvis takes your hand for a few seconds, e.g. to pinch a button.
 // Jarvis can't read barehands' state, only whether its page answers on this computer, so it checks every few seconds.
 function pauseGestures(on){
   if(gest.paused === on) return;
   gest.paused = on; logDiag("gestures", on ? "paused: barehands is running" : "resumed");
   gest.wakeUntil = 0; gest.pointSince = 0;
-  if(on){ $("airCursor").hidden = true; gest.held = null; gest.trail = []; gest.pinch = false; gest.downAt = 0; if(gest.grab) grabEnd(); }
+  if(on){ $("airCursor").hidden = true; gest.held = null; gest.trail = []; gest.pinch = false; gest.downAt = 0; }
   $("gestChip").textContent = on ? "✋ paused (barehands) · ☝️ to use" : "✋ gestures on";
-  if(gest.on) $("gestStatus").textContent = on ? "barehands is running, so Jarvis ignores your hands (your moves there won't click things here). Hold up one pointing finger ☝️ for a second to use Jarvis's gestures for a few seconds, e.g. pinch and drag it to another screen. Everything comes back when you close barehands." : "On. Show your hand to the camera.";
+  if(gest.on) $("gestStatus").textContent = on ? "barehands is running, so Jarvis ignores your hands (your moves there won't click things here). Hold up one pointing finger ☝️ for a second to use Jarvis's gestures for a few seconds, e.g. to pinch a button. Everything comes back when you close barehands." : "On. Show your hand to the camera.";
 }
 const boardPauseOn = () => gest.on && store.get("jarvis.board", false) && store.get("jarvis.gestBoardPause", true);
 async function checkBoard(){
@@ -4039,11 +4008,11 @@ function onHand(r){
   const lm = r?.landmarks?.[0], g = r?.gestures?.[0]?.[0];
   drawHand(lm);
   const cur = $("airCursor");
-  if(!lm){ cur.hidden = true; gest.held = null; gest.trail = []; gest.pinch = false; gest.downAt = 0; if(gest.grab) grabEnd(); return; }
+  if(!lm){ cur.hidden = true; gest.held = null; gest.trail = []; gest.pinch = false; gest.downAt = 0; return; }
   const now = performance.now();
   // barehands running: ignore the hand unless a ☝️ held for a second hands it to Jarvis for a few seconds
   if(gest.paused){
-    if(gest.grab || gest.pinch) gest.wakeUntil = Math.max(gest.wakeUntil, now + 3000);   // never drop a drag halfway
+    if(gest.pinch) gest.wakeUntil = Math.max(gest.wakeUntil, now + 3000);   // never drop a pinch halfway
     if(now >= gest.wakeUntil){
       cur.hidden = true; gest.held = null; gest.trail = []; gest.pinch = false;
       const pointing = g && g.score > .6 && g.categoryName === "Pointing_Up";
@@ -4061,16 +4030,11 @@ function onHand(r){
   cur.classList.toggle("over", !!target);
   // pinch (thumb tip to index tip) = click whatever the cursor is on
   const d = Math.hypot(lm[4].x - lm[8].x, lm[4].y - lm[8].y);
-  const pinched = d < (gest.grab ? .08 : .05);   // a looser pinch while dragging, so a wobble doesn't drop the window
-  const hx = 1 - lm[8].x, hy = lm[8].y;
+  const pinched = d < .05;
   cur.classList.toggle("pinch", pinched);
-  if(pinched && !gest.pinch){ gest.pinchAt = now; if(target){ toast("🤏 CLICK"); target.click(); gest.pinchAt = 0; } }
-  // pinch and hold on an empty spot = grab the window; let go = drop it
-  if(pinched && gest.pinchAt && !gest.grab && now - gest.pinchAt >= 450){ gest.pinchAt = 0; grabStart(hx, hy); }
-  if(pinched && gest.grab) grabMove(hx, hy);
-  if(!pinched && gest.grab) grabEnd();
+  // (no pinch-and-hold to drag the window any more: it misfired too often; "move to the other screen" does it by voice)
+  if(pinched && !gest.pinch && target){ toast("🤏 CLICK"); target.click(); }
   gest.pinch = pinched;
-  if(gest.grab) return;   // no swipes or held gestures mid-drag
   // swipe: the wrist moving fast sideways
   // a swipe down only counts if the hand is still in view a moment later (not just dropping out of the camera)
   // (and only soon after: a stale one, e.g. after the camera paused, is dropped)
