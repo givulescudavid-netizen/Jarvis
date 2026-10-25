@@ -831,7 +831,7 @@ console.log("Hand gestures (pretend camera hand)");
   await p.close();
 }
 
-console.log("Moving Jarvis between screens (pinch-drag and voice)");
+console.log("Moving Jarvis between screens (by voice)");
 {
   // two pretend monitors side by side; moveTo records where the window went
   const screensFake = allow => {
@@ -860,7 +860,7 @@ console.log("Moving Jarvis between screens (pinch-drag and voice)");
   await say(n, "jarvis move to the other screen", 1200);
   check("without Chrome's permission, Jarvis says where to allow it", /Allow moving between screens/.test(await lastResult(n)), await lastResult(n));
   await n.close();
-  // in the pop-out, allowed: voice and pinch-drag
+  // in the pop-out, allowed: by voice
   const p = await open({ fakeHand:true, ls:{ "jarvis.gestures": true }, script:[{ tool:"move_window", input:{ screen:"next" } }, { text:"Done, sir." }, { tool:"resize_window", input:{ size:"small" } }, { text:"Minimised, sir." }] }, { width:440, height:600 }, HTTP_PAGE + "?mini=1");
   await p.evaluate(screensFake, true);
   await p.evaluate(() => {
@@ -876,22 +876,18 @@ console.log("Moving Jarvis between screens (pinch-drag and voice)");
   check("(hand gestures are on in the pop-out)", await p.locator("#gestChip").isVisible());
   await say(p, "jarvis move to the other screen", 1200);
   check("🗣 'move to the other screen' moves the pop-out to screen 2", /Moved to screen 2 of 2/.test(await lastResult(p)) && (await p.evaluate(() => window.__moves.at(-1)?.[0])) >= 1920, await lastResult(p));
-  // put the window back on screen 1 for the drag
+  // back on screen 1: a pinch must not move it
   await p.evaluate(() => { window.moveTo(100, 100); window.__moves = []; });
   const hand = async (sx, sy, pinch, ms) => { await p.evaluate(([a, b, c]) => window.__hand(a, b, c), [sx, sy, pinch]); await p.waitForTimeout(ms); };
   const ex = 8, ey = 590;   // an empty spot (bottom left corner)
   check("(that spot isn't a button)", !(await p.evaluate(([x, y]) => !!document.elementFromPoint(x, y)?.closest("button, a[href], [role=button], #reactor, label.check, summary"), [ex, ey])));
   await hand(ex, ey, false, 400);
   await hand(ex, ey, true, 900);
-  check("🤏 pinch and hold on an empty spot grabs the window", /GRABBED/.test(await p.locator("#gestToast").textContent()) && await p.evaluate(() => document.getElementById("airCursor").classList.contains("grab")), await p.locator("#gestToast").textContent());
+  check("🤏 pinch and hold on an empty spot no longer grabs or moves the window (it misfired too often)", (await p.evaluate(() => window.__moves.length)) === 0 && !/GRABBED/.test(await p.locator("#gestToast").textContent()), await p.locator("#gestToast").textContent());
   for(const sx of [80, 160, 240, 320, 400]) await hand(sx, ey, true, 120);
-  check("…moving the hand drags the window across the screens", (await p.evaluate(() => Math.max(...window.__moves.map(m => m[0])))) > 1000, JSON.stringify(await p.evaluate(() => window.__moves.slice(-3))));
   await hand(400, ey, false, 400);
-  const drop = await p.evaluate(() => window.__moves.at(-1));
-  check("…and letting go drops it fully on screen 2", drop[0] >= 1920 && /SCREEN 2/.test(await p.locator("#gestToast").textContent()) && !(await p.evaluate(() => document.getElementById("airCursor").classList.contains("grab"))), JSON.stringify(drop));
-  const before = await p.evaluate(() => window.__moves.length);
-  await hand(ex, ey, true, 200); await hand(ex, ey, false, 300);
-  check("a quick pinch (not held) doesn't grab or move anything", (await p.evaluate(() => window.__moves.length)) === before);
+  check("…moving a pinched hand doesn't drag it either", (await p.evaluate(() => window.__moves.length)) === 0, JSON.stringify(await p.evaluate(() => window.__moves.slice(-3))));
+  check("…and the help no longer mentions pinch-dragging", !/drag/i.test(await p.locator("#gestHelp").textContent()) && /move to the other screen/.test(await p.locator("#screensBtn").evaluate(b => b.parentElement.textContent)));
   // bigger / smaller: resizeTo records the size, and the window reports it back
   await p.evaluate(() => { Object.entries({ availWidth:1920, availHeight:1040, availLeft:0, availTop:0 }).forEach(([k, v]) => Object.defineProperty(screen, k, { configurable:true, get:() => v })); });   // a 1920×1080 monitor
   await p.evaluate(() => { window.__sizes = []; window.resizeTo = (w, h) => { window.__sizes.push([w, h]); Object.defineProperty(window, "outerWidth", { configurable:true, get:() => w }); }; });

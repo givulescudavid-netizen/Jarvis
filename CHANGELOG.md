@@ -1,5 +1,10 @@
 # Changelog
 
+## 2026.10.25.2 — No more pinch-and-drag to move Jarvis between screens
+- The hand gesture that grabbed Jarvis's window (pinch and hold, then drag to another screen) is gone. It kicked in by accident too often when the camera saw your hand.
+- To move Jarvis to another screen, just say **"Jarvis, move to the other screen"**. That works as before.
+- All the other gestures stay: pinch to click a button, open palm, fist, thumbs, peace sign, rock on and swipes.
+
 ## 2026.10.25 — Every deal comes with its financing options, MLI Select included
 - Whenever Jarvis analyses a property, it now works out **every way to finance it**: conventional (your saved down payment), CMHC owner-occupied (2-4 units, if you live in one), CMHC MLI Standard, and **MLI Select at 50, 70 and 100 points** (5 units and more).
 - For each one you get the loan, what limits it (the loan-to-value or the debt coverage on the real NOI), the CMHC premium, the cash you need, the monthly cash flow and the cash-on-cash return. Jarvis tells you which option works best and what it takes (for example, affordable rents on part of the units for 10 years for MLI Select).
