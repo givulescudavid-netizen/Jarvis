@@ -1414,6 +1414,34 @@ console.log("Finding deals on Centris and DuProprio directly, not only in the em
   await p.close();
 }
 
+console.log("Financing scenarios: conventional, CMHC owner-occupied, MLI Standard and MLI Select 50/70/100");
+{
+  const p = await open({ ls:{ "jarvis.dealCriteria":{ down_payment_pct:20, interest_rate:5, insured_rate:4, min_cash_flow:0 } }, script:[
+    { tool:"analyze_property", input:{ address:"1 Rue Test", price:2000000, units:12, gross_revenue:200000, taxes:20000, insurance:8000 } }, { text:"Done." },
+    { tool:"analyze_property", input:{ address:"2 Rue Test", price:700000, units:3, gross_revenue:54000, taxes:6000, insurance:2500 } }, { text:"Done." },
+    { tool:"financing_terms", input:{ program:"mli_standard", min_dcr:1.3 } }, { text:"Noted, sir." },
+    { tool:"analyze_property", input:{ address:"1 Rue Test", price:2000000, units:12, gross_revenue:200000, taxes:20000, insurance:8000 } }, { text:"Done." } ]});
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis analyse 1 rue test, 12 units at 2 million", 900);
+  const L = await log(p), a = JSON.parse(L.at(-1).last.content[0].content), f = a.financing, sc = k => f.scenarios.find(s => s.program === k);
+  check("financing scenarios are explained to Claude, and CMHC's rules can be checked", L[0].tools.includes("financing_terms") && /MLI Select at 50, 70 and 100 points/.test(L[0].system) && /cmhc-schl\.gc\.ca/.test(L[0].system));
+  check("12 units: all MLI programs apply, owner-occupied doesn't", sc("mli_select_100").applies && sc("mli_standard").applies && sc("conventional").applies && !sc("owner_occupied").applies, JSON.stringify(f.scenarios.map(s => [s.program, s.applies])));
+  const s100 = sc("mli_select_100"), s50 = sc("mli_select_50"), conv = sc("conventional");
+  check("…MLI Select 100: 50-year amortization, insured rate, 30% premium discount plus CMHC's surcharge beyond 25 years", s100.amortization_years === 50 && s100.rate === 4 && s100.premium_pct === 5.1 && sc("mli_standard").premium_pct === 5.25 && sc("mli_select_70").premium_pct === 5.4 && !conv.premium_pct, JSON.stringify([s100, sc("mli_standard")]));
+  const pay = (P, r, y) => { const i = Math.pow(1 + r / 200, 1 / 6) - 1, n = y * 12; return P * i / (1 - Math.pow(1 + i, -n)); };
+  const ltvLoan = Math.min(2000000, a.underwritten_value) * 0.95, dcrLoan = a.noi / 1.1 / 12 / pay(1, 4, 50) / 1.051;
+  check("…the loan is the smaller of the loan-to-value and the debt coverage limits, and says which one binds", Math.abs(s100.loan - Math.round(Math.min(ltvLoan, dcrLoan))) <= 1 && (dcrLoan < ltvLoan ? /debt coverage/ : /loan-to-value/).test(s100.limited_by) && s100.dcr >= 1.09, JSON.stringify(s100) + " noi " + a.noi);
+  check("…more leverage means less cash in: Select 100 needs less than Select 50, which needs less than conventional, and the best scenario is named", s100.cash_needed <= s50.cash_needed && s50.cash_needed < conv.cash_needed && f.least_cash && f.best_cash_on_cash && /affordable rents/.test(s100.needs), JSON.stringify({ c:[s100.cash_needed, s50.cash_needed, conv.cash_needed], f:[f.least_cash, f.best_cash_on_cash] }));
+  await say(p, "jarvis and 2 rue test, a triplex at 700k", 900);
+  const t = JSON.parse((await log(p)).at(-1).last.content[0].content).financing, oo = t.scenarios.find(s => s.program === "owner_occupied");
+  check("triplex: MLI needs 5 units, owner-occupied works at 90% with its premium", t.scenarios.filter(s => /^mli/.test(s.program)).every(s => !s.applies && /5 units/.test(s.why)) && oo.applies && oo.loan_to_value_pct === 90 && oo.premium_pct === 3.1 && /live in one/.test(oo.needs), JSON.stringify(oo));
+  await say(p, "jarvis my lender says MLI standard needs a 1.3 debt coverage", 900);
+  await say(p, "jarvis analyse 1 rue test again", 900);
+  const g = JSON.parse((await log(p)).at(-1).last.content[0].content).financing, st = g.scenarios.find(s => s.program === "mli_standard");
+  check("the user's correction to a program's terms is kept and used", JSON.parse(await p.evaluate(() => localStorage.getItem("jarvis.finTerms"))).mli_standard.min_dcr === 1.3 && (st.dcr >= 1.29 || /loan-to-value/.test(st.limited_by)) && st.loan < sc("mli_standard").loan + 1, JSON.stringify(st));
+  await p.close();
+}
+
 console.log("Centris deals and the on-screen panel");
 {
   const html = `<html><body><h1>3 new properties match your search</h1>
@@ -1466,7 +1494,7 @@ console.log("Centris deals and the on-screen panel");
   const diag = JSON.stringify(await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.diag") || "[]")));
   check("problem reports say which listing pages opened and which failed, and why", /couldn't open consumersharingqc\.centris\.ca\/api\/Retrieve\/abc\/\?id=25265270: url_not_accessible/.test(diag) && /opened www\.centris\.ca\/fr\/plex~a-vendre~montreal\/21808900/.test(diag) && !/899 000/.test(diag), diag.slice(-600));
   const wf = L[0].server.find(t => t.name === "web_fetch");
-  check("Centris: Claude can open listing pages (web fetch, centris.ca and duproprio.com only) and is told to read price, rents, taxes and utilities there", !!wf && /^web_fetch_2026/.test(wf.type) && JSON.stringify(wf.allowed_domains) === '["centris.ca","duproprio.com"]' && wf.max_uses > 0
+  check("Centris: Claude can open listing pages (web fetch, centris.ca, duproprio.com and CMHC only) and is told to read price, rents, taxes and utilities there", !!wf && /^web_fetch_2026/.test(wf.type) && JSON.stringify(wf.allowed_domains) === '["centris.ca","duproprio.com","cmhc-schl.gc.ca"]' && wf.max_uses > 0
     && /web_fetch/.test(L[0].system) && /taxes/.test(L[0].system) && /energy/.test(L[0].system), JSON.stringify(wf));
   check("…reads the whole email with the listing link (and drops other links) plus the saved criteria", /Potential gross revenue \$72,000/.test(sent) && /centris\.ca\/en\/4plex~for-sale~montreal-rosemont\/12345678/.test(sent) && !/evil\.example/.test(sent) && /min_cap_rate/.test(sent), sent.slice(0, 600));
   check("deal numbers: cap rate, Canadian mortgage payment, cash flow, verdict", /\\"cap_rate_pct\\":5\.92/.test(sent) && /\\"mortgage_monthly\\":3981/.test(sent) && /\\"cash_flow_monthly\\":453/.test(sent) && /\\"price_per_door\\":224750/.test(sent) && /\\"verdict\\":\\"good\\"/.test(sent), sent.slice(-900));
@@ -2238,7 +2266,7 @@ console.log("DuProprio alert emails are read alongside Centris");
   check("DuProprio: its alert emails are searched too", (await p.evaluate(() => window.__gq)).some(q => /^from:duproprio/.test(q)));
   check("…each listing comes with its duproprio.com page (unsubscribe links and account emails left out)", /"site":"DuProprio"/.test(r) && /Triplex à vendre - 1234 Rue Fake/.test(r) && (r.match(/hab-1234-rue-fake-1098765/g) || []).length >= 1 && !/"listing":"[^"]*désabonner/i.test(r) && !/Verification/.test(r), r.slice(0, 500));
   const fetchTool = L.find(x => x.server?.length)?.server.find(t => /web_fetch/.test(t.type));
-  check("…and Claude may open duproprio.com pages (still nothing else)", fetchTool && JSON.stringify(fetchTool.allowed_domains) === '["centris.ca","duproprio.com"]', JSON.stringify(fetchTool));
+  check("…and Claude may open duproprio.com pages (still nothing else)", fetchTool && JSON.stringify(fetchTool.allowed_domains) === '["centris.ca","duproprio.com","cmhc-schl.gc.ca"]', JSON.stringify(fetchTool));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
