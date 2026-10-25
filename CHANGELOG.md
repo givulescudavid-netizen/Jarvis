@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026.10.25 — Every deal comes with its financing options, MLI Select included
+- Whenever Jarvis analyses a property, it now works out **every way to finance it**: conventional (your saved down payment), CMHC owner-occupied (2-4 units, if you live in one), CMHC MLI Standard, and **MLI Select at 50, 70 and 100 points** (5 units and more).
+- For each one you get the loan, what limits it (the loan-to-value or the debt coverage on the real NOI), the CMHC premium, the cash you need, the monthly cash flow and the cash-on-cash return. Jarvis tells you which option works best and what it takes (for example, affordable rents on part of the units for 10 years for MLI Select).
+- When it ranks several listings, it says which option each one works under, e.g. "only works with MLI Select 100".
+- The terms come from CMHC's published tiers as of October 2026, and the **premiums are estimates**. If your lender gives you other numbers, just tell Jarvis ("my lender says MLI Standard needs a 1.3 debt coverage") and it uses yours from then on. Say "what financing terms are you using?" to hear them. Jarvis can also open CMHC's own site to check the current rules.
+- You can save a separate rate for insured loans ("insured rate 4 percent").
+
 ## 2026.10.24 — Jarvis searches Centris and DuProprio for you, not just your emails
 - **"Jarvis, find me triplexes in Rosemont under 900k"** or **"what's for sale in Laval?"**: Jarvis now searches Centris and DuProprio itself, opens the listings that fit, runs its usual analysis, ranks the best ones and puts them on screen. You no longer need an alert email for a property to be looked at.
 - With no area or price given, it uses your saved deal criteria (areas, units, max price). If you haven't saved an area yet, it asks you.
