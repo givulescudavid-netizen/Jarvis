@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.10.27 — The most you can pay, and the rent-control value-add plan
+- **Max offer price.** In Montreal the bank's loan is usually limited by the building's income (debt coverage), not by your down payment, so many listings don't work at the asking price. Every analysis now tells you **the highest price at which at least one financing option still works**: cash flow at least your minimum, cash needed within what you have, and your price and cap-rate criteria. For example: "it doesn't work at 1.45 million, but it works up to 1.3 million with MLI Select 100, limited by your cash". If no price works with those rents, Jarvis says the rents are the problem.
+- Tell Jarvis how much cash you have ("I have 150k to invest") and it remembers it as one of your deal criteria.
+- **Value-add under Quebec rent control (TAL).** When Jarvis knows each unit's rent, it estimates the market rent of each one (from web searches, and it says they're estimates) and works out a 3-year plan: only units that become vacant (the empty ones now plus about 10% turnover a year) go to market rent after a renovation (25k per unit unless you say otherwise), while occupied units stay at today's rents. You hear the renovation budget, the NOI and value in year 3, the cash you could take out by refinancing, and the cash left in the deal.
+- Jarvis also warns that MLI Select's affordable-rent commitment caps rents for 10 years, so it clashes with this plan if those are the units you turn.
+
 ## 2026.10.25.2 — No more pinch-and-drag to move Jarvis between screens
 - The hand gesture that grabbed Jarvis's window (pinch and hold, then drag to another screen) is gone. It kicked in by accident too often when the camera saw your hand.
 - To move Jarvis to another screen, just say **"Jarvis, move to the other screen"**. That works as before.
