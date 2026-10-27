@@ -1,5 +1,15 @@
 # Changelog
 
+## 2026.10.27.2 — Commercial and mixed-use buildings, underwritten properly
+- **Jarvis now analyses commercial buildings the commercial way**: shops, offices, industrial buildings, and apartments over a commercial ground floor. Before, everything went through the apartment (CMHC) math.
+- Give it the commercial rent roll (each space: square feet, yearly rent, net or gross lease, when the lease ends) or let it ask the broker for one. It works out what **net-lease tenants pay back** (their share of taxes, insurance and upkeep), uses commercial vacancy (retail 7%, offices 10%, industrial 4%), commercial costs and reserves for tenant improvements and commissions, and values the building at a **commercial cap rate** (retail 6.75%, offices 7.5%, industrial 5.75%). These are rough Montreal norms: tell Jarvis yours and it uses them.
+- **Financing without CMHC**: a bank loan at 65%, a credit union or Caisse loan at 75% for strong tenants, and 65% plus a **vendor take-back** (the seller lends up to 15%), which cuts the cash you need. Commercial rates are assumed 0.75 above residential unless you say yours ("my commercial rate is 6.5").
+- **Max offer** works for commercial too: the highest price where one of those loans works with your cash. You can save a separate minimum cap rate for commercial.
+- **Lease risks**, which decide commercial deals: how many years are left on the leases, how much rent ends in the next 2 years, whether one tenant pays most of the rent, vacant space, gross leases where you carry the costs, and environmental checks for industrial or risky uses.
+- **Commercial value-add**: vacant space leased at market and leases ending within 3 years renewed at market (no rent control, so rents above market can also go down), with the improvement and commission costs, the year-3 value and the cash out at refinance.
+- **Mixed-use**: the apartments are underwritten the usual way, the commercial floor the commercial way. CMHC still applies when the building is mostly apartments; Jarvis tells you when the commercial part is too big for CMHC.
+- "Find me commercial buildings in Laval" searches commercial listings without your apartment-count filter.
+
 ## 2026.10.27 — The most you can pay, and the rent-control value-add plan
 - **Max offer price.** In Montreal the bank's loan is usually limited by the building's income (debt coverage), not by your down payment, so many listings don't work at the asking price. Every analysis now tells you **the highest price at which at least one financing option still works**: cash flow at least your minimum, cash needed within what you have, and your price and cap-rate criteria. For example: "it doesn't work at 1.45 million, but it works up to 1.3 million with MLI Select 100, limited by your cash". If no price works with those rents, Jarvis says the rents are the problem.
 - Tell Jarvis how much cash you have ("I have 150k to invest") and it remembers it as one of your deal criteria.

@@ -1489,6 +1489,59 @@ console.log("Max offer price and the Quebec rent-control value-add case");
   await q.close();
 }
 
+console.log("Commercial and mixed-use buildings: commercial underwriting, loans, lease risk, max offer and value-add");
+{
+  const tenants = [{ name:"Pharmacie", sqft:4000, rent:120000, lease_type:"net", years_left:6 }, { name:"Café", sqft:1500, rent:45000, lease_type:"gross", years_left:1.5, market_rent_psf:35 },
+    { name:"Local vacant", sqft:1500, rent:0, vacant:true, market_rent_psf:30 }];
+  const p = await open({ ls:{ "jarvis.dealCriteria":{ down_payment_pct:20, interest_rate:5, insured_rate:4, min_cash_flow:0, cash_available:500000, min_units:5, max_price_per_door:200000, commercial_min_cap_rate:6, areas:"Laval" } }, script:[
+    { tool:"analyze_property", input:{ address:"10 Boul Commerce", price:2400000, property_type:"commercial", commercial_use:"retail", tenants, taxes:40000, insurance:10000 } }, { text:"Done." },
+    { tool:"analyze_property", input:{ address:"20 Rue Mixte", price:1500000, units:6, property_type:"mixed_use", gross_revenue:90000, commercial_revenue:30000, taxes:15000, insurance:5000 } }, { text:"Done." },
+    { tool:"analyze_property", input:{ address:"30 Rue Mixte", price:1500000, units:6, property_type:"mixed_use", gross_revenue:90000, commercial_revenue:15000, taxes:15000, insurance:5000 } }, { text:"Done." },
+    { tool:"analyze_property", input:{ address:"40 Rue Plex", price:1500000, units:6, gross_revenue:90000, taxes:15000, insurance:5000 } }, { text:"Done." },
+    { tool:"deal_criteria", input:{ commercial_rate:6.5 } }, { text:"Saved." },
+    { tool:"find_listings", input:{ type:"immeuble commercial" } }, { text:"Searching." } ]});
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis analyse the retail strip at 2.4 million", 900);
+  const L = await log(p), a = JSON.parse(L.at(-1).last.content[0].content), cm = a.commercial, f = a.financing, sc = k => f.scenarios.find(s => s.program === k);
+  check("commercial is explained to Claude (rent roll, no CMHC, vendor take-back, lease risks)", /property_type commercial or mixed_use/.test(L[0].system) && /CMHC doesn't insure commercial/.test(L[0].system) && /vendor take-back/.test(L[0].system) && /lease risks/.test(L[0].system));
+  // base rent 165,000; the pharmacy (net, 4/7 of the floor) pays back its share of taxes, insurance and upkeep ($1.50/sq ft retail)
+  const rec = 4000 / 7000 * (40000 + 10000 + 1.5 * 7000), egi = (165000 + rec) * 0.93, noi = egi - 40000 - 10000 - 10500 - egi * 0.09;
+  check("commercial underwriting: base rent + net-lease recoveries, 7% retail vacancy, upkeep per sq ft, management and reserves", cm.base_rent === 165000 && Math.abs(cm.recoveries - rec) <= 1 && cm.vacancy_pct === 7
+    && Math.abs(a.noi - noi) <= 1 && a.expense_lines.commercial_maintenance === 10500 && a.expense_lines.leasing_reserve === Math.round(egi * 0.03) && !a.expense_lines.salaries && !a.expense_lines.maintenance_repairs && /commercial underwriting \(retail\)/.test(a.assumptions.expenses), JSON.stringify([a.noi, noi, cm, a.expense_lines]));
+  check("…valued at a commercial cap rate (6.75% retail), with the price per sq ft", Math.abs(a.underwritten_value - noi / 0.0675) <= 1 && a.value_cap_rate_pct === 6.75 && a.price_per_sqft === Math.round(2400000 / 7000 * 100) / 100, JSON.stringify([a.underwritten_value, a.value_cap_rate_pct, a.price_per_sqft]));
+  check("lease risk: years left on the leases weighted by rent, rent ending within 2 years, the biggest tenant, vacant space", cm.lease_risk.walt_years === 4.8 && cm.lease_risk.rent_ending_within_2y_pct === 27 && cm.lease_risk.largest_tenant_pct === 73 && cm.lease_risk.vacant_sqft_pct === 21
+    && a.data_checks.some(x => /One tenant pays 73%/.test(x)) && a.data_checks.some(x => /vacant/.test(x)) && a.data_checks.some(x => /Some commercial leases are gross:/.test(x)), JSON.stringify([cm.lease_risk, a.data_checks]));
+  const pay = (P, r, y) => { const i = Math.pow(1 + r / 200, 1 / 6) - 1, n = y * 12; return P * i / (1 - Math.pow(1 + i, -n)); };
+  const c65 = sc("commercial_65"), vtb = sc("commercial_vtb"), want65 = Math.min(Math.min(2400000, a.underwritten_value) * 0.65, a.noi / 1.3 / 12 / pay(1, 5.75, 25));
+  check("commercial financing: no CMHC, commercial loans at the commercial rate (residential + 0.75), sized by value or debt coverage", f.scenarios.every(s => /^commercial_/.test(s.program)) && f.scenarios.length === 3 && /CMHC doesn't insure/.test(f.cmhc)
+    && c65.rate === 5.75 && Math.abs(c65.loan - want65) <= 2 && sc("commercial_75").loan >= c65.loan, JSON.stringify(f.scenarios));
+  check("…a vendor take-back lowers the cash needed, keeping all the debt at a 1.1 coverage or better", vtb.vtb_loan > 0 && vtb.vtb_loan <= 2400000 * 0.15 && vtb.cash_needed < c65.cash_needed && vtb.dcr >= 1.09 && /seller/.test(vtb.needs), JSON.stringify(vtb));
+  check("verdict uses the commercial minimum cap rate, not the apartment units and per-door criteria", a.misses?.some(m => /cap rate ≥ 6%/.test(m)) && !a.misses.some(m => /units|per door/.test(m)), JSON.stringify(a.misses));
+  check("max offer for commercial: below asking, on a commercial loan, at a price where the cap rate reaches 6%", a.max_offer.price < 2400000 && a.max_offer.price % 5000 === 0 && a.max_offer.price <= a.noi / 0.06 && /^commercial_/.test(a.max_offer.program), JSON.stringify(a.max_offer));
+  const v = a.commercial_value_add, keep = 0.93 * 0.91, back = 1500 / 7000 * (40000 + 10000 + 10500);
+  check("commercial value-add: the vacant space leased on a net lease and the café renewed at market, with improvements and commissions", v.spaces === 2 && v.changes.find(x => x.space === "Local vacant").at_market === 45000 && /net lease/.test(v.changes.find(x => x.space === "Local vacant").how)
+    && v.changes.find(x => x.space === "Café").at_market === 52500 && v.leasing_costs === Math.round(25 * 1500 + 0.2 * 45000 + 0.1 * 52500) && Math.abs(v.year3_noi - (a.noi + (7500 + 45000 + back) * keep)) <= 2
+    && Math.abs(v.year3_value - v.year3_noi / 0.0675) <= 25 && /^commercial_/.test(v.refi_on) && /loan-to-value \((65|75)%\)|debt coverage/.test(v.refi_limited_by) && /rent-controlled/.test(v.note), JSON.stringify(v));
+  await say(p, "jarvis and the mixed-use at 1.5 million", 900);
+  const m1 = JSON.parse((await log(p)).at(-1).last.content[0].content), f1 = m1.financing, s1 = k => f1.scenarios.find(s => s.program === k);
+  check("mixed-use: apartments underwritten the CMHC way plus the commercial floor, at a blended cap rate", m1.expense_lines.maintenance_repairs === 4200 && m1.expense_lines.commercial_management > 0 && m1.value_cap_rate_pct > 4.5 && m1.value_cap_rate_pct < 6.75
+    && m1.gross_revenue === 120000 && /commercial space/.test(m1.assumptions.expenses) && m1.data_checks.some(x => /No lease end dates/.test(x)) && m1.data_checks.some(x => /All commercial leases are gross \(assumed/.test(x)), JSON.stringify(m1).slice(0, 1500));
+  check("…commercial a quarter of the income: CMHC doesn't apply, conventional and commercial loans do", !s1("mli_standard").applies && /30% of the floor area/.test(s1("mli_standard").why) && s1("conventional").applies && s1("commercial_65").applies, JSON.stringify(f1.scenarios.map(s => [s.program, s.applies])));
+  await say(p, "jarvis and the one with the small shop", 900);
+  const f2 = JSON.parse((await log(p)).at(-1).last.content[0].content).financing;
+  check("…a small shop under mostly apartments: CMHC MLI still applies", f2.scenarios.find(s => s.program === "mli_select_100").applies && f2.scenarios.find(s => s.program === "commercial_65").applies, JSON.stringify(f2.scenarios.map(s => [s.program, s.applies])));
+  await say(p, "jarvis and the 6-plex", 900);
+  const r = JSON.parse((await log(p)).at(-1).last.content[0].content);
+  check("apartment buildings are unchanged: no commercial loans or commercial fields", !r.financing.scenarios.some(s => /^commercial_/.test(s.program)) && !r.commercial && !r.property_type && !r.commercial_value_add && r.value_cap_rate_pct === 4.5, JSON.stringify(r.financing.scenarios.map(s => s.program)));
+  await say(p, "jarvis my commercial rate is 6.5", 900);
+  check("commercial criteria are saved by voice", JSON.parse(await p.evaluate(() => localStorage.getItem("jarvis.dealCriteria"))).commercial_rate === 6.5);
+  await say(p, "jarvis find commercial buildings for sale", 900);
+  const fl = JSON.parse((await log(p)).at(-1).last.content[0].content);
+  check("searching for commercial buildings leaves out the apartment count", fl.searches[0] === "centris.ca immeuble commercial à vendre Laval", JSON.stringify(fl.searches));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("Centris deals and the on-screen panel");
 {
   const html = `<html><body><h1>3 new properties match your search</h1>
