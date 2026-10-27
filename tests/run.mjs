@@ -71,7 +71,7 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
       u = String(u); const J = (x, st = 200) => new Response(JSON.stringify(x), { status: st });
       if(window.__extraFetch){ const r = await window.__extraFetch(u, o, J); if(r) return r; }
       if(u.includes("api.anthropic.com")){
-        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), server: body.tools.filter(t => t.type), last: body.messages.at(-1), msgs: body.messages, system: body.system, cache: body.cache_control, toolCache: body.tools.filter(t => t.cache_control).map(t => t.name), stream: body.stream, model: body.model, beta: o.headers["anthropic-beta"] || "" });
+        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), server: body.tools.filter(t => t.type), last: body.messages.at(-1), msgs: body.messages, system: Array.isArray(body.system) ? body.system.map(b => b.text).join("") : body.system, sysBlocks: body.system, cache: body.cache_control, toolCache: body.tools.filter(t => t.cache_control).map(t => t.name), stream: body.stream, model: body.model, beta: o.headers["anthropic-beta"] || "" });
         const st = script[call++] || { text: "Done." };
         if(st.delay) await new Promise(r => setTimeout(r, st.delay));
         if(st.err) return J({ error:{ message: st.err } }, st.status || 400);
@@ -795,8 +795,10 @@ console.log("Hand gestures (pretend camera hand)");
   await away();
   await sayNow(p, "tell me a long story"); await p.waitForTimeout(1500);
   check("(Jarvis is talking)", /Speaking/.test(await p.locator("#mode").textContent()));
-  await show("Closed_Fist", 700);
-  check("✊ a fist stops Jarvis talking", !/Speaking|Processing/.test(await p.locator("#mode").textContent()) && /STOP/.test(await p.locator("#gestToast").textContent()), await p.locator("#mode").textContent());
+  await p.evaluate(() => { const t = document.getElementById("gestToast"); window.__toasts = []; new MutationObserver(() => window.__toasts.push(t.textContent)).observe(t, { childList:true, characterData:true, subtree:true }); });
+  await show("Closed_Fist", 0);
+  await p.waitForFunction(() => !/Speaking|Processing/.test(document.getElementById("mode").textContent) && window.__toasts.some(t => /STOP/.test(t)), null, { timeout:4000 }).catch(() => {});
+  check("✊ a fist stops Jarvis talking", !/Speaking|Processing/.test(await p.locator("#mode").textContent()) && await p.evaluate(() => window.__toasts.some(t => /STOP/.test(t))), await p.locator("#mode").textContent());
   await away(); await settle(p);
   await say(p, "jarvis draft pepper an email", 800);
   check("(Jarvis asks 'Shall I go ahead?')", await p.locator("#confirmBox").isVisible());
@@ -916,7 +918,7 @@ console.log("Moving Jarvis between screens (by voice)");
 
 console.log("Prompt caching and the cost meter");
 {
-  const p = await open({ script:[
+  const p = await open({ ls:{ "jarvis.memory":[{ text:"Pepper runs the company", t:1 }] }, script:[
     { text:"Good morning, sir.", usage:{ input_tokens:200, cache_creation_input_tokens:10000, cache_creation:{ ephemeral_1h_input_tokens:10000, ephemeral_5m_input_tokens:0 }, cache_read_input_tokens:0, output_tokens:100 } },
     { text:"Clear skies, sir.", usage:{ input_tokens:300, cache_creation_input_tokens:500, cache_creation:{ ephemeral_1h_input_tokens:300, ephemeral_5m_input_tokens:200 }, cache_read_input_tokens:30000, output_tokens:100 } } ] });
   await p.click("#bootBtn"); await settle(p);
@@ -927,6 +929,8 @@ console.log("Prompt caching and the cost meter");
   check("…for an hour, so coming back after a few quiet minutes is still cheap", L.every(x => x.cache?.ttl === "1h"));
   check("the instructions carry no clock, so they stay identical (and cached) between conversations", L.every(x => !/Current local time/.test(x.system)) && /^\[/.test(L[0].last.content));
   check("…and the tool list (the same in every conversation)", L.every(x => x.toolCache.length === 1));
+  check("the fixed rules are a separate cached block before the user's own data, so a new conversation (new memories, new recent talk) still reuses them", L.every(x => Array.isArray(x.sysBlocks) && x.sysBlocks[0].cache_control?.ttl === "1h" && /^You are J\.A\.R\.V\.I\.S\./.test(x.sysBlocks[0].text) && !/Your most recent exchanges|Things the user asked you to remember/.test(x.sysBlocks[0].text))
+    && L.every(x => x.sysBlocks.length === 2 && /Pepper runs the company/.test(x.sysBlocks[1].text)), JSON.stringify(L.map(x => x.sysBlocks?.map(b => [b.text.length, !!b.cache_control]))));
   // 1-hour cache writes cost 2x input ($8/M), 5-minute ones 1.25x ($5/M), reads $0.20/M
   // 1st: 200*4 + 10000*8 + 100*20 = 82,800 → $0.0828; 2nd: 300*4 + 300*8 + 200*5 + 30000*0.2 + 100*20 = 12,600 → $0.0126; total $0.0954
   // saved: 1st -10000*4 = -0.04; 2nd 30000*3.8 - 300*4 - 200*1 = 112,600 → +0.1126; total $0.0726
@@ -1100,9 +1104,9 @@ console.log("Hand gestures pause while barehands is running");
   await p.evaluate(([x, y]) => window.__hand(x, y, false), [gx, gy]); await p.waitForTimeout(300);
   await p.evaluate(([x, y]) => window.__hand(x, y, false, "Pointing_Up"), [gx, gy]); await p.waitForTimeout(1400);
   check("☝️ holding up a pointing finger gives Jarvis your hand for a moment", /JARVIS HAS YOUR HAND/.test(await p.locator("#gestToast").textContent()) && await p.locator("#airCursor").isVisible());
-  await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.waitForTimeout(600);
+  await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.locator("#drawer").waitFor({ state:"visible", timeout:3000 }).catch(() => {});
   check("…then a pinch works in Jarvis (settings open)", await p.locator("#drawer").isVisible());
-  await p.click("#closeBtn");
+  if(await p.locator("#drawer").isVisible()) await p.click("#closeBtn");
   await p.evaluate(([x, y]) => window.__hand(x, y, false), [gx, gy]); await p.waitForTimeout(6800);
   await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.waitForTimeout(600);
   check("…and a few seconds later Jarvis ignores your hand again", await p.locator("#drawer").isHidden() && await p.locator("#airCursor").isHidden());
@@ -1110,9 +1114,9 @@ console.log("Hand gestures pause while barehands is running");
   await p.evaluate(() => { window.__bh = false; }); await p.waitForTimeout(4600);
   check("barehands closed: gestures come back by themselves", /gestures on/.test(await p.locator("#gestChip").textContent()));
   await p.evaluate(([x, y]) => window.__hand(x, y, false), [gx, gy]); await p.waitForTimeout(1200);
-  await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.waitForTimeout(600);
+  await p.evaluate(([x, y]) => window.__hand(x, y, true), [gx, gy]); await p.locator("#drawer").waitFor({ state:"visible", timeout:3000 }).catch(() => {});
   check("…and a pinch clicks again (settings open)", await p.locator("#drawer").isVisible());
-  await p.click("#closeBtn");
+  if(await p.locator("#drawer").isVisible()) await p.click("#closeBtn");
   await p.evaluate(() => { localStorage.setItem("jarvis.gestBoardPause", "false"); window.__bh = true; }); await p.waitForTimeout(4600);
   check("with the setting off, gestures stay on even while barehands runs", /gestures on/.test(await p.locator("#gestChip").textContent()));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
@@ -1185,8 +1189,10 @@ console.log("3D models on the barehands board: build, change live, keep in Drive
     return null; }; });
   await p.evaluate(async () => {
     const root = await navigator.storage.getDirectory(), media = await root.getDirectoryHandle("media", { create:true });
-    const db = await new Promise((res, rej) => { const r = indexedDB.open("jarvis", 1); r.onupgradeneeded = () => r.result.createObjectStore("kv"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
-    await new Promise(res => { const t = db.transaction("kv", "readwrite"); t.objectStore("kv").put(media, "bhMedia"); t.oncomplete = res; });
+    // Jarvis keeps the folder in IndexedDB; hand it the live folder instead, because some Chromium builds crash the page
+    // when writing through a test-folder handle that went through IndexedDB (a real picked folder doesn't)
+    const get = IDBObjectStore.prototype.get;
+    IDBObjectStore.prototype.get = function(k){ if(k !== "bhMedia") return get.call(this, k); const q = { result:media }; setTimeout(() => q.onsuccess && q.onsuccess({ target:q })); return q; };
   });
   const readModel = (sub, f, live) => p.evaluate(async ({ sub, f, live }) => { try{
     let d = await (await (await navigator.storage.getDirectory()).getDirectoryHandle("media")).getDirectoryHandle(sub);
@@ -2110,37 +2116,18 @@ console.log("Errands: website contact forms after your yes, results Jarvis can r
   check("the helper's rules: contact forms only after READY with the full message, never close the tab, refill if it was closed", /contact form.*READY first, with the full message/.test(ps1) && /never close it before the owner has answered/.test(ps1) && /tab is gone or the form was emptied/.test(ps1) && /send an email, text, social-media post/.test(ps1));
 }
 
-console.log("Deals: analyse a property with your own numbers, log it, read Centris listings, and follow up with brokers");
+console.log("Deals: one analysis tool, read Centris listings, and follow up with brokers");
 {
-  const p = await open({ googleBefore:true, script:[
-      { tool:"deal_settings", input:{ down_pct:25, rate_pct:5, min_cap_pct:6, max_per_door:150000 } }, { text:"Saved, sir." },
-      { tool:"analyze_deal", input:{ name:"123 Main St", centris:"12345678", price:1000000, units:6, gross_income:90000, expenses:30000 } }, { text:"A 5.7% cap rate, sir, below your 6%." },
-      { tool:"analyze_deal", input:{ name:"9 Oak Ave", price:800000, units:4, gross_income:70000, taxes:9000 } }, { text:"Tight, sir." } ] }, undefined, HTTP_PAGE);
-  await p.evaluate(() => { window.__up = []; window.__app = []; window.__extraFetch = async (u, o, J) => {
-    if(u.includes("upload/drive/v3/files") && o?.method === "POST"){ window.__up.push(o.body); return J({ id:"DS1", webViewLink:"https://docs.google.com/x" }); }
-    if(u.includes("sheets.googleapis.com") && u.includes(":append")){ window.__app.push(JSON.parse(o.body).values[0]); return J({}); }
-    return null; }; });
+  // assumptions saved with the old deal_settings tool carry over to the deal criteria, without overwriting the ones already there
+  const p = await open({ ls:{ "jarvis.dealRules":{ down_pct:25, rate_pct:5, amort_years:30, min_cap_pct:6, max_per_door:150000, expense_pct:35, notes:"no basements" }, "jarvis.dealCriteria":{ interest_rate:4.8, areas:"Laval" } }, script:[{ text:"Hello, sir." }] });
   await p.click("#bootBtn"); await settle(p);
-  await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(400); await p.click("#closeBtn");
-  await say(p, "jarvis my standard is 25 percent down at 5 percent, minimum 6 cap, max 150k a door", 900);
-  check("your deal criteria are saved", await p.evaluate(() => { const r = JSON.parse(localStorage.getItem("jarvis.dealRules")); return r.down_pct === 25 && r.rate_pct === 5 && r.min_cap_pct === 6 && r.max_per_door === 150000; }));
-  await sayNow(p, "jarvis analyse 123 main st, a million, 6 units, 90k rents, 30k expenses");
-  await p.waitForFunction(() => !document.getElementById("confirmBox").hidden, null, { timeout:8000 }).catch(() => {});
-  check("the first time, Jarvis asks before starting a Jarvis Deals sheet", /Start a "Jarvis Deals" sheet/.test(await p.locator("#confirmText").textContent()));
-  await p.click("#confirmYes"); await settle(p, 900);
-  const res = JSON.parse((await log(p)).filter(x => x.last?.content?.[0]?.type === "tool_result").at(-1).last.content[0].content);
-  check("the maths: NOI after 3% vacancy, cap rate, price per door", res.noi === "$57,300" && res.cap_rate === "5.73%" && res.price_per_door === "$166,667", JSON.stringify(res).slice(0, 400));
-  check("…mortgage at your terms, cash flow and debt coverage", res.down_payment === "$250,000 (25%)" && /at 5% over 25 years/.test(res.loan) && res.yearly_payments === "$52,613" && res.cash_flow_per_year === "$4,687" && res.debt_coverage === "1.09", JSON.stringify(res).slice(0, 600));
-  check("…flags against your criteria (cap rate, price per door, weak debt coverage)", res.flags.length === 3 && /below your minimum of 6%/.test(res.flags[0]) && /per door above/.test(res.flags[1]) && /at least 1.2/.test(res.flags[2]), JSON.stringify(res.flags));
-  check("…it's on screen, with 'not investment advice'", /Deal: 123 Main St/.test(await p.locator("#dispTitle").textContent()) && /not investment advice/.test(await p.locator("#dispText").textContent()));
-  const app = await p.evaluate(() => window.__app);
-  check("…and logged as a row in the Jarvis Deals sheet Jarvis made", (await p.evaluate(() => window.__up.length)) === 1 && app[0]?.[1] === "123 Main St" && app[0][9] === "5.73%" && await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.myFiles")).some(f => f.id === "DS1" && f.kind === "deals")), JSON.stringify(app));
-  await say(p, "jarvis and 9 oak, 800k, 4 units, 70k rents, taxes 9k", 900);
-  const res2 = JSON.parse((await log(p)).filter(x => x.last?.content?.[0]?.type === "tool_result").at(-1).last.content[0].content);
-  check("the next one goes straight into the same sheet (no second question)", (await p.evaluate(() => window.__app.length)) === 2 && (await p.evaluate(() => window.__up.length)) === 1);
-  check("only taxes known: Jarvis says real expenses are probably higher", /probably higher/.test(res2.estimates[0]) && res2.expenses === "$9,000");
+  await say(p, "jarvis hello", 900);
+  const c = JSON.parse(await p.evaluate(() => localStorage.getItem("jarvis.dealCriteria")));
+  check("the old deal settings move into the deal criteria once (yours win where both exist)", c.down_payment_pct === 25 && c.interest_rate === 4.8 && c.amortization_years === 30 && c.min_cap_rate === 6 && c.max_price_per_door === 150000 && c.notes === "no basements" && c.areas === "Laval"
+    && await p.evaluate(() => localStorage.getItem("jarvis.dealRules") === null), JSON.stringify(c));
   const L0 = (await log(p))[0];
-  check("Jarvis knows about deals and follow-ups", /Deals \(income real estate\)/.test(L0.system) && ["analyze_deal", "analyze_listing", "deal_settings", "track_followup", "followups"].every(t => L0.tools.includes(t)));
+  check("one way to analyse a deal: analyze_property (the old analyze_deal and deal_settings are gone), Centris pages read with web_fetch first", /Deals \(income real estate\)/.test(L0.system) && !/analyze_deal|deal_settings/.test(L0.system)
+    && ["analyze_property", "deal_criteria", "analyze_listing", "track_followup", "followups"].every(t => L0.tools.includes(t)) && !L0.tools.includes("analyze_deal") && !L0.tools.includes("deal_settings") && /open its centris\.ca page with web_fetch/.test(L0.system));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
@@ -2148,7 +2135,7 @@ console.log("Deals: analyse a property with your own numbers, log it, read Centr
   // A Centris number: Claude reads the listing in Chrome, then Jarvis analyses it by itself; contacting the broker starts a follow-up
   const p = await open({ script:[
       { tool:"analyze_listing", input:{ listing:"12345678" } }, { text:"On it, sir." },
-      { tool:"analyze_deal", input:{ name:"55 Rue King", centris:"12345678", price:1200000, units:8, gross_income:110000, expenses:38000 } }, { text:"Sir, 55 Rue King comes out at a 5.9% cap rate." },
+      { tool:"analyze_property", input:{ address:"55 Rue King", centris_no:"12345678", price:1200000, units:8, gross_revenue:110000, taxes:14000, insurance:6000 } }, { text:"Sir, 55 Rue King comes out at a 5.9% cap rate." },
       { tool:"do_in_chrome", input:{ task:"On Centris listing 12345678, contact the broker and send: Hello, is it still available?", follow_up:{ who:"Marie Tremblay", about:"8-plex at 55 Rue King", listing:"12345678", days:3 } } }, { text:"On it, sir." } ],
     ls:{ "jarvis.helperCode":"pair123" } }, undefined, HTTP_PAGE);
   await p.evaluate(() => { window.__h = { jobs:[], n:0, state:"running" }; window.__extraFetch = async (u, o, J) => {
@@ -2165,7 +2152,7 @@ console.log("Deals: analyse a property with your own numbers, log it, read Centr
   check("a Centris number is read in Chrome, read-only", /listing number 12345678/.test((await p.evaluate(() => window.__h.jobs))[0]?.instructions) && /don't contact anyone/.test((await p.evaluate(() => window.__h.jobs))[0].instructions));
   await p.waitForFunction(() => window.__spoken.some(t => /5.9% cap rate/.test(t)), null, { timeout:15000 }).catch(() => {});
   const L = await log(p), auto = L.find(x => JSON.stringify(x.last?.content || "").includes("came back from Chrome"));
-  check("when the numbers come back, Jarvis analyses them by itself and tells you", !!auto && /110,000/.test(JSON.stringify(auto.last.content)) && (await p.evaluate(() => window.__spoken)).some(t => /5.9% cap rate/.test(t)) && await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.deals")).length === 1));
+  check("when the numbers come back, Jarvis analyses them by itself and tells you", !!auto && /110,000/.test(JSON.stringify(auto.last.content)) && /analyze_property/.test(JSON.stringify(auto.last.content)) && (await p.evaluate(() => window.__spoken)).some(t => /5.9% cap rate/.test(t)) && await p.evaluate(() => JSON.parse(localStorage.getItem("jarvis.comps")).some(c => c.centris_no === "12345678")));
   await settle(p);
   await say(p, "jarvis contact the broker and ask if it's still available", 900);
   await p.waitForFunction(() => !document.getElementById("confirmBox").hidden, null, { timeout:12000 }).catch(() => {});

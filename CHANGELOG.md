@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026.10.27.3 — Tidy-up: one deal tool, cheaper conversations
+- **One way to analyse a property.** Jarvis had two: an older "analyze deal" with its own saved settings and a "Jarvis Deals" sheet, and the newer full analysis (CMHC expenses, financing options, max offer, value-add, commercial). The old one used US-style mortgage maths and a flat expense guess, so it could give different numbers for the same building. It's gone: everything goes through the full analysis. The down payment, rate, amortization, minimum cap rate and max per door you saved in the old settings move over by themselves (anything already saved in your deal criteria stays as is). Every analysis is still kept in your Jarvis Comps sheet; your old Jarvis Deals sheet stays in Drive, it just won't get new rows.
+- **Centris numbers are read straight from the page first.** Jarvis only opens your Chrome to read a listing when the page can't be opened directly, which is quicker and much cheaper.
+- **Cheaper start to each conversation.** Jarvis's fixed instructions are now kept separately from your memories and recent talk, so they stay in Anthropic's cache from one conversation to the next instead of being paid for again each time.
+- **Shorter analysis results.** Explanations that were repeated inside every property result (rent control, MLI Select, estimates) now live once in Jarvis's instructions, so ranking several listings uses fewer tokens.
+- Removed the "what time is it" tool: every message already tells Jarvis the date and time.
+- Behind the scenes: the automatic tests run all the way through again (one test was crashing the test browser and stopping every check after it), and two hand-gesture checks that failed at random now wait for the gesture properly.
+
 ## 2026.10.27.2 — Commercial and mixed-use buildings, underwritten properly
 - **Jarvis now analyses commercial buildings the commercial way**: shops, offices, industrial buildings, and apartments over a commercial ground floor. Before, everything went through the apartment (CMHC) math.
 - Give it the commercial rent roll (each space: square feet, yearly rent, net or gross lease, when the lease ends) or let it ask the broker for one. It works out what **net-lease tenants pay back** (their share of taxes, insurance and upkeep), uses commercial vacancy (retail 7%, offices 10%, industrial 4%), commercial costs and reserves for tenant improvements and commissions, and values the building at a **commercial cap rate** (retail 6.75%, offices 7.5%, industrial 5.75%). These are rough Montreal norms: tell Jarvis yours and it uses them.
