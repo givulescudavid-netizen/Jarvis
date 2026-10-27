@@ -1438,6 +1438,57 @@ console.log("Financing scenarios: conventional, CMHC owner-occupied, MLI Standar
   await p.close();
 }
 
+console.log("Max offer price and the Quebec rent-control value-add case");
+{
+  // gaps to market: 300, 700, 100, 600, 400, 500, so the three turned units are 2, 4 and 6
+  const rents = [1300, 1100, 1400, 1150, 1250, 1200], market = [1600, 1800, 1500, 1750, 1650, 1700];
+  const crit = { down_payment_pct:20, interest_rate:5, insured_rate:4, min_cash_flow:0, cash_available:150000 };
+  const p = await open({ ls:{ "jarvis.dealCriteria":crit }, script:[
+    { tool:"analyze_property", input:{ address:"1 Rue Offre", price:1450000, units:6, unit_rents:rents, market_rents:market, vacant_units:1, taxes:9000, insurance:4000 } }, { text:"Done." },
+    { tool:"analyze_property", input:{ address:"2 Rue Offre", price:700000, units:6, gross_revenue:89400, taxes:9000, insurance:4000 } }, { text:"Done." },
+    { tool:"deal_criteria", input:{ min_cash_flow:10000, cash_available:200000 } }, { text:"Saved." },
+    { tool:"analyze_property", input:{ address:"3 Rue Offre", price:1300000, units:6, gross_revenue:89400, taxes:9000, insurance:4000 } }, { text:"Done." },
+    { tool:"analyze_property", input:{ address:"4 Rue Offre", price:900000, units:5, unit_rents:[900, 950, 1000, 1050, 1100], market_rent_per_unit:1600, vacant_units:4, taxes:7000, insurance:3000 } }, { text:"Done." } ]});
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis analyse a 6-plex at 1.45 million with these rents", 900);
+  const L = await log(p), a = JSON.parse(L.at(-1).last.content[0].content), m = a.max_offer, v = a.value_add;
+  check("max offer and the TAL value-add case are explained to Claude", /max_offer/.test(L[0].system) && /TAL/.test(L[0].system) && /never assume market rent/.test(L[0].system) && /cash_available/.test(L[0].system));
+  check("max offer: below asking when the deal doesn't work there, to the $5,000, limited by the cash available", m.price < 1450000 && m.price % 5000 === 0 && m.vs_asking_pct < 0 && m.cash_needed <= 150000 && /cash needed above/.test(m.limited_by) && m.program, JSON.stringify(m));
+  check("per-unit rents give the revenue when no total is given", a.gross_revenue === 7400 * 12 && a.revenue_source === "unit rents", JSON.stringify([a.gross_revenue, a.revenue_source]));
+  check("value-add: 1 vacant + 10% turnover over 3 years = 3 units turned, the biggest rent gaps first", v.units_turned === 3 && JSON.stringify(v.turned_units.map(u => u.unit)) === "[2,4,6]" && v.extra_rent_yearly === 1800 * 12 && v.reno_budget === 75000, JSON.stringify(v));
+  check("…year-3 NOI adds the extra rent less vacancy, management and other costs, valued at the underwriting cap rate", Math.abs(v.year3_noi - (a.noi + 21600 * 0.97 * (1 - 0.045 - 0.01))) <= 1 && Math.abs(v.year3_value - v.year3_noi / 0.045) <= 25, JSON.stringify(v));
+  const sc = a.financing.scenarios.find(s => s.program === v.refi_on);
+  check("…refinanced on the best cash-on-cash scenario: cash out and cash left in the deal, with the TAL and MLI Select warnings", v.refi_on === a.financing.best_cash_on_cash && v.refi_loan <= Math.round(v.year3_value * 0.85) + 1
+    && Math.abs(v.cash_out_at_refi - (v.refi_loan - v.loan_balance_year3)) <= 1 && Math.abs(v.cash_left_in_deal - (sc.cash_needed + 75000 - v.cash_out_at_refi)) <= 2 && v.loan_balance_year3 < sc.loan + (sc.premium_added || 0)
+    && /TAL/.test(v.note) && /MLI Select/.test(v.note) && /estimates/.test(v.note), JSON.stringify(v));
+  await say(p, "jarvis and the one at 700k", 900);
+  const b = JSON.parse((await log(p)).at(-1).last.content[0].content);
+  check("max offer equals the asking price when the deal already works", b.max_offer.price === 700000 && b.max_offer.vs_asking_pct === 0 && /asking price/.test(b.max_offer.note), JSON.stringify(b.max_offer));
+  check("no value-add case without per-unit rents", b.value_add === undefined && b.noi > 0);
+  await say(p, "jarvis I want 10000 a month cash flow and I have 200k", 900);
+  const saved = JSON.parse(await p.evaluate(() => localStorage.getItem("jarvis.dealCriteria")));
+  check("cash available is a deal criterion, settable by voice", saved.cash_available === 200000 && saved.min_cash_flow === 10000, JSON.stringify(saved));
+  await say(p, "jarvis analyse 3 rue offre", 900);
+  const c = JSON.parse((await log(p)).at(-1).last.content[0].content);
+  check("…and when no price works with the rent roll, it says so", c.max_offer.price === undefined && /No price works/.test(c.max_offer.note) && /cash flow/.test(c.max_offer.note), JSON.stringify(c.max_offer));
+  await say(p, "jarvis analyse 4 rue offre", 900);
+  const d = JSON.parse((await log(p)).at(-1).last.content[0].content).value_add;
+  check("value-add: turned units are capped at the number of units (4 vacant + 2 turnover on a 5-plex = 5)", d.units_turned === 5 && d.turned_units.length === 5 && d.extra_rent_yearly === (700 + 650 + 600 + 550 + 500) * 12, JSON.stringify(d));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+  // the max offer is the edge: it works there and not $5,000 higher
+  const q = await open({ ls:{ "jarvis.dealCriteria":crit }, script:[
+    { tool:"analyze_property", input:{ address:"1 Rue Offre", price:m.price, units:6, unit_rents:rents, taxes:9000, insurance:4000 } }, { text:"Done." },
+    { tool:"analyze_property", input:{ address:"1 Rue Offre", price:m.price + 5000, units:6, unit_rents:rents, taxes:9000, insurance:4000 } }, { text:"Done." } ]});
+  await q.click("#bootBtn"); await settle(q);
+  await say(q, "jarvis analyse it at the max offer", 900);
+  const at = JSON.parse((await log(q)).at(-1).last.content[0].content).max_offer;
+  await say(q, "jarvis and 5000 more", 900);
+  const above = JSON.parse((await log(q)).at(-1).last.content[0].content).max_offer;
+  check("…the max offer works, and $5,000 more doesn't", at.price === m.price && /asking price/.test(at.note) && above.price === m.price, JSON.stringify([at, above]));
+  await q.close();
+}
+
 console.log("Centris deals and the on-screen panel");
 {
   const html = `<html><body><h1>3 new properties match your search</h1>
