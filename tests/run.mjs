@@ -1965,6 +1965,7 @@ console.log("The agent team: Jarvis reads what they found and passes on your ord
   check("the briefing includes tonight's team Brief", r4.team_brief?.file === "Brief 2026-10-16" && /Netflix reports Tuesday/.test(r4.team_brief.text), JSON.stringify(r4.team_brief));
   const sys = (await log(p))[0].system;
   check("Jarvis knows about its team and to lead the briefing with their top 3", /agent team \(team_report, tell_team\)/.test(sys) && /team_brief from the agent team, start with its TOP 3/.test(sys));
+  check("'analyze this later' is queued for the team, with the real schedule (every evening ~6 pm)", /"analyze this later"[^\n]*→ tell_team/.test(sys) && /every evening at about 6 pm/.test(sys) && !/6:20/.test(sys));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
