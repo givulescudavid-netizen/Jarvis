@@ -1,5 +1,8 @@
 # Changelog
 
+## 2026.11.01 — Online tests work again
+- Nothing changes in how Jarvis works. The automatic checks GitHub runs on every change had been failing since 25 October before testing anything: GitHub moved its test computers to a new version of Ubuntu that the test tool can't install its browser on yet. They now run on the previous version (Ubuntu 24.04) again.
+
 ## 2026.10.28 — "Analyze this later", and the right team schedule
 - **Queue work for while you're busy.** Say "Jarvis, analyze this later" (or "look at this listing tonight", "run a DCF on Wise for me later") with a Centris number, a link or a ticker. Jarvis asks "Shall I go ahead?", then leaves it for your agent team, and it's in that evening's Brief. Jarvis doesn't also analyze it on the spot, so the same work isn't done (and paid for) twice.
 - Jarvis now gives the team's real schedule: every evening at about 6 pm (the Market Analyst on weekdays only). It used to say "weekdays at about 6:20 pm".

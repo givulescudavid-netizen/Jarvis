@@ -2381,6 +2381,14 @@ console.log("The one-file Windows helper carries the current helper code");
   check("…and it runs only what's below its marker, read via an environment variable (safe with any folder name)", /set "JARVIS_HELPER_FILE=%~f0"/.test(bat) && bat.split("#JARVIS-HELPER-BELOW").length === 2);
 }
 
+console.log("Online test run (GitHub)");
+{
+  // "ubuntu-latest" moved to Ubuntu 26.04, where Playwright 1.56 can't install Chromium, so every online run failed before
+  // a single check ran. Keep the online tests on a version Playwright supports.
+  const wf = fs.readFileSync(path.join(root, ".github", "workflows", "test.yml"), "utf8");
+  check("online tests run on Ubuntu 24.04 (Playwright can install Chromium there), not 'ubuntu-latest'", /runs-on:\s*ubuntu-24\.04/.test(wf) && !/runs-on:\s*ubuntu-latest/.test(wf));
+}
+
 await browser.close(); server.close();
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
