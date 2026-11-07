@@ -57,7 +57,9 @@ ul.list li.two span:first-child{font-weight:600;flex:1}
 ul.list li.two span:nth-child(2){font-family:var(--f-mono);font-size:.85em;color:#ffc46b;white-space:nowrap}
 ul.list li.two .sub{flex-basis:100%;font-family:var(--f-body);font-size:.9em;color:var(--dim);white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 /* markets: symbol, price, and a green / red move */
-ul.mkt li{align-items:baseline}
+ul.mkt li{align-items:baseline;flex-wrap:wrap}
+ul.mkt li .pl{flex-basis:100%;font-family:var(--f-mono);font-size:.78em;color:var(--dim);margin-top:1px}
+ul.mkt li.total{border-top:1px solid var(--line);margin-top:4px;padding-top:6px}
 ul.mkt li span:first-child{font-family:var(--f-mono);font-weight:600;letter-spacing:.04em}
 ul.mkt li .own{font-family:var(--f-body);font-weight:400;font-size:.7em;color:var(--cyan);border:1px solid var(--line-hi);padding:0 4px;margin-left:6px;vertical-align:2px}
 ul.mkt li .px{margin-left:auto;font-family:var(--f-mono);color:var(--ice);font-variant-numeric:tabular-nums}
@@ -461,7 +463,7 @@ const store = {
   get(k, d){ try{ const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; }catch{ return d; } },
   set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch{} }
 };
-const VERSION = "2026.11.01";
+const VERSION = "2026.11.07";
 const REPO = "givulescudavid-netizen/Jarvis";
 
 /* ---------- diagnostics: a small rolling error log for bug reports (never stores keys) ---------- */
@@ -491,7 +493,7 @@ function sysParts(){
   const about = (store.get("jarvis.about", "") || "").trim();
   const mem = memories();
   return [RULES
-    + `\n\nWhen asked for a briefing ("brief me", "morning briefing", "what's my day") or "anything important?" / "what did I miss?": call whats_important first, then (for a briefing) today's calendar, open tasks and timers, reminders due today, any trip in the next two days (find_bookings) and packages arriving today (find_deliveries) but only mention them if there are some, plus today's weather for the user's city if you know it (get_weather)${sample ? ", and the portfolio summary" : ""}. Speak a natural briefing under 150 words, most important first: anything about money that needs action (a payment due, a fraud or security alert, a large or unexpected transaction, a deposit they were waiting for), then today's meetings, then the stocks they own and then the ones they watch (big moves, results or trading updates in the next week with the day, and one line of news only if it really matters), then new Centris listings (just how many, and offer to rank them; don't analyse them now), then anything else important. For owned holdings with no_data (often non-US listings), do one web search each (at most four) for their latest news and what's coming up this week; then at most one more for watched ones. Gold: say the price per ounce in the user's currency and the day's move only if it's notable. If whats_important has a team_brief from the agent team, start with its TOP 3 ("Your team reports…") before the rest, without repeating what it already covered. Skip anything empty. If a habit you've learned suggests something they'll want today, end with one short offer to do it.`
+    + `\n\nWhen asked for a briefing ("brief me", "morning briefing", "what's my day") or "anything important?" / "what did I miss?": call whats_important first, then (for a briefing) today's calendar, open tasks and timers, reminders due today, any trip in the next two days (find_bookings) and packages arriving today (find_deliveries) but only mention them if there are some, plus today's weather for the user's city if you know it (get_weather)${sample ? ", and the portfolio summary" : ""}. Speak a natural briefing under 150 words, most important first: anything about money that needs action (a payment due, a fraud or security alert, a large or unexpected transaction, a deposit they were waiting for), then today's meetings, then the stocks they own and then the ones they watch (big moves, results or trading updates in the next week with the day, and one line of news only if it really matters), then new Centris listings (just how many, and offer to rank them; don't analyse them now), then anything else important. For owned holdings with no_data or a news_note (often non-US listings), do one web search each (at most four) for their latest news and what's coming up this week; then at most one more for watched ones. If holdings_value is there, say the total in C$ and today's change in one line. Gold: say the price per ounce in the user's currency and the day's move only if it's notable. If whats_important has a team_brief from the agent team, start with its TOP 3 ("Your team reports…") before the rest, without repeating what it already covered. Skip anything empty. If a habit you've learned suggests something they'll want today, end with one short offer to do it.`
     + (!sample && webOn ? `\n\nYou can search the web for current information (news, prices, companies, people, facts). Use it whenever the answer may have changed recently, and say where it came from in a few words.` : "")
     + `\n\nMusic: play_music opens songs, albums or artists in Apple Music. Be honest that you can't pause or skip afterwards. If asked for a mood or genre rather than a song, pick a well-known fitting song or album yourself.`
     + `\n\nHearing: the user's words come from speech recognition, so expect misheard words, missing punctuation and odd spellings (e.g. "rennts" for rents). Work out the most likely meaning and answer it. Don't say you didn't catch it or ask them to repeat when you can reasonably guess; if you truly can't, say what you heard and ask only about the unclear part. When they say "answer it", "you heard me" or similar, they mean their previous request: answer that, don't ask them to say it again.`
@@ -526,7 +528,7 @@ How you speak (this matters most):
 - If the user just chats ("Jarvis, you up?"), answer in character, briefly and warmly.
 
 What you CAN do, using your tools (use them; don't say you can't when a tool fits):
-- Finance: build DCFs with the user in their own Google Sheets template (dcf_*), live prices, company metrics, news and earnings (market_quotes, company_metrics, market_news, earnings_info; needs their Finnhub key), comps tables as a Google Sheet (build_comps), and a watchlist with spoken price alerts (watchlist_*). When the user says they own a stock (or bought one), add it with watchlist_add owned: true; the briefing (whats_important) covers the stocks they own first, then the ones they watch, with news, moves and results dates. Web search for filings and analyst context. Never present anything as investment advice; give numbers and reasoning, and the user decides.
+- Finance: build DCFs with the user in their own Google Sheets template (dcf_*), live prices, company metrics, news and earnings (market_quotes, company_metrics, market_news, earnings_info; needs their Finnhub key, except prices: listings Finnhub doesn't cover, like Paris or Toronto, get a backup price from Yahoo Finance), comps tables as a Google Sheet (build_comps), and a watchlist with spoken price alerts (watchlist_*). When the user says they own a stock (or bought one), add it with watchlist_add owned: true, with shares and average cost when they say them; the briefing (whats_important) covers the stocks they own first, then the ones they watch, with news, moves and results dates. Web search for filings and analyst context. Never present anything as investment advice; give numbers and reasoning, and the user decides.
 - Restaurant bookings (book_restaurant): Claude in Chrome (in the user's own Chrome) does the actual booking, either by itself through the computer helper (it fills everything in and stops before the final button; Jarvis then reads the details out and asks "Shall I go ahead?", and only the user's yes books it) or, without the helper, from instructions the user pastes. Either way you can't see the site, so gather EVERYTHING it will need first, by voice, so it never has to stop and ask. Run a short interview, asking at most two questions per turn and only what you don't already know (from the request, "About you" or memory):
   1) which restaurant and which city/branch if there could be more than one; 2) day and time (turn "Friday" into the real date); 3) number of people;
   4) flexibility: "If that time isn't free, what's the earliest and latest you'd accept?" (and whether another day is OK);
@@ -2326,22 +2328,79 @@ const ymd = d => d.toISOString().slice(0, 10);
 const SYM = s => String(s || "").trim().toUpperCase().replace(/[^A-Z0-9.:-]/g, "");
 // Gold (physical gold / bullion): spot price per troy ounce from a free service, no key needed, in US$ and C$.
 const isGold = s => /^(GOLD|XAU|XAUUSD|XAU-USD|BULLION)$/.test(SYM(s));
+// Exchange rates per US$ (CAD, EUR, GBP…), fetched once a day; toCAD turns an amount in any of them into Canadian dollars.
+async function fxRates(){
+  const today = new Date().toDateString(); let fx = store.get("jarvis.fx", null);
+  if(fx?.day !== today){ const r = await getJson("https://api.frankfurter.app/latest?from=USD", "exchange rate").catch(() => null); if(r?.rates?.CAD){ fx = { day:today, rates:{ ...r.rates, USD:1 } }; store.set("jarvis.fx", fx); } }
+  return fx?.rates || null;
+}
+function toCAD(amount, cur, rates){ if(cur === "CAD") return amount; const r = rates?.[cur]; return r && rates.CAD ? amount / r * rates.CAD : null; }
+function round2(v){ return typeof v === "number" && isFinite(v) ? Math.round(v * 100) / 100 : null; }
 async function goldQuote(){
   const usd = Number((await getJson("https://api.gold-api.com/price/XAU", "gold price")).price);
   if(!usd) throw new Error("No gold price right now. Use web search instead if available.");
-  const today = new Date().toDateString();
-  let fx = store.get("jarvis.fxCAD", null);
-  if(fx?.day !== today){ const r = await getJson("https://api.frankfurter.app/latest?from=USD&to=CAD", "exchange rate").catch(() => null); if(r?.rates?.CAD){ fx = { day:today, cad:r.rates.CAD }; store.set("jarvis.fxCAD", fx); } }
+  const today = new Date().toDateString(), rates = await fxRates();
   // change against the last price seen on an earlier day
   let g = store.get("jarvis.gold", null); if(g?.day !== today) g = { day:today, base:g?.last ?? null };
   g.last = usd; store.set("jarvis.gold", g);
-  return { symbol:"GOLD", price:usd, unit:"US$ per troy ounce", price_cad: fx?.cad ? Math.round(usd * fx.cad * 100) / 100 : null,
-    change_pct: g.base ? Math.round((usd - g.base) / g.base * 1e4) / 100 : null };
+  return { symbol:"GOLD", price:usd, currency:"USD", unit:"US$ per troy ounce", price_cad: rates ? round2(toCAD(usd, "USD", rates)) : null,
+    change: g.base ? usd - g.base : null, change_pct: g.base ? Math.round((usd - g.base) / g.base * 1e4) / 100 : null };
+}
+/* Backup prices for listings Finnhub's free plan doesn't cover (Paris, Toronto, TSX Venture, London…), or when there's no Finnhub key:
+   Yahoo Finance. Yahoo doesn't let web pages read it directly, so the request goes through a free public relay (only the ticker is sent).
+   At most one fetch per ticker every 5 minutes (2 after a failure: free relays often fail); meanwhile the last good price is kept, marked stale. */
+const BACKUP_RELAYS = [u => "https://api.allorigins.win/raw?url=" + encodeURIComponent(u), u => "https://api.codetabs.com/v1/proxy/?quest=" + encodeURIComponent(u)];
+const yahooSym = s => s.replace(/\.UN(?=\.[A-Z]+$)/, "-UN");   // NET.UN.V → NET-UN.V
+const fhRefused = new Set();   // tickers Finnhub's plan refuses: they go straight to the backup
+const backupBusy = {}, backupFailed = {};
+function backupQuote(s){   // one request per ticker at a time, even when two refreshes overlap
+  return backupBusy[s] ||= backupFetch(s).finally(() => { delete backupBusy[s]; });
+}
+async function backupFetch(s){
+  const c = store.get("jarvis.backupQuotes", {})[s], noPrice = `No price for ${s} right now (Finnhub doesn't cover it and the backup source didn't answer).`;
+  if(c && Date.now() - c.t < 5 * 60e3) return c.q;
+  if(Date.now() - (backupFailed[s] || 0) < 2 * 60e3){ if(c) return { ...c.q, stale:true }; throw new Error(noPrice); }   // don't hammer a relay that's down
+  const ys = yahooSym(s), url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ys)}?range=1d&interval=1d`;
+  let m = null;
+  for(const relay of BACKUP_RELAYS){
+    try{
+      const r = await fetch(relay(url), { signal:AbortSignal.timeout(20000) }); if(!r.ok) continue;   // free relays can take 15 s
+      const meta = (await r.json())?.chart?.result?.[0]?.meta;
+      // only trust a reply about the ticker we asked for, with a real price
+      if(meta && SYM(meta.symbol) === ys && meta.regularMarketPrice > 0){ m = meta; break; }
+    }catch{}
+  }
+  if(!m){ backupFailed[s] = Date.now(); if(c) return { ...c.q, stale:true }; throw new Error(noPrice); }
+  const k = m.currency === "GBp" ? 0.01 : 1, price = m.regularMarketPrice * k, prev = (m.previousClose ?? m.chartPreviousClose) * k;   // London quotes in pence
+  const q = { symbol:s, price, change: prev > 0 ? price - prev : null, change_pct: prev > 0 ? Math.round((price - prev) / prev * 1e4) / 100 : null, prev_close: prev > 0 ? prev : null,
+    currency: k === 0.01 ? "GBP" : m.currency || null, as_of: m.regularMarketTime ? new Date(m.regularMarketTime * 1000).toISOString() : null, source:"Yahoo Finance (backup, may be delayed)" };
+  store.set("jarvis.backupQuotes", { ...store.get("jarvis.backupQuotes", {}), [s]:{ t:Date.now(), q } });   // re-read: other tickers may have been saved meanwhile
+  return q;
+}
+// What an owned holding is worth and its profit or loss, in the listing's currency and in C$.
+function position(x, q, rates){
+  if(!x.owned || !(x.shares > 0) || !q || typeof q.price !== "number") return null;
+  const cur = q.currency || "USD", value = x.shares * q.price, day = typeof q.change === "number" ? x.shares * q.change : null;
+  const p = { shares:x.shares, currency:cur, value:round2(value), value_cad:round2(toCAD(value, cur, rates)), day_change:round2(day), day_change_cad: day === null ? null : round2(toCAD(day, cur, rates)) };
+  if(x.cost > 0){
+    const cc = x.cost_currency || cur, a = toCAD(x.cost, cc, rates), b = toCAD(1, cur, rates), cost = cc === cur ? x.cost : a && b ? a / b : null;
+    if(cost){ const paid = x.shares * cost; p.pnl = round2(value - paid); p.pnl_pct = Math.round((value - paid) / paid * 1e4) / 100; }
+  }
+  return p;
 }
 async function quotes({symbols}){
   const list = (Array.isArray(symbols) ? symbols : String(symbols || "").split(/[,\s]+/)).map(SYM).filter(Boolean).slice(0, 20);
-  const res = await Promise.all(list.map(async s => { try{ if(isGold(s)) return await goldQuote(); const q = await fh("quote", { symbol:s }); return { symbol:s, price:q.c, change:q.d, change_pct:q.dp, prev_close:q.pc, high:q.h, low:q.l }; }catch(e){ return { symbol:s, error:e.message }; } }));
-  return res;
+  return Promise.all(list.map(async s => { try{
+    if(isGold(s)) return await goldQuote();
+    if(fhKey && !fhRefused.has(s)){
+      try{
+        const q = await fh("quote", { symbol:s });
+        if(q?.c > 0) return { symbol:s, price:q.c, change:q.d, change_pct:q.dp, prev_close:q.pc, high:q.h, low:q.l, currency:"USD", source:"Finnhub" };
+        fhRefused.add(s);   // the free plan answers 0 for listings it doesn't cover
+      }catch(e){ if(!/rejected/.test(e.message)) throw e; fhRefused.add(s); }
+    }
+    return await backupQuote(s);
+  }catch(e){ return { symbol:s, error:e.message }; } }));
 }
 async function marketNews({symbol, days}){
   if(symbol){ const to = new Date(), from = new Date(Date.now() - (Number(days) || 3) * 864e5);
@@ -2394,13 +2453,15 @@ async function buildComps({symbols, title}){
 /* watchlist + spoken price alerts */
 const watchlist = () => store.get("jarvis.watch", []);
 function saveWatch(w){ store.set("jarvis.watch", w.slice(0, 30)); renderWatch(); }
-function watchAdd({symbol, above, below, owned}){
+function watchAdd({symbol, above, below, owned, shares, cost, cost_currency}){
   const s = isGold(symbol) || /gold|bullion/i.test(String(symbol)) ? "GOLD" : SYM(symbol); if(!s) throw new Error("Which ticker?");
   const old = watchlist().find(x => x.symbol === s), w = watchlist().filter(x => x.symbol !== s);
   const own = owned === undefined ? !!old?.owned : !!owned;
-  w.push({ symbol:s, above: above ? Number(above) : old?.above ?? null, below: below ? Number(below) : old?.below ?? null, owned:own, fired:{} });
+  const num = (v, was) => Number(v) > 0 ? Number(v) : was ?? null;
+  w.push({ symbol:s, above: above ? Number(above) : old?.above ?? null, below: below ? Number(below) : old?.below ?? null, owned:own,
+    shares:num(shares, old?.shares), cost:num(cost, old?.cost), cost_currency: cost_currency ? String(cost_currency).toUpperCase().slice(0, 3) : old?.cost_currency ?? null, fired:{} });
   saveWatch(w); refreshMarkets();
-  return `${own ? "Noted that you own" : "Watching"} ${s}${above ? `, alert above ${above}` : ""}${below ? `, alert below ${below}` : ""}.`;
+  return `${own ? "Noted that you own" : "Watching"} ${s}${Number(shares) > 0 ? `, ${shares} ${s === "GOLD" ? "oz" : "shares"}` : ""}${Number(cost) > 0 ? ` at ${cost}${cost_currency ? " " + String(cost_currency).toUpperCase() : ""}` : ""}${above ? `, alert above ${above}` : ""}${below ? `, alert below ${below}` : ""}.`;
 }
 /* The agent team ("Jarvis HQ" folder in Google Drive): nightly routines file dated reports there
    ("Brief", "Tasks", "Deal Scout report", "Market Analyst report"); Jarvis reads them and leaves "Owner note" docs for the team. */
@@ -2471,21 +2532,29 @@ async function whatsImportant(){
   if(sample && google.mode === "mcp") out.holdings = await ibkr("get_account_positions").catch(e => "couldn't read positions: " + e.message);
   if(!w.length) out.stocks_note = "No watchlist yet: if the user mentions stocks they own or follow, offer to add them (watchlist_add, owned for ones they own).";
   else {
-    const qs = await quotes({ symbols:w.map(x => x.symbol) }).catch(() => []), soon = ymd(new Date(now + 14 * 864e5));
+    const [qs, rates] = await Promise.all([quotes({ symbols:w.map(x => x.symbol) }).catch(() => []), fxRates().catch(() => null)]), soon = ymd(new Date(now + 14 * 864e5));
     out.stocks = await Promise.all(w.map(async x => {
-      const q = qs.find(y => y.symbol === x.symbol) || {};
+      const q = qs.find(y => y.symbol === x.symbol) || {}, pos = position(x, q, rates);
       if(isGold(x.symbol)) return q.error || !q.price ? { symbol:"GOLD", owned:!!x.owned, no_data:"gold price service unavailable" }
-        : { symbol:"GOLD", what:"physical gold, spot price per troy ounce", owned:!!x.owned, price_usd:q.price, price_cad:q.price_cad, change_pct_since_previous_day:q.change_pct, big_move: Math.abs(q.change_pct || 0) >= 2 };
-      if(!fhKey) return { symbol:x.symbol, owned:!!x.owned, no_data:"no market data key (Finnhub) in settings" };
+        : { symbol:"GOLD", what:"physical gold, spot price per troy ounce", owned:!!x.owned, price_usd:q.price, price_cad:q.price_cad, change_pct_since_previous_day:q.change_pct, big_move: Math.abs(q.change_pct || 0) >= 2, ...(pos ? { position:pos } : {}) };
+      if(q.error || typeof q.price !== "number") return { symbol:x.symbol, owned:!!x.owned, no_data:q.error || "no price right now", news_note:"search the web for its price, news and results dates" };
+      const base = { symbol:x.symbol, owned:!!x.owned, price:q.price, currency:q.currency, change_pct:q.change_pct, big_move: Math.abs(q.change_pct || 0) >= 3, ...(pos ? { position:pos } : {}) };
+      if(q.source !== "Finnhub") return { ...base, price_source:q.source + (q.stale ? `; the relay is down, this is the last price seen (${q.as_of})` : ""), news_note:"no news feed for this listing: search the web for its news and results dates" };
       const [news, cal] = await Promise.all([
         fh("company-news", { symbol:x.symbol, from:ymd(new Date(now - 2 * 864e5)), to:ymd(new Date(now)) }).catch(() => []),
         fh("calendar/earnings", { symbol:x.symbol, from:ymd(new Date(now)), to:soon }).catch(() => ({})) ]);
-      const r = { symbol:x.symbol, owned:!!x.owned, price:q.price, change_pct:q.change_pct, big_move: Math.abs(q.change_pct || 0) >= 3,
+      const r = { ...base,
         news:(Array.isArray(news) ? news : []).slice(0, 2).map(n => ({ headline:n.headline, source:n.source, when:new Date(n.datetime * 1000).toLocaleString() })),
         results_next_14_days:(cal.earningsCalendar || []).map(e => ({ date:e.date, when:e.hour === "bmo" ? "before open" : e.hour === "amc" ? "after close" : e.hour, eps_estimate:e.epsEstimate, revenue_estimate:e.revenueEstimate })) };
-      if(q.error || typeof q.price !== "number") r.no_data = "no price (maybe a non-US listing on the free market data plan)";
       return r;
     }));
+    // the total value of what they own (watchlist holdings with a share count), in C$
+    const own = w.filter(x => x.owned), counted = out.stocks.filter(x => x.position?.value_cad != null);
+    if(own.some(x => x.shares > 0)) out.holdings_value = { total_cad:round2(counted.reduce((a, x) => a + x.position.value_cad, 0)),
+      today_cad:round2(counted.reduce((a, x) => a + (x.position.day_change_cad || 0), 0)), counted:counted.map(x => x.symbol),
+      no_price:own.filter(x => x.shares > 0 && !counted.some(c => c.symbol === x.symbol)).map(x => x.symbol),
+      no_share_count:own.filter(x => !(x.shares > 0)).map(x => x.symbol),
+      note:"Owned holdings on the watchlist at the latest prices and today's exchange rates, in C$. Not the brokerage account itself." };
   }
   // the agent team's newest Brief, if filed since the last look (or in the last day)
   try{
@@ -2496,10 +2565,10 @@ async function whatsImportant(){
   return out;
 }
 function watchRemove({symbol}){ const s = SYM(symbol); saveWatch(watchlist().filter(x => x.symbol !== s)); return `Removed ${s}.`; }
-let lastQuotes = {};
+let lastQuotes = {}, lastRates = null;
 function renderWatch(){
   const box = $("marketsBox"); if(!box) return;
-  const w = watchlist(); box.hidden = !w.length || !(fhKey || w.some(x => isGold(x.symbol)));
+  const w = watchlist(); box.hidden = !w.length;
   const ul = $("marketsList"); ul.textContent = "";
   const owned = [...w].sort((a, b) => (b.owned ? 1 : 0) - (a.owned ? 1 : 0));
   for(const x of owned){
@@ -2514,12 +2583,36 @@ function renderWatch(){
       const c = Number(q.change_pct);
       if(isFinite(c) && q.change_pct !== null){ chg.textContent = `${c >= 0 ? "▲" : "▼"} ${Math.abs(c).toFixed(1)}%`; chg.classList.add(c >= 0 ? "up" : "down"); }
     } else px.textContent = "…";
-    li.append(name, px, chg); ul.append(li);
+    li.append(name, px, chg);
+    if(q?.source && q.source !== "Finnhub" && !isGold(x.symbol)) li.title = `Backup price from Yahoo Finance${q.as_of ? ", as of " + new Date(q.as_of).toLocaleString() : ""}${q.stale ? " (the backup source isn't answering right now)" : ""}`;
+    const pos = position(x, q, lastRates);
+    if(pos){
+      const pl = document.createElement("span"); pl.className = "pl";
+      pl.textContent = `${pos.shares} ${isGold(x.symbol) ? "oz" : "sh"} · ${money(pos.value, pos.currency)}`;
+      if(pos.pnl != null){ const v = document.createElement("span"); v.className = pos.pnl >= 0 ? "up" : "down"; v.textContent = ` · P&L ${pos.pnl >= 0 ? "+" : "−"}${money(Math.abs(pos.pnl), pos.currency)} (${pos.pnl >= 0 ? "+" : "−"}${Math.abs(pos.pnl_pct).toFixed(1)}%)`; pl.append(v); }
+      li.append(pl);
+    }
+    ul.append(li);
+  }
+  // total of what they own, in C$
+  const held = owned.filter(x => x.owned && x.shares > 0), ps = held.map(x => position(x, lastQuotes[x.symbol], lastRates)).filter(p => p?.value_cad != null);
+  if(ps.length){
+    const li = document.createElement("li"); li.className = "total";
+    const name = document.createElement("span"); name.textContent = "HOLDINGS";
+    const px = document.createElement("span"); px.className = "px"; px.textContent = money(ps.reduce((a, p) => a + p.value_cad, 0), "CAD");
+    const chg = document.createElement("span"); chg.className = "chg";
+    const day = ps.reduce((a, p) => a + (p.day_change_cad || 0), 0);
+    if(ps.some(p => p.day_change_cad != null)){ chg.textContent = `${day >= 0 ? "▲" : "▼"} ${money(Math.abs(day), "CAD")}`; chg.classList.add(day >= 0 ? "up" : "down"); }
+    li.append(name, px, chg);
+    if(ps.length < held.length){ const n = document.createElement("span"); n.className = "pl"; n.textContent = `${held.length - ps.length} holding${held.length - ps.length > 1 ? "s" : ""} without a price yet`; li.append(n); }
+    ul.append(li);
   }
 }
+function money(v, cur){ return `${{ USD:"US$", CAD:"C$", EUR:"€", GBP:"£" }[cur] ?? (cur ? cur + " " : "")}${Math.round(v) >= 1000 ? Math.round(v).toLocaleString("en-CA") : v.toFixed(2)}`; }
 async function refreshMarkets(){
-  const w = watchlist(); if(!w.length || !(fhKey || w.some(x => isGold(x.symbol))) || dormantNow()) { renderWatch(); return; }
-  const qs = await quotes({ symbols:w.map(x => x.symbol) }).catch(() => []);
+  const w = watchlist(); if(!w.length || dormantNow()) { renderWatch(); return; }
+  const [qs, rates] = await Promise.all([quotes({ symbols:w.map(x => x.symbol) }).catch(() => []), w.some(x => x.owned && x.shares > 0) ? fxRates().catch(() => null) : null]);
+  if(rates) lastRates = rates;
   qs.forEach(q => { if(!q.error) lastQuotes[q.symbol] = q; });
   renderWatch();
   // price alerts: speak once per crossing
@@ -3169,7 +3262,7 @@ const tools = [
     execute: input => dcfShowOnBoard(input) },
   { name:"dcf_read", description:"Reads cells from a spreadsheet (default: the template's inputs and outputs).",
     inputSchema:{type:"object",properties:{file_id:{type:"string"},cells:{type:"array",items:{type:"string"}}},required:["file_id"]}, execute: input => dcfRead(input) },
-  { name:"market_quotes", description:"Live stock prices: price, change, % change, previous close (Finnhub).",
+  { name:"market_quotes", description:"Live stock prices: price, change, % change, previous close, currency (Finnhub; listings it doesn't cover, like Paris, Toronto or TSX Venture, come from Yahoo Finance as a backup).",
     inputSchema:{type:"object",properties:{symbols:{type:"array",items:{type:"string"}}},required:["symbols"]}, execute: input => quotes(input) },
   { name:"company_metrics", description:"Company profile and key metrics: market cap, shares outstanding, P/E, EV/EBITDA, margins, growth, beta, 52-week range (Finnhub).",
     inputSchema:{type:"object",properties:{symbol:{type:"string"}},required:["symbol"]}, execute: input => metrics(input) },
@@ -3179,13 +3272,13 @@ const tools = [
     inputSchema:{type:"object",properties:{symbols:{type:"array",items:{type:"string"}},days:{type:"number"}}}, execute: input => earnings(input) },
   { name:"build_comps", description:"Builds a comparable-companies table (price, market cap, P/E, EV/EBITDA, P/S, margins, growth, beta, medians) as a new Google Sheet (asks to confirm).",
     inputSchema:{type:"object",properties:{symbols:{type:"array",items:{type:"string"}},title:{type:"string"}},required:["symbols"]}, execute: input => buildComps(input) },
-  { name:"watchlist_add", description:"Adds a ticker to the watchlist on the dashboard, optionally with a spoken price alert above and/or below a price. owned: true when the user owns the stock (not just watching), so briefings put it first. Physical gold or bullion: symbol GOLD (spot price per troy ounce, no key needed). Non-US listings use exchange suffixes: NET-UN.V (TSX Venture), SHOP.TO (Toronto), URW.PA (Paris), WISE.L (London).",
-    inputSchema:{type:"object",properties:{symbol:{type:"string"},above:{type:"number"},below:{type:"number"},owned:{type:"boolean"}},required:["symbol"]}, execute: input => watchAdd(input) },
+  { name:"watchlist_add", description:"Adds a ticker to the watchlist on the dashboard, optionally with a spoken price alert above and/or below a price. owned: true when the user owns the stock (not just watching), so briefings put it first. Physical gold or bullion: symbol GOLD (spot price per troy ounce, no key needed). Non-US listings use exchange suffixes: NET-UN.V (TSX Venture), SHOP.TO (Toronto), URW.PA (Paris), WISE.L (London). For holdings, pass shares (ounces for gold) and cost (average cost per share or ounce) when the user says them: the dashboard then shows the P&L and the total holdings value in C$.",
+    inputSchema:{type:"object",properties:{symbol:{type:"string"},above:{type:"number"},below:{type:"number"},owned:{type:"boolean"},shares:{type:"number",description:"how many shares (or ounces of gold) they own"},cost:{type:"number",description:"average cost per share or ounce"},cost_currency:{type:"string",description:"ISO code of the cost, only if it isn't the listing's own currency (e.g. CAD for gold bought in C$)"}},required:["symbol"]}, execute: input => watchAdd(input) },
   { name:"team_report", description:"Reads what the user's agent team (Jarvis HQ in Google Drive) found: their newest nightly Brief by default, or part 'deals' (Deal Scout report), 'market' (Market Analyst report) or 'tasks' (the team's task list). Use for 'what did the agents / the team find?', 'what did the Deal Scout find?', 'any deals tonight?'.",
     inputSchema:{type:"object",properties:{part:{type:"string",enum:["brief","deals","market","tasks"]}}}, execute: input => teamReport(input) },
   { name:"tell_team", description:"Leaves a note (an 'Owner note' Google Doc in Jarvis HQ) for the user's agent team, asking the user to confirm first; the team acts on it at its next nightly run. Use for 'tell the team…', 'have the Deal Scout look at…', 'ask the analyst to…', and for work queued for later ('analyze this later', 'look at this tonight'). Write the note clearly: who it's for, what to do, any Centris number, ticker or deadline.",
     inputSchema:{type:"object",properties:{note:{type:"string"}},required:["note"]}, execute: input => tellTeam(input) },
-  { name:"whats_important", description:"One call that gathers what matters since the user last looked: money emails (banks, cards, brokers: statements, payments due, deposits, fraud or security alerts), new Centris alert emails, other important unread email, and for the stocks they own and watch: price moves, the latest news and results dates in the next two weeks. Use it first for every briefing, and for 'anything important?' or 'what did I miss?'.",
+  { name:"whats_important", description:"One call that gathers what matters since the user last looked: money emails (banks, cards, brokers: statements, payments due, deposits, fraud or security alerts), new Centris alert emails, other important unread email, and for the stocks they own and watch: price moves, the latest news and results dates in the next two weeks, each holding's P&L and the total holdings value in C$ when share counts are known. Use it first for every briefing, and for 'anything important?' or 'what did I miss?'.",
     execute: () => whatsImportant() },
   { name:"watchlist_remove", description:"Removes a ticker from the watchlist.",
     inputSchema:{type:"object",properties:{symbol:{type:"string"}},required:["symbol"]}, execute: input => watchRemove(input) },
