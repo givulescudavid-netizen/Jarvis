@@ -111,6 +111,7 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
       if(u.includes("calendar/v3")) return J({ items: events.map(e => ({ summary:e.title, location:e.location, start:{ dateTime: new Date(Date.now() + e.inMin * 60000).toISOString() }, end:{ dateTime: new Date(Date.now() + (e.inMin + 30) * 60000).toISOString() } })) });
       if(u.includes("gmail.googleapis.com")) return J({ messages:[], resultSizeEstimate: unread });
       if(u.includes("googleapis.com")) return J({});   // never reach the real Google from tests
+      if(/allorigins\.win|codetabs\.com|finance\.yahoo\.com/.test(u)) return J({}, 503);   // nor the backup price relays
       return realFetch(u, o);
     };
     if(mcp){
@@ -1859,8 +1860,60 @@ console.log("What matters: money emails, Centris, and the stocks you own and wat
   const L = await log(p), res = JSON.parse(L.filter(x => x.last?.content?.[0]?.type === "tool_result").at(-1)?.last.content[0].content || "{}");
   const g = res.stocks?.find(x => x.symbol === "GOLD"), n = res.stocks?.find(x => x.symbol === "NET-UN.V");
   check("gold: price per ounce in US$ and C$, and the move since the previous day", g?.price_usd === 2650 && g.price_cad === 3630.5 && g.change_pct_since_previous_day === 1.92 && g.owned, JSON.stringify(g));
-  check("a holding without data is flagged for a web search", n?.owned && /no market data key/.test(n.no_data), JSON.stringify(n));
+  check("a holding without a price (no Finnhub key, backup not answering) is flagged for a web search", n?.owned && /backup source didn't answer/.test(n.no_data) && n.news_note, JSON.stringify(n));
   check("Jarvis may search for each owned holding without data (up to four)", /one web search each \(at most four\)/.test(L[0].system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Non-US holdings get a backup price (Yahoo via a relay), with P&L and the holdings value in C$");
+{
+  const p = await open({ googleBefore:true, script:[
+      { tool:"watchlist_add", input:{ symbol:"atz.to" } }, { text:"Watching, sir." },
+      { tool:"whats_important", input:{} }, { text:"Your holdings are worth about 3,928 dollars, sir." } ],
+    ls:{ "jarvis.fhKey":"k", "jarvis.watch":[
+      { symbol:"GOOGL", owned:true, shares:5, cost:200, fired:{} },
+      { symbol:"URW.PA", owned:true, shares:9.73, cost:94.02, fired:{} },
+      { symbol:"NET-UN.V", owned:true, shares:130, fired:{} },
+      { symbol:"WSE", owned:true, fired:{} } ] } }, undefined, HTTP_PAGE);
+  await p.evaluate(() => { window.__fhq = {}; window.__relay = {};
+    const Y = (sym, cur, px, prev) => ({ chart:{ result:[{ meta:{ symbol:sym, currency:cur, regularMarketPrice:px, previousClose:prev, chartPreviousClose:prev, regularMarketTime:1793982925 } }] } });
+    window.__extraFetch = async (u, o, J) => {
+      if(u.includes("finnhub.io") && u.includes("/quote")){ const s = new URL(u).searchParams.get("symbol"); window.__fhq[s] = (window.__fhq[s] || 0) + 1;
+        if(s === "GOOGL") return J({ c:250, d:2, dp:0.81, pc:248 });
+        if(s === "WSE") return J({ c:11, d:-0.1, dp:-0.9, pc:11.1 });
+        if(s === "NET-UN.V") return J({ c:0, d:null, dp:null, pc:0 });   // the free plan's answer for a listing it doesn't cover
+        return J({ error:"You don't have access to this resource." }, 403); }
+      if(u.includes("finnhub.io")) return J(u.includes("calendar") ? { earningsCalendar:[] } : []);
+      const relay = u.includes("allorigins.win") ? "ao" : u.includes("codetabs.com") ? "ct" : "";
+      if(relay){ const t = decodeURIComponent(u.split(/url=|quest=/)[1]), s = decodeURIComponent(t.split("/chart/")[1].split("?")[0]);
+        window.__relay[relay + ":" + s] = (window.__relay[relay + ":" + s] || 0) + 1;
+        if(s === "URW.PA" && relay === "ao") return J(Y("URW.PA", "EUR", 94.16, 93.82));
+        if(s === "NET-UN.V") return relay === "ao" ? J({}, 522) : J(Y("NET-UN.V", "CAD", 6.03, 6.06));   // first relay down: the second one answers
+        if(s === "ATZ.TO") return relay === "ao" ? J(Y("XYZ", "CAD", 1, 1)) : J({}, 503);              // a reply about another ticker is not trusted
+        return J({}, 503); }
+      if(u.includes("api.frankfurter.app")) return J({ amount:1, base:"USD", rates:{ CAD:1.4, EUR:0.92 } });
+      if(u.includes("gmail.googleapis.com") && u.includes("messages?")) return J({ messages:[], resultSizeEstimate:0 });
+      return null; }; });
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis watch aritzia", 1200);
+  const rows = await p.$$eval("#marketsList li", ls => ls.map(l => l.textContent));
+  const row = s => rows.find(r => r.startsWith(s)) || "";
+  check("URW (Paris, refused by Finnhub) shows its backup price and move", /94\.16/.test(row("URW.PA")) && /▲ 0\.4%/.test(row("URW.PA")), JSON.stringify(rows));
+  check("…with its P&L in euros", /9\.73 sh · €916\.18 · P&L \+€1\.36 \(\+0\.1%\)/.test(row("URW.PA")), row("URW.PA"));
+  check("NET.UN (TSX Venture, Finnhub answers 0) gets its price from the second relay when the first is down", /6\.03/.test(row("NET-UN.V")) && /▼ 0\.5%/.test(row("NET-UN.V")) && /130 sh · C\$783\.90/.test(row("NET-UN.V")), row("NET-UN.V"));
+  check("US holdings still come from Finnhub, with P&L in US$", /250\.00/.test(row("GOOGL")) && /P&L \+US\$250\.00 \(\+25\.0%\)/.test(row("GOOGL")), row("GOOGL"));
+  check("a relay reply about another ticker is ignored (no wrong price)", /…/.test(row("ATZ.TO")) && !/1\.00/.test(row("ATZ.TO")), row("ATZ.TO"));
+  check("holdings total in C$ (US$, € and C$ converted), with a note for the one without a share count", /^HOLDINGS.*C\$3,928/.test(row("HOLDINGS")) && !/without a price/.test(row("HOLDINGS")), row("HOLDINGS"));
+  await say(p, "jarvis anything important", 1500);
+  const L = await log(p), res = JSON.parse(L.filter(x => x.last?.content?.[0]?.type === "tool_result").at(-1)?.last.content[0].content || "{}");
+  const u = res.stocks?.find(x => x.symbol === "URW.PA"), hv = res.holdings_value;
+  check("whats_important: URW has a price, its currency, P&L in € and C$, and a note to search the web for its news", u?.price === 94.16 && u.currency === "EUR" && u.position?.pnl === 1.36 && u.position.value_cad === 1394.18 && /Yahoo/.test(u.price_source) && /search the web/.test(u.news_note), JSON.stringify(u));
+  check("whats_important: the holdings value in C$, and which holdings have no share count", hv?.total_cad === 3928.08 && hv.counted.length === 3 && hv.no_share_count.join() === "WSE" && !hv.no_price.length, JSON.stringify(hv));
+  const fq = await p.evaluate(() => window.__fhq), rl = await p.evaluate(() => window.__relay);
+  check("Finnhub is asked once about a listing it refuses, then not again", fq["URW.PA"] === 1 && fq["NET-UN.V"] === 1 && fq.GOOGL >= 2, JSON.stringify(fq));
+  check("the backup is fetched at most once per ticker in 5 minutes, and a failing one isn't retried every minute", rl["ao:URW.PA"] === 1 && rl["ct:NET-UN.V"] === 1 && rl["ao:ATZ.TO"] === 1 && rl["ct:ATZ.TO"] === 1, JSON.stringify(rl));
+  check("Jarvis is told to say the holdings total, and how to record shares and cost", /If holdings_value is there, say the total in C\$/.test(L[0].system) && /with shares and average cost when they say them/.test(L[0].system) && L[0].tools.includes("watchlist_add"));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }

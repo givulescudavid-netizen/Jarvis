@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.11.07 — Prices for your Paris and Canadian holdings, with P&L and what it's all worth
+- **URW (Paris), NET.UN (TSX Venture), Aritzia (Toronto) and other non-US listings now show a price and the day's move** on the dashboard and in your briefing. The free Finnhub plan only covers US stocks, so for anything it refuses Jarvis now gets the price from Yahoo Finance instead. It works without a Finnhub key too.
+- Yahoo doesn't let web pages read its prices directly, so Jarvis asks through a free public relay service. Only the ticker goes through it, never your quantities or money. These prices can be a few minutes late; hover over one to see when it's from. Free relays are often slow or down (in testing, about one try in three got through), so Jarvis keeps the last price it saw, even after a reload, and tries again 2 minutes later. On a bad day a price can be an hour or two old: the time is in the tooltip.
+- **P&L and holdings value.** Tell Jarvis how many shares you own and what you paid ("I own 130 units of NET.UN at 6.66", "9.73 shares of URW at 94.02 euros", "4 ounces of gold at 3,074 Canadian"). Under each holding the dashboard then shows what it's worth and your profit or loss. A **Holdings** line totals everything in C$ (US$ and euros converted at today's rate) with today's change, and the briefing says it in one line.
+- One-time step: your holdings are on the watchlist without share counts yet, so say them once to Jarvis.
+
 ## 2026.11.01 — Online tests work again
 - Nothing changes in how Jarvis works. The automatic checks GitHub runs on every change had been failing since 25 October before testing anything: GitHub moved its test computers to a new version of Ubuntu that the test tool can't install its browser on yet. They now run on the previous version (Ubuntu 24.04) again.
 
