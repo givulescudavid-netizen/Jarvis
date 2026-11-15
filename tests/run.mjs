@@ -22,8 +22,8 @@ let failed = 0, passed = 0;
 function check(name, ok, info = ""){ if(ok){ passed++; console.log("  ✓", name); } else { failed++; console.log("  ✗", name, info); } }
 
 // Fakes injected before the page loads. `script` is the list of replies the fake Claude gives, in order.
-function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, events = [], unread = 0, googleBefore = false, noSR = false, micBusy = false, ls = {}, fakeHand = false, voiceNeedsClick = false } = {}){
-  return [({ mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy, ls, fakeHand, voiceNeedsClick }) => {
+function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, events = [], unread = 0, googleBefore = false, noSR = false, micBusy = false, ls = {}, fakeHand = false, voiceNeedsClick = false, extraFetch = "" } = {}){
+  return [({ mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy, ls, fakeHand, voiceNeedsClick, extraFetch }) => {
     // a pretend camera hand, ready before Jarvis starts (for pages that start by themselves)
     if(fakeHand){ window.__gr = { gestures:[], landmarks:[] }; window.__fakeGR = { recognizeForVideo: () => window.__gr }; }
     // the automatic morning briefing would otherwise make the results depend on the time of day
@@ -33,6 +33,9 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
     localStorage.setItem("jarvis.key", '"sk-ant-test"'); localStorage.setItem("jarvis.gclient", '"x.apps.googleusercontent.com"');
     if(eleven) localStorage.setItem("jarvis.elKey", '"el-test-key"');
     window.__spoken = []; window.__log = [];
+    // extraFetch (source text of an async (u, o, J) => … function): extra fake services, in place BEFORE the page's first request.
+    // Setting window.__extraFetch after the page has loaded is too late for requests Jarvis makes on start-up (e.g. market prices).
+    if(extraFetch) window.__extraFetch = (0, eval)("(" + extraFetch + ")");
     // Fake voice. slowVoice: speaks one word every 220 ms with word-timing events, and cancel() cuts it off like Chrome does.
     let current = null; window.__cancels = 0;
     const synth = { speaking:false, pending:false, resume(){}, getVoices(){ return [{ name:"Daniel", lang:"en-GB" }]; },
@@ -111,6 +114,7 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
       if(u.includes("calendar/v3")) return J({ items: events.map(e => ({ summary:e.title, location:e.location, start:{ dateTime: new Date(Date.now() + e.inMin * 60000).toISOString() }, end:{ dateTime: new Date(Date.now() + (e.inMin + 30) * 60000).toISOString() } })) });
       if(u.includes("gmail.googleapis.com")) return J({ messages:[], resultSizeEstimate: unread });
       if(u.includes("googleapis.com")) return J({});   // never reach the real Google from tests
+      if(/allorigins\.win|codetabs\.com|finance\.yahoo\.com/.test(u)) return J({}, 503);   // nor the backup price relays
       return realFetch(u, o);
     };
     if(mcp){
@@ -133,7 +137,7 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
     window.__opened = [];
     window.open = url => { window.__opened.push(String(url)); return window.__blockPopups ? null : {}; };
     if(noSR){ window.SpeechRecognition = undefined; window.webkitSpeechRecognition = undefined; }
-  }, { mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy, ls, fakeHand, voiceNeedsClick }];
+  }, { mcp, script, slowVoice, eleven, events, unread, googleBefore, noSR, micBusy, ls, fakeHand, voiceNeedsClick, extraFetch }];
 }
 async function open(opts, viewport = { width:1440, height:900 }, url = PAGE){
   const p = await browser.newPage({ viewport }); const errs = [];
@@ -1803,10 +1807,7 @@ console.log("Move a calendar event, remember earlier conversations, keep talking
 
 console.log("What matters: money emails, Centris, and the stocks you own and watch, in one go");
 {
-  const p = await open({ googleBefore:true, script:[{ tool:"whats_important", input:{} }, { text:"Sir, Desjardins says a payment is due Friday." },
-    { tool:"watchlist_add", input:{ symbol:"wise", owned:true } }, { text:"Noted, sir." }],
-    ls:{ "jarvis.fhKey":"fh-test", "jarvis.watch":[{ symbol:"WSE", above:null, below:null, fired:{} }, { symbol:"NFLX", owned:true, above:null, below:null, fired:{} }] } }, undefined, HTTP_PAGE);
-  await p.evaluate(() => { window.__gq = []; window.__fh = []; window.__extraFetch = async (u, o, J) => {
+  const digestFakes = async (u, o, J) => { window.__gq ||= []; window.__fh ||= [];
     if(u.includes("finnhub.io")){ window.__fh.push(u);
       if(u.includes("/quote")) return J(u.includes("NFLX") ? { c:71, d:-3, dp:-4.1, pc:74 } : { c:12.1, d:0.1, dp:0.8, pc:12 });
       if(u.includes("company-news")) return J(u.includes("NFLX") ? [{ headline:"Netflix signs Disney licensing deal", source:"Reuters", datetime:Math.floor(Date.now() / 1000) }] : []);
@@ -1819,7 +1820,10 @@ console.log("What matters: money emails, Centris, and the stocks you own and wat
     if(u.includes("gmail.googleapis.com") && /messages\/(b1|c1|c2|o1)/.test(u)){ const id = u.match(/messages\/(\w+)/)[1];
       const hd = { b1:["Desjardins <alerts@desjardins.com>", "Payment due Friday"], c1:["Centris <alerte@centris.ca>", "3 new listings"], c2:["Centris <alerte@centris.ca>", "1 new listing"], o1:["Mark <mark@example.com>", "Contract signed"] }[id];
       return J({ id, snippet:"…", labelIds:["UNREAD"], payload:{ headers:[{ name:"From", value:hd[0] }, { name:"Subject", value:hd[1] }, { name:"Date", value:"Wed, 14 Oct 2026 09:00" }] } }); }
-    return null; }; });
+    return null; };
+  const p = await open({ googleBefore:true, script:[{ tool:"whats_important", input:{} }, { text:"Sir, Desjardins says a payment is due Friday." },
+    { tool:"watchlist_add", input:{ symbol:"wise", owned:true } }, { text:"Noted, sir." }],
+    ls:{ "jarvis.fhKey":"fh-test", "jarvis.watch":[{ symbol:"WSE", above:null, below:null, fired:{} }, { symbol:"NFLX", owned:true, above:null, below:null, fired:{} }] } , extraFetch:String(digestFakes) }, undefined, HTTP_PAGE);
   await p.click("#bootBtn"); await settle(p);
   await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(400); await p.click("#closeBtn");
   await say(p, "jarvis anything important", 1500);
@@ -1859,8 +1863,60 @@ console.log("What matters: money emails, Centris, and the stocks you own and wat
   const L = await log(p), res = JSON.parse(L.filter(x => x.last?.content?.[0]?.type === "tool_result").at(-1)?.last.content[0].content || "{}");
   const g = res.stocks?.find(x => x.symbol === "GOLD"), n = res.stocks?.find(x => x.symbol === "NET-UN.V");
   check("gold: price per ounce in US$ and C$, and the move since the previous day", g?.price_usd === 2650 && g.price_cad === 3630.5 && g.change_pct_since_previous_day === 1.92 && g.owned, JSON.stringify(g));
-  check("a holding without data is flagged for a web search", n?.owned && /no market data key/.test(n.no_data), JSON.stringify(n));
+  check("a holding without a price (no Finnhub key, backup not answering) is flagged for a web search", n?.owned && /backup source didn't answer/.test(n.no_data) && n.news_note, JSON.stringify(n));
   check("Jarvis may search for each owned holding without data (up to four)", /one web search each \(at most four\)/.test(L[0].system));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Non-US holdings get a backup price (Yahoo via a relay), with P&L and the holdings value in C$");
+{
+  const backupFakes = async (u, o, J) => {
+    window.__fhq ||= {}; window.__relay ||= {};
+    const Y = (sym, cur, px, prev) => ({ chart:{ result:[{ meta:{ symbol:sym, currency:cur, regularMarketPrice:px, previousClose:prev, chartPreviousClose:prev, regularMarketTime:1793982925 } }] } });
+      if(u.includes("finnhub.io") && u.includes("/quote")){ const s = new URL(u).searchParams.get("symbol"); window.__fhq[s] = (window.__fhq[s] || 0) + 1;
+        if(s === "GOOGL") return J({ c:250, d:2, dp:0.81, pc:248 });
+        if(s === "WSE") return J({ c:11, d:-0.1, dp:-0.9, pc:11.1 });
+        if(s === "NET-UN.V") return J({ c:0, d:null, dp:null, pc:0 });   // the free plan's answer for a listing it doesn't cover
+        return J({ error:"You don't have access to this resource." }, 403); }
+      if(u.includes("finnhub.io")) return J(u.includes("calendar") ? { earningsCalendar:[] } : []);
+      const relay = u.includes("allorigins.win") ? "ao" : u.includes("codetabs.com") ? "ct" : "";
+      if(relay){ const t = decodeURIComponent(u.split(/url=|quest=/)[1]), s = decodeURIComponent(t.split("/chart/")[1].split("?")[0]);
+        window.__relay[relay + ":" + s] = (window.__relay[relay + ":" + s] || 0) + 1;
+        if(s === "URW.PA" && relay === "ao") return J(Y("URW.PA", "EUR", 94.16, 93.82));
+        if(s === "NET-UN.V") return relay === "ao" ? J({}, 522) : J(Y("NET-UN.V", "CAD", 6.03, 6.06));   // first relay down: the second one answers
+        if(s === "ATZ.TO") return relay === "ao" ? J(Y("XYZ", "CAD", 1, 1)) : J({}, 503);              // a reply about another ticker is not trusted
+        return J({}, 503); }
+      if(u.includes("api.frankfurter.app")) return J({ amount:1, base:"USD", rates:{ CAD:1.4, EUR:0.92 } });
+      if(u.includes("gmail.googleapis.com") && u.includes("messages?")) return J({ messages:[], resultSizeEstimate:0 });
+      return null; };
+  const p = await open({ googleBefore:true, script:[
+      { tool:"watchlist_add", input:{ symbol:"atz.to" } }, { text:"Watching, sir." },
+      { tool:"whats_important", input:{} }, { text:"Your holdings are worth about 3,928 dollars, sir." } ],
+    ls:{ "jarvis.fhKey":"k", "jarvis.watch":[
+      { symbol:"GOOGL", owned:true, shares:5, cost:200, fired:{} },
+      { symbol:"URW.PA", owned:true, shares:9.73, cost:94.02, fired:{} },
+      { symbol:"NET-UN.V", owned:true, shares:130, fired:{} },
+      { symbol:"WSE", owned:true, fired:{} } ] }, extraFetch:String(backupFakes) }, undefined, HTTP_PAGE);
+  await p.click("#bootBtn"); await settle(p);
+  await say(p, "jarvis watch aritzia", 1200);
+  const rows = await p.$$eval("#marketsList li", ls => ls.map(l => l.textContent));
+  const row = s => rows.find(r => r.startsWith(s)) || "";
+  check("URW (Paris, refused by Finnhub) shows its backup price and move", /94\.16/.test(row("URW.PA")) && /▲ 0\.4%/.test(row("URW.PA")), JSON.stringify(rows));
+  check("…with its P&L in euros", /9\.73 sh · €916\.18 · P&L \+€1\.36 \(\+0\.1%\)/.test(row("URW.PA")), row("URW.PA"));
+  check("NET.UN (TSX Venture, Finnhub answers 0) gets its price from the second relay when the first is down", /6\.03/.test(row("NET-UN.V")) && /▼ 0\.5%/.test(row("NET-UN.V")) && /130 sh · C\$783\.90/.test(row("NET-UN.V")), row("NET-UN.V"));
+  check("US holdings still come from Finnhub, with P&L in US$", /250\.00/.test(row("GOOGL")) && /P&L \+US\$250\.00 \(\+25\.0%\)/.test(row("GOOGL")), row("GOOGL"));
+  check("a relay reply about another ticker is ignored (no wrong price)", /…/.test(row("ATZ.TO")) && !/1\.00/.test(row("ATZ.TO")), row("ATZ.TO"));
+  check("holdings total in C$ (US$, € and C$ converted), with a note for the one without a share count", /^HOLDINGS.*C\$3,928/.test(row("HOLDINGS")) && !/without a price/.test(row("HOLDINGS")), row("HOLDINGS"));
+  await say(p, "jarvis anything important", 1500);
+  const L = await log(p), res = JSON.parse(L.filter(x => x.last?.content?.[0]?.type === "tool_result").at(-1)?.last.content[0].content || "{}");
+  const u = res.stocks?.find(x => x.symbol === "URW.PA"), hv = res.holdings_value;
+  check("whats_important: URW has a price, its currency, P&L in € and C$, and a note to search the web for its news", u?.price === 94.16 && u.currency === "EUR" && u.position?.pnl === 1.36 && u.position.value_cad === 1394.18 && /Yahoo/.test(u.price_source) && /search the web/.test(u.news_note), JSON.stringify(u));
+  check("whats_important: the holdings value in C$, and which holdings have no share count", hv?.total_cad === 3928.08 && hv.counted.length === 3 && hv.no_share_count.join() === "WSE" && !hv.no_price.length, JSON.stringify(hv));
+  const fq = await p.evaluate(() => window.__fhq), rl = await p.evaluate(() => window.__relay);
+  check("Finnhub is asked once about a listing it refuses, then not again", fq["URW.PA"] === 1 && fq["NET-UN.V"] === 1 && fq.GOOGL >= 2, JSON.stringify(fq));
+  check("the backup is fetched at most once per ticker in 5 minutes, and a failing one isn't retried every minute", rl["ao:URW.PA"] === 1 && rl["ct:NET-UN.V"] === 1 && rl["ao:ATZ.TO"] === 1 && rl["ct:ATZ.TO"] === 1, JSON.stringify(rl));
+  check("Jarvis is told to say the holdings total, and how to record shares and cost", /If holdings_value is there, say the total in C\$/.test(L[0].system) && /with shares and average cost when they say them/.test(L[0].system) && L[0].tools.includes("watchlist_add"));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
@@ -1904,13 +1960,13 @@ console.log("Files Jarvis makes go to the Jarvis Library folder in Google Drive,
 
 console.log("Readable dashboard: bigger text, coloured market moves, who emailed you");
 {
-  const p = await open({ googleBefore:true, unread:1, script:[{ tool:"watchlist_show", input:{} }, { text:"Here, sir." }],
-    ls:{ "jarvis.fhKey":"k", "jarvis.watch":[{ symbol:"NFLX", fired:{} }, { symbol:"GOOGL", owned:true, fired:{} }] } }, undefined, HTTP_PAGE);
-  await p.evaluate(() => { window.__extraFetch = async (u, o, J) => {
+  const dashFakes = async (u, o, J) => {
     if(u.includes("finnhub.io") && u.includes("/quote")) return J(u.includes("GOOGL") ? { c:343.65, d:-5, dp:-1.4 } : { c:71.02, d:0.56, dp:0.79 });
     if(u.includes("gmail.googleapis.com") && u.includes("messages?")) return J({ messages:[{ id:"a" }], resultSizeEstimate:1 });
     if(u.includes("gmail.googleapis.com") && /messages\/a/.test(u)) return J({ id:"a", snippet:"", labelIds:["UNREAD"], payload:{ headers:[{ name:"From", value:"Desjardins <alerts@desjardins.com>" }, { name:"Subject", value:"Payment due Friday" }, { name:"Date", value:new Date().toUTCString() }] } });
-    return null; }; });
+    return null; };
+  const p = await open({ googleBefore:true, unread:1, script:[{ tool:"watchlist_show", input:{} }, { text:"Here, sir." }],
+    ls:{ "jarvis.fhKey":"k", "jarvis.watch":[{ symbol:"NFLX", fired:{} }, { symbol:"GOOGL", owned:true, fired:{} }] } , extraFetch:String(dashFakes) }, undefined, HTTP_PAGE);
   await p.click("#bootBtn"); await settle(p);
   await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(600); await p.click("#closeBtn");
   await say(p, "jarvis show my watchlist", 900);
