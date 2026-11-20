@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026.11.20 — Buy-the-dip alerts, only when nothing has changed
+- **Set a rule by voice:** "Jarvis, tell me when Google is 15% below its high, but only if nothing changed." Works for stocks you own and ones you're waiting to buy. 15% below the 52-week high is the default; a price works too.
+- **Your reasons, in your words:** the first time, Jarvis asks why you own it and what would make you sell (a change in the business, not a price). It keeps both with the rule.
+- **Jarvis checks before it speaks:** when a stock reaches your level, Jarvis quietly reads the company's recent news (and searches the web), compares the stock's drop with the whole market's, and checks your sell rule. Only then:
+  - **Clean dip:** "Sir, a dip worth knowing about: Google is 17% below its 52-week high, and nothing material has changed. The whole market is down 9%… Your reason for owning it: … Your call, as always."
+  - **Something changed:** said once, clearly as company news, not a dip, and whether it touches your sell rule.
+- At most one check per stock per day (again only if it falls another 5%). It's information against your own rule, never a "buy" instruction, and Jarvis never trades.
+- Fix: a stock or alert added while the dashboard was loading prices could be lost a moment later. It's kept now.
+
 ## 2026.11.15 — Prices for your Paris and Canadian holdings, with P&L and what it's all worth
 - **URW (Paris), NET.UN (TSX Venture), Aritzia (Toronto) and other non-US listings now show a price and the day's move** on the dashboard and in your briefing. The free Finnhub plan only covers US stocks, so for anything it refuses Jarvis now gets the price from Yahoo Finance instead. It works without a Finnhub key too.
 - Yahoo doesn't let web pages read its prices directly, so Jarvis asks through a free public relay service. Only the ticker goes through it, never your quantities or money. These prices can be a few minutes late; hover over one to see when it's from. Free relays are often slow or down (in testing, about one try in three got through), so Jarvis keeps the last price it saw, even after a reload, and tries again 2 minutes later. On a bad day a price can be an hour or two old: the time is in the tooltip.
