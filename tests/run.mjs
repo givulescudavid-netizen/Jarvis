@@ -74,7 +74,7 @@ function fakes({ mcp = false, script = [], slowVoice = false, eleven = false, ev
       u = String(u); const J = (x, st = 200) => new Response(JSON.stringify(x), { status: st });
       if(window.__extraFetch){ const r = await window.__extraFetch(u, o, J); if(r) return r; }
       if(u.includes("api.anthropic.com")){
-        const body = JSON.parse(o.body); window.__log.push({ tools: body.tools.map(t => t.name), server: body.tools.filter(t => t.type), last: body.messages.at(-1), msgs: body.messages, system: Array.isArray(body.system) ? body.system.map(b => b.text).join("") : body.system, sysBlocks: body.system, cache: body.cache_control, toolCache: body.tools.filter(t => t.cache_control).map(t => t.name), stream: body.stream, model: body.model, beta: o.headers["anthropic-beta"] || "" });
+        const body = JSON.parse(o.body); body.tools ||= []; window.__log.push({ tools: body.tools.map(t => t.name), server: body.tools.filter(t => t.type), last: body.messages.at(-1), msgs: body.messages, system: Array.isArray(body.system) ? body.system.map(b => b.text).join("") : body.system, sysBlocks: body.system, cache: body.cache_control, toolCache: body.tools.filter(t => t.cache_control).map(t => t.name), stream: body.stream, model: body.model, beta: o.headers["anthropic-beta"] || "" });
         const st = script[call++] || { text: "Done." };
         if(st.delay) await new Promise(r => setTimeout(r, st.delay));
         if(st.err) return J({ error:{ message: st.err } }, st.status || 400);
@@ -1641,6 +1641,59 @@ console.log("Centris deals and the on-screen panel");
   await p.close();
 }
 
+console.log("Buy-the-dip alerts: only when nothing material has changed");
+{
+  // Finnhub quotes and 52-week highs; relays and Yahoo are down (so nothing reaches the real services)
+  const dipFakes = async (u, o, J) => {
+    window.__fhq ||= [];
+    if(u.includes("finnhub.io")){ window.__fhq.push(u); const s = new URL(u).searchParams.get("symbol");
+      const book = { GOOGL:[200, 240], NFLX:[70, 100], AAPL:[230, 240], SPY:[600, 660] };   // [price, 52-week high]
+      if(u.includes("/quote")) return book[s] ? J({ c:book[s][0], d:-1, dp:-0.5, pc:book[s][0] + 1 }) : J({ c:0 });
+      if(u.includes("stock/metric")) return J({ metric: book[s] ? { "52WeekHigh":book[s][1] } : {} });
+      if(u.includes("company-news")) return J(s === "NFLX" ? [{ headline:"Netflix loses NBA streaming rights, cuts subscriber guidance", source:"Reuters", datetime:Math.floor(Date.now() / 1000) - 86400 }]
+        : [{ headline:"Tech stocks slide as rates rise", source:"Bloomberg", datetime:Math.floor(Date.now() / 1000) - 86400 }]);
+      return J([]); }
+    if(/allorigins|codetabs|frankfurter/.test(u)) return J({}, 503);
+    return null; };
+  const watch = [
+    { symbol:"GOOGL", owned:true, fired:{}, dip:{ pct:15 }, thesis:"cloud and search keep growing", sell_if:"if search share falls apart" },
+    { symbol:"NFLX", owned:false, fired:{}, dip:{ pct:20 }, sell_if:"if subscriber growth stalls" },
+    { symbol:"AAPL", owned:true, fired:{}, dip:{ pct:15 } } ];
+  const p = await open({ ls:{ "jarvis.fhKey":"k", "jarvis.watch":watch }, extraFetch:String(dipFakes), script:[
+      { text:'{"verdict":"clean_dip","why":"The whole market is down about 9% and the only news is a sector-wide slide.","what_changed":"","touches_sell_rule":false}' },
+      { text:'{"verdict":"material_change","why":"It lost a major contract.","what_changed":"Netflix lost its NBA rights and cut its subscriber guidance.","touches_sell_rule":true}' } ] }, undefined, HTTP_PAGE);
+  await p.waitForFunction(() => window.__log.length >= 2, null, { timeout:8000 }).catch(() => {});
+  const L = await log(p), asked = L.map(x => JSON.stringify(x.last));
+  check("Jarvis checks a stock that reached its dip level (GOOGL 17% off its high, NFLX 30% off)", L.length === 2 && asked.some(a => /GOOGL/.test(a)) && asked.some(a => /NFLX/.test(a)), asked.join(" || ").slice(0, 300));
+  check("…but not one above its level (AAPL only 4% off)", !asked.some(a => /AAPL/.test(a)));
+  const g = asked.find(a => /GOOGL/.test(a)) || "";
+  check("the check gets the drop, the market's drop, the news and your own reasons", /16\.7% below its 52-week high/.test(g) && /SPY\): 9\.1% below/.test(g) && /Tech stocks slide/.test(g) && /cloud and search keep growing/.test(g) && /if search share falls apart/.test(g), g.slice(0, 600));
+  await p.click("#bootBtn");
+  await p.waitForFunction(() => window.__spoken.some(t => /NFLX/.test(t)) && window.__spoken.some(t => /GOOGL/.test(t)), null, { timeout:9000 }).catch(() => {});
+  await settle(p);   // let it finish speaking
+  // Jarvis speaks long lines in sentence-sized pieces: look at everything it said, in order
+  const all = (await p.evaluate(() => window.__spoken)).join(" "), gl = all.slice(all.indexOf("Sir, a dip"), all.indexOf("Your call") + 9), nl = all.slice(all.indexOf("Sir, NFLX"));
+  check("clean dip: said out loud, with why and your own reason, and that it's your call", /a dip worth knowing about: GOOGL is 17% below its 52-week high, and nothing material has changed/.test(gl) && /sector-wide slide/.test(gl) && /Your reason for owning it: cloud and search keep growing/.test(gl) && /Your call/.test(gl), gl);
+  check("something changed: said once, clearly not a plain dip, and it touches your sell rule", /NFLX is 30% below its 52-week high, but this isn't a plain dip: Netflix lost its NBA rights/.test(nl) && /if subscriber growth stalls/.test(nl), nl);
+  const seen = JSON.parse(await p.evaluate(() => localStorage.getItem("jarvis.dipSeen")));
+  check("each is checked at most once a day", seen.GOOGL?.verdict === "clean_dip" && seen.NFLX?.verdict === "material_change" && !seen.AAPL);
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+  // setting a rule by voice keeps the stock's other details
+  const q = await open({ ls:{ "jarvis.watch":[{ symbol:"NVDA", owned:true, shares:10, cost:120, fired:{} }] }, extraFetch:String(dipFakes), script:[
+      { tool:"dip_rule", input:{ symbol:"nvda", pct_below_high:20, thesis:"AI data-center demand", sell_if:"if the big cloud companies cut spending" } }, { text:"Done, sir." },
+      { tool:"watchlist_add", input:{ symbol:"NVDA", above:200 } }, { text:"Done, sir." } ] }, undefined, HTTP_PAGE);
+  await q.click("#bootBtn"); await settle(q);
+  await say(q, "jarvis tell me when nvidia is 20 percent off its high, but only if nothing changed", 900);
+  const L2 = await log(q);
+  check("Jarvis knows it can set dip alerts", L2[0].tools.includes("dip_rule") && /dip_rule/.test(L2[0].system));
+  await say(q, "jarvis and alert me above 200", 900);
+  const n = JSON.parse(await q.evaluate(() => localStorage.getItem("jarvis.watch"))).find(x => x.symbol === "NVDA");
+  check("the rule, your reason and your sell rule are saved, and survive other watchlist changes", n.dip?.pct === 20 && /data-center/.test(n.thesis) && /cut spending/.test(n.sell_if) && n.shares === 10 && n.above === 200, JSON.stringify(n));
+  check("no page errors", q.errs.length === 0, q.errs.join(" | "));
+  await q.close();
+}
+
 console.log("Online version (claude.ai connectors)");
 {
   const p = await open({ mcp:true });
@@ -1979,6 +2032,36 @@ console.log("Readable dashboard: bigger text, coloured market moves, who emailed
   check("dashboard text is bigger than before (at least 17px)", normal >= 17, normal);
   await p.click("#gearBtn"); await p.selectOption("#textSize", "1.4"); await p.click("#closeBtn");
   check("⚙ Text size makes it bigger still, and is remembered", await size() > normal * 1.3 && await p.evaluate(() => localStorage.getItem("jarvis.textSize")) === "1.4");
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
+console.log("Business ideas go straight into the idea log in Jarvis HQ");
+{
+  const ideaFakes = async (u, o, J) => {
+    window.__notes ||= []; window.__drive ||= [];
+    const q = decodeURIComponent(u.replace(/\+/g, " "));
+    if(u.includes("googleapis.com/drive/") || u.includes("googleapis.com/upload/drive/")) window.__drive.push((o?.method || "GET") + " " + u.split("?")[0]);
+    if(u.includes("googleapis.com/drive/v3/files?") && /name = 'Jarvis HQ'/.test(q)) return J({ files:[{ id:"HQ1" }] });
+    if(u.includes("googleapis.com/upload/drive/v3/files")){ const b = String(o.body); window.__notes.push({ meta:JSON.parse(b.split("\r\n\r\n")[1].split("\r\n--")[0]), media:b.split("\r\n\r\n")[2].split("\r\n--")[0] }); return J({ id:"N1" }); }
+    if(u.includes("gmail.googleapis.com") && u.includes("messages?")) return J({ messages:[], resultSizeEstimate:0 });
+    return null; };
+  const p = await open({ googleBefore:true, extraFetch:String(ideaFakes), script:[
+      { tool:"save_idea", input:{ idea:"Idea: an app that matches small landlords in Montreal with vetted handymen, paid per job" } }, { text:"Saved to your idea log, sir." } ] }, undefined, HTTP_PAGE);
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(400); await p.click("#closeBtn");
+  const before = Date.now();
+  await say(p, "jarvis idea, um, an app that matches small landlords in montreal with vetted handymen, paid per job", 900);
+  const L = await log(p);
+  check("Jarvis knows to save business ideas and say \"Saved to your idea log\"", L[0].tools.includes("save_idea") && /save_idea/.test(L[0].system) && /Saved to your idea log/.test(L[0].system));
+  check("no \"Shall I go ahead?\" for an idea", await p.locator("#confirmBox").isHidden());
+  const n = (await p.evaluate(() => window.__notes))[0];
+  const mtl = t => { const x = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone:"America/Toronto", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" }).formatToParts(new Date(t)).map(y => [y.type, y.value])); return `Owner note ${x.year}-${x.month}-${x.day} ${x.hour}:${x.minute}`; };
+  check("a new Google Doc in Jarvis HQ, titled 'Owner note' with the date and time in Montreal", n && n.meta.parents[0] === "HQ1" && n.meta.mimeType === "application/vnd.google-apps.document" && [mtl(before - 60000), mtl(before), mtl(Date.now())].includes(n.meta.name), JSON.stringify(n?.meta));
+  check("…that starts with 'Idea:' and then what you said", n && n.media === "Idea: an app that matches small landlords in Montreal with vetted handymen, paid per job", n?.media);
+  const d = await p.evaluate(() => window.__drive);
+  check("…and only creates: nothing in Drive is edited or deleted", d.every(r => /^GET /.test(r) || /^POST https:\/\/www\.googleapis\.com\/upload\/drive\/v3\/files$/.test(r)) && d.filter(r => /^POST/.test(r)).length === 1, JSON.stringify(d));
+  check("…and says \"Saved to your idea log\"", /^Saved to your idea log/.test((await p.evaluate(() => window.__spoken)).at(-1) || "") && /Saved to your idea log/.test(JSON.stringify(L.at(-1).last)));
   check("no page errors", p.errs.length === 0, p.errs.join(" | "));
   await p.close();
 }
