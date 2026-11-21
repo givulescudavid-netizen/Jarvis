@@ -2036,6 +2036,36 @@ console.log("Readable dashboard: bigger text, coloured market moves, who emailed
   await p.close();
 }
 
+console.log("Business ideas go straight into the idea log in Jarvis HQ");
+{
+  const ideaFakes = async (u, o, J) => {
+    window.__notes ||= []; window.__drive ||= [];
+    const q = decodeURIComponent(u.replace(/\+/g, " "));
+    if(u.includes("googleapis.com/drive/") || u.includes("googleapis.com/upload/drive/")) window.__drive.push((o?.method || "GET") + " " + u.split("?")[0]);
+    if(u.includes("googleapis.com/drive/v3/files?") && /name = 'Jarvis HQ'/.test(q)) return J({ files:[{ id:"HQ1" }] });
+    if(u.includes("googleapis.com/upload/drive/v3/files")){ const b = String(o.body); window.__notes.push({ meta:JSON.parse(b.split("\r\n\r\n")[1].split("\r\n--")[0]), media:b.split("\r\n\r\n")[2].split("\r\n--")[0] }); return J({ id:"N1" }); }
+    if(u.includes("gmail.googleapis.com") && u.includes("messages?")) return J({ messages:[], resultSizeEstimate:0 });
+    return null; };
+  const p = await open({ googleBefore:true, extraFetch:String(ideaFakes), script:[
+      { tool:"save_idea", input:{ idea:"Idea: an app that matches small landlords in Montreal with vetted handymen, paid per job" } }, { text:"Saved to your idea log, sir." } ] }, undefined, HTTP_PAGE);
+  await p.click("#bootBtn"); await settle(p);
+  await p.click("#gearBtn"); await p.click("#gBtn"); await p.waitForTimeout(400); await p.click("#closeBtn");
+  const before = Date.now();
+  await say(p, "jarvis idea, um, an app that matches small landlords in montreal with vetted handymen, paid per job", 900);
+  const L = await log(p);
+  check("Jarvis knows to save business ideas and say \"Saved to your idea log\"", L[0].tools.includes("save_idea") && /save_idea/.test(L[0].system) && /Saved to your idea log/.test(L[0].system));
+  check("no \"Shall I go ahead?\" for an idea", await p.locator("#confirmBox").isHidden());
+  const n = (await p.evaluate(() => window.__notes))[0];
+  const mtl = t => { const x = Object.fromEntries(new Intl.DateTimeFormat("en-CA", { timeZone:"America/Toronto", year:"numeric", month:"2-digit", day:"2-digit", hour:"2-digit", minute:"2-digit", hourCycle:"h23" }).formatToParts(new Date(t)).map(y => [y.type, y.value])); return `Owner note ${x.year}-${x.month}-${x.day} ${x.hour}:${x.minute}`; };
+  check("a new Google Doc in Jarvis HQ, titled 'Owner note' with the date and time in Montreal", n && n.meta.parents[0] === "HQ1" && n.meta.mimeType === "application/vnd.google-apps.document" && [mtl(before - 60000), mtl(before), mtl(Date.now())].includes(n.meta.name), JSON.stringify(n?.meta));
+  check("…that starts with 'Idea:' and then what you said", n && n.media === "Idea: an app that matches small landlords in Montreal with vetted handymen, paid per job", n?.media);
+  const d = await p.evaluate(() => window.__drive);
+  check("…and only creates: nothing in Drive is edited or deleted", d.every(r => /^GET /.test(r) || /^POST https:\/\/www\.googleapis\.com\/upload\/drive\/v3\/files$/.test(r)) && d.filter(r => /^POST/.test(r)).length === 1, JSON.stringify(d));
+  check("…and says \"Saved to your idea log\"", /^Saved to your idea log/.test((await p.evaluate(() => window.__spoken)).at(-1) || "") && /Saved to your idea log/.test(JSON.stringify(L.at(-1).last)));
+  check("no page errors", p.errs.length === 0, p.errs.join(" | "));
+  await p.close();
+}
+
 console.log("The agent team: Jarvis reads what they found and passes on your orders");
 {
   const p = await open({ googleBefore:true, script:[

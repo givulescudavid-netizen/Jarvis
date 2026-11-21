@@ -1,5 +1,11 @@
 # Changelog
 
+## 2026.11.21 — Your business ideas go straight into your idea log
+- Talk to Jarvis about a business idea, a startup, or a problem a company could solve, or just say "idea" or "save this idea", and Jarvis saves it to Google Drive as a new Google Doc in your **Jarvis HQ** folder, then says "Saved to your idea log".
+- The note is titled "Owner note" with the date and time in Montreal (e.g. "Owner note 2026-11-21 14:05") and starts with "Idea:" followed by what you said, in your words, lightly cleaned up (misheard words fixed, "um"s dropped, nothing added).
+- No "Shall I go ahead?" for ideas: it only ever adds a new note there, and never edits or deletes anything. Your nightly Jarvis HQ run reads these notes and updates your Business Idea Log.
+- Notes for your agent team ("tell the team…") now also carry Montreal time in their title.
+
 ## 2026.11.20 — Buy-the-dip alerts, only when nothing has changed
 - **Set a rule by voice:** "Jarvis, tell me when Google is 15% below its high, but only if nothing changed." Works for stocks you own and ones you're waiting to buy. 15% below the 52-week high is the default; a price works too.
 - **Your reasons, in your words:** the first time, Jarvis asks why you own it and what would make you sell (a change in the business, not a price). It keeps both with the rule.
